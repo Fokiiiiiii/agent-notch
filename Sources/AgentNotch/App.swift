@@ -107,15 +107,15 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         case "PermissionRequest":
             permissionCenter?.enqueue(event)
             soundPlayer?.play(.permission)
-            notchWindowController?.forceShow()
+            notchWindowController?.showAttention()
         case "PreToolUse" where event.toolName == "AskUserQuestion" || event.toolName == "request_user_input":
             questionCenter?.enqueue(event)
             soundPlayer?.play(.permission)
-            notchWindowController?.forceShow()
+            notchWindowController?.showAttention()
         case "Notification" where event.toolInput["notification_type"] as? String == "agent_needs_input":
             questionCenter?.enqueue(event)
             soundPlayer?.play(.permission)
-            notchWindowController?.forceShow()
+            notchWindowController?.showAttention()
         case "Stop", "CodexTurnComplete":
             store?.applyHookEvent(event)
             soundPlayer?.play(.done)

@@ -12,6 +12,8 @@ struct NotchView: View {
     @State private var trayItems: [TrayItem] = []
     @State private var isDropTargeted = false
     @State private var trayFeedback: String?
+    @State private var compactMediaPreviewVisible = false
+    @State private var compactMediaHoverTask: Task<Void, Never>?
     @GestureState private var horizontalDrag: CGFloat = 0
     @GestureState private var verticalDrag: CGFloat = 0
 
@@ -29,9 +31,18 @@ struct NotchView: View {
             .animation(DesignTokens.spring, value: uiState.mode)
         }
         .contentShape(Rectangle())
-        .onHover { controller.hoverChanged($0) }
-        .onDisappear { controller.cancelInteractionTimers() }
-        .animation(.easeOut(duration: 0.18), value: uiState.isVisible)
+        .onHover {
+            controller.hoverChanged($0)
+            updateCompactMediaHover($0)
+        }
+        .onChange(of: uiState.mode) { _, mode in
+            if mode != .closed { hideCompactMediaPreview() }
+        }
+        .onDisappear {
+            compactMediaHoverTask?.cancel()
+            controller.cancelInteractionTimers()
+        }
+        .animation(.easeOut(duration: 0.24), value: uiState.isVisible)
         .environment(\.colorScheme, .dark)
     }
 
@@ -76,6 +87,7 @@ struct NotchView: View {
 
     private var compactContent: some View {
         Button {
+            hideCompactMediaPreview()
             if shouldShowCompactMedia {
                 uiState.activeTab = .nook
                 uiState.activeView = .media
@@ -96,11 +108,14 @@ struct NotchView: View {
         .buttonStyle(NotchPressStyle(pressedScale: 0.985))
         .accessibilityLabel("Open AgentNotch")
         .help(shouldShowCompactMedia ? "Open Media" : "Open AgentNotch")
-        .animation(.easeOut(duration: reduceMotion ? 0.12 : 0.2), value: shouldShowCompactMedia)
+        .animation(.easeOut(duration: reduceMotion ? 0.12 : 0.24), value: shouldShowCompactMedia)
     }
 
     private var shouldShowCompactMedia: Bool {
-        media.isPlaying && selectedSession?.state != .waitingApproval
+        media.isPlaying
+            && permissions.queue.isEmpty
+            && questions.queue.isEmpty
+            && selectedSession?.state != .waitingApproval
     }
 
     private var compactMediaContent: some View {
@@ -118,18 +133,78 @@ struct NotchView: View {
             }
             .frame(width: 22, height: 22)
             .clipShape(RoundedRectangle(cornerRadius: 6, style: .continuous))
-            MarqueeText(text: media.title, size: 10.5, weight: .semibold, speed: 20)
-                .frame(height: 15)
-                .help(media.title)
-            Spacer(minLength: 5)
-            CompactMediaWaveform(isPlaying: media.isPlaying)
+            if compactMediaPreviewVisible {
+                VStack(alignment: .leading, spacing: 0) {
+                    MarqueeText(text: media.title, size: 9.5, weight: .semibold, speed: 18)
+                        .frame(height: 12)
+                    Text(media.artist)
+                        .font(.system(size: 7.5, weight: .medium))
+                        .foregroundColor(DesignTokens.muted)
+                        .lineLimit(1)
+                        .truncationMode(.tail)
+                }
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .help("\(media.title) — \(media.artist)")
+                .transition(.opacity.combined(with: .offset(x: reduceMotion ? 0 : -3)))
+            } else {
+                Spacer(minLength: 0)
+            }
+            CompactMediaWaveform(isPlaying: media.isPlaying, color: Color(nsColor: media.accentColor))
+        }
+    }
+
+    private func updateCompactMediaHover(_ inside: Bool) {
+        compactMediaHoverTask?.cancel()
+        guard inside, uiState.mode == .closed, shouldShowCompactMedia else {
+            hideCompactMediaPreview()
+            return
+        }
+        compactMediaHoverTask = Task {
+            try? await Task.sleep(nanoseconds: 250_000_000)
+            guard !Task.isCancelled, uiState.mode == .closed, shouldShowCompactMedia else { return }
+            withAnimation(.easeOut(duration: reduceMotion ? 0.12 : 0.22)) {
+                compactMediaPreviewVisible = true
+            }
+        }
+    }
+
+    private func hideCompactMediaPreview() {
+        compactMediaHoverTask?.cancel()
+        guard compactMediaPreviewVisible else { return }
+        withAnimation(.easeOut(duration: reduceMotion ? 0.1 : 0.18)) {
+            compactMediaPreviewVisible = false
         }
     }
 
     private var compactAgentContent: some View {
         HStack(spacing: 9) {
-            GlyphBox(agent: selectedSession?.agent)
-            if let session = selectedSession {
+            if !permissions.queue.isEmpty {
+                Image(systemName: "exclamationmark.shield.fill")
+                    .font(.system(size: 12, weight: .medium))
+                    .foregroundColor(DesignTokens.orange)
+                    .frame(width: 22, height: 22)
+                Text("Approval required")
+                    .font(.system(size: 10.5, weight: .semibold))
+                    .foregroundColor(.white)
+                Spacer(minLength: 4)
+                Text("Click to review")
+                    .font(.system(size: 8))
+                    .foregroundColor(DesignTokens.muted)
+            } else if !questions.queue.isEmpty {
+                Image(systemName: "questionmark.bubble.fill")
+                    .font(.system(size: 12, weight: .medium))
+                    .foregroundColor(DesignTokens.cyan)
+                    .frame(width: 22, height: 22)
+                Text("Agent has a question")
+                    .font(.system(size: 10.5, weight: .semibold))
+                    .foregroundColor(.white)
+                Spacer(minLength: 4)
+                Text("Click to answer")
+                    .font(.system(size: 8))
+                    .foregroundColor(DesignTokens.muted)
+            } else {
+                GlyphBox(agent: selectedSession?.agent)
+                if let session = selectedSession {
                 Text(session.title)
                     .font(.system(size: 11, weight: .semibold))
                     .foregroundColor(.white)
@@ -144,14 +219,15 @@ struct NotchView: View {
                         .font(.system(size: 9))
                         .foregroundColor(DesignTokens.muted)
                 }
-            } else {
-                Text("AgentNotch")
-                    .font(.system(size: 11, weight: .semibold))
-                    .foregroundColor(.white)
-                Spacer(minLength: 4)
-                Text("idle")
-                    .font(.system(size: 9))
-                    .foregroundColor(DesignTokens.muted)
+                } else {
+                    Text("AgentNotch")
+                        .font(.system(size: 11, weight: .semibold))
+                        .foregroundColor(.white)
+                    Spacer(minLength: 4)
+                    Text("idle")
+                        .font(.system(size: 9))
+                        .foregroundColor(DesignTokens.muted)
+                }
             }
         }
     }
@@ -687,7 +763,7 @@ private struct HoverLiftModifier: ViewModifier {
             )
             .scaleEffect(hovering && !reduceMotion ? 1.012 : 1)
             .onHover { hovering = $0 }
-            .animation(.easeOut(duration: reduceMotion ? 0.01 : 0.14), value: hovering)
+            .animation(.easeOut(duration: reduceMotion ? 0.01 : 0.18), value: hovering)
     }
 }
 
@@ -906,7 +982,7 @@ private struct MiniButton: View {
         }
         .buttonStyle(NotchPressStyle())
         .onHover { hovering = $0 }
-        .animation(.easeOut(duration: 0.14), value: hovering)
+        .animation(.easeOut(duration: 0.18), value: hovering)
         .help(helpText ?? title)
     }
 
@@ -970,7 +1046,9 @@ private struct MediaCell: View {
                         .frame(height: 16)
                         .help(media.title)
                     Text("\(media.artist) · \(media.source)").font(.system(size: 9)).foregroundColor(DesignTokens.muted).lineLimit(1)
-                    ProgressView(value: media.progress).progressViewStyle(.linear).tint(.white.opacity(0.9))
+                    ProgressView(value: media.progress)
+                        .progressViewStyle(.linear)
+                        .tint(Color(nsColor: media.accentColor))
                     HStack {
                         if media.hasMedia {
                             MediaControlButton(icon: "backward.fill", help: "Previous", action: media.previous)
@@ -1008,6 +1086,7 @@ private struct MediaCell: View {
 
 private struct CompactMediaWaveform: View {
     let isPlaying: Bool
+    let color: Color
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
     var body: some View {
@@ -1017,11 +1096,12 @@ private struct CompactMediaWaveform: View {
                 ForEach(0..<4, id: \.self) { index in
                     let level = reduceMotion ? 0.45 : 0.35 + abs(sin(phase + Double(index) * 1.35)) * 0.65
                     Capsule()
-                        .fill(Color.white.opacity(index == 2 ? 0.95 : 0.7))
+                        .fill(color.opacity(index == 2 ? 1 : 0.72))
                         .frame(width: 2, height: 4 + 9 * level)
                 }
             }
             .frame(width: 16, height: 16)
+            .shadow(color: color.opacity(0.3), radius: 3)
         }
         .accessibilityHidden(true)
     }
@@ -1034,29 +1114,24 @@ private struct MarqueeText: View {
     let speed: CGFloat
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
-    private let gap: CGFloat = 28
     private let leadingPause: TimeInterval = 1.1
+    @State private var startDate = Date()
 
     var body: some View {
         GeometryReader { proxy in
             let textWidth = measuredWidth
-            let overflows = textWidth > proxy.size.width + 1
+            let overflow = max(textWidth - proxy.size.width, 0)
+            let overflows = overflow > 1
             TimelineView(.animation(minimumInterval: 1 / 30, paused: reduceMotion || !overflows)) { context in
-                let travel = textWidth + gap
-                let movingDuration = TimeInterval(travel / speed)
-                let cycle = leadingPause + movingDuration
-                let elapsed = context.date.timeIntervalSinceReferenceDate.truncatingRemainder(dividingBy: cycle)
-                let offset = elapsed <= leadingPause ? 0 : min(CGFloat(elapsed - leadingPause) * speed, travel)
+                let offset = marqueeOffset(at: context.date, overflow: overflow)
 
-                HStack(spacing: gap) {
-                    label
-                    if overflows && !reduceMotion { label }
-                }
-                .offset(x: overflows && !reduceMotion ? -offset : 0)
-                .frame(maxHeight: .infinity, alignment: .center)
+                label
+                    .offset(x: overflows && !reduceMotion ? -offset : 0)
+                    .frame(maxHeight: .infinity, alignment: .center)
             }
         }
         .clipped()
+        .onChange(of: text) { _, _ in startDate = Date() }
         .accessibilityElement(children: .ignore)
         .accessibilityLabel(text)
     }
@@ -1067,6 +1142,20 @@ private struct MarqueeText: View {
             .foregroundColor(.white)
             .lineLimit(1)
             .fixedSize(horizontal: true, vertical: false)
+    }
+
+    private func marqueeOffset(at date: Date, overflow: CGFloat) -> CGFloat {
+        let movingDuration = TimeInterval(overflow / speed)
+        let endPause: TimeInterval = 0.8
+        let cycle = max(leadingPause + movingDuration + endPause + movingDuration, 0.1)
+        let elapsed = date.timeIntervalSince(startDate).truncatingRemainder(dividingBy: cycle)
+        if elapsed <= leadingPause { return 0 }
+        if elapsed <= leadingPause + movingDuration {
+            return CGFloat(elapsed - leadingPause) * speed
+        }
+        if elapsed <= leadingPause + movingDuration + endPause { return overflow }
+        let returnElapsed = elapsed - leadingPause - movingDuration - endPause
+        return max(overflow - CGFloat(returnElapsed) * speed, 0)
     }
 
     private var measuredWidth: CGFloat {
@@ -1382,7 +1471,7 @@ private struct AgentQuestionView: View {
                     Spacer(minLength: 4)
                     if !request.options.isEmpty {
                         Button(customMode ? "Choices" : "Other…") {
-                            withAnimation(.easeOut(duration: 0.15)) {
+                            withAnimation(.easeOut(duration: 0.20)) {
                                 customMode.toggle()
                             }
                             customFieldFocused = customMode
@@ -1488,7 +1577,7 @@ private struct QuestionChoiceButton: View {
         }
         .buttonStyle(NotchPressStyle())
         .onHover { hovering = $0 }
-        .animation(.easeOut(duration: 0.14), value: hovering)
+        .animation(.easeOut(duration: 0.18), value: hovering)
         .keyboardShortcut(key, modifiers: .command)
         .help(detail.isEmpty ? "Choose \(title)" : "\(title)\n\(detail)")
     }
@@ -1628,7 +1717,7 @@ private struct ApprovalActionButton: View {
         }
         .buttonStyle(NotchPressStyle())
         .onHover { hovering = $0 }
-        .animation(.easeOut(duration: 0.14), value: hovering)
+        .animation(.easeOut(duration: 0.18), value: hovering)
         .keyboardShortcut(role == .allow ? KeyEquivalent("y") : KeyEquivalent("n"), modifiers: .command)
         .help(role == .allow ? "Allow this action once" : "Deny this action")
     }

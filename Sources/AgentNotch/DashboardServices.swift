@@ -74,9 +74,11 @@ final class MediaController: ObservableObject {
     @Published private(set) var isConnected = false
     @Published private(set) var hasMedia = false
     @Published private(set) var artwork: NSImage?
+    @Published private(set) var accentColor = NSColor.white
 
     private var timer: AnyCancellable?
     private var refreshInFlight = false
+    private var artworkIdentifier: String?
     private let adapterScriptPath: String?
     private let adapterLibraryPath: String?
 
@@ -129,6 +131,8 @@ final class MediaController: ObservableObject {
             duration = 1
             hasMedia = false
             artwork = nil
+            artworkIdentifier = nil
+            accentColor = .white
             return
         }
 
@@ -142,7 +146,12 @@ final class MediaController: ObservableObject {
         position = snapshot.position
         duration = max(snapshot.duration, 1)
         hasMedia = true
-        artwork = snapshot.artworkData.flatMap(NSImage.init(data:))
+        let nextArtworkIdentifier = snapshot.itemIdentifier ?? "\(snapshot.title)|\(snapshot.artist ?? "")"
+        if nextArtworkIdentifier != artworkIdentifier {
+            artworkIdentifier = nextArtworkIdentifier
+            artwork = snapshot.artworkData.flatMap(NSImage.init(data:))
+            accentColor = artwork.flatMap(Self.averageArtworkColor) ?? .white
+        }
     }
 
     private func send(command: Int) {
@@ -154,6 +163,48 @@ final class MediaController: ObservableObject {
             refresh()
         }
     }
+
+    private static func averageArtworkColor(_ image: NSImage) -> NSColor? {
+        guard let data = image.tiffRepresentation,
+              let bitmap = NSBitmapImageRep(data: data),
+              bitmap.pixelsWide > 0, bitmap.pixelsHigh > 0 else { return nil }
+
+        let stepX = max(bitmap.pixelsWide / 12, 1)
+        let stepY = max(bitmap.pixelsHigh / 12, 1)
+        var red = 0.0, green = 0.0, blue = 0.0, weightTotal = 0.0
+
+        for y in stride(from: stepY / 2, to: bitmap.pixelsHigh, by: stepY) {
+            for x in stride(from: stepX / 2, to: bitmap.pixelsWide, by: stepX) {
+                guard let color = bitmap.colorAt(x: x, y: y)?.usingColorSpace(.deviceRGB) else { continue }
+                let brightness = max(color.redComponent, color.greenComponent, color.blueComponent)
+                let minimum = min(color.redComponent, color.greenComponent, color.blueComponent)
+                let saturation = brightness > 0 ? (brightness - minimum) / brightness : 0
+                guard color.alphaComponent > 0.4, brightness > 0.12, brightness < 0.96 else { continue }
+                let weight = 0.25 + saturation
+                red += color.redComponent * weight
+                green += color.greenComponent * weight
+                blue += color.blueComponent * weight
+                weightTotal += weight
+            }
+        }
+
+        guard weightTotal > 0 else { return nil }
+        let average = NSColor(
+            calibratedRed: red / weightTotal,
+            green: green / weightTotal,
+            blue: blue / weightTotal,
+            alpha: 1
+        )
+        var hue = CGFloat.zero, saturation = CGFloat.zero, brightness = CGFloat.zero, alpha = CGFloat.zero
+        average.getHue(&hue, saturation: &saturation, brightness: &brightness, alpha: &alpha)
+        guard saturation > 0.12 else { return NSColor(calibratedWhite: max(brightness, 0.78), alpha: 1) }
+        return NSColor(
+            calibratedHue: hue,
+            saturation: max(saturation, 0.55),
+            brightness: max(brightness, 0.72),
+            alpha: 1
+        )
+    }
 }
 
 private struct SystemMediaSnapshot: Sendable {
@@ -164,6 +215,7 @@ private struct SystemMediaSnapshot: Sendable {
     let position: Double
     let duration: Double
     let artworkData: Data?
+    let itemIdentifier: String?
 }
 
 private enum SystemMediaBridge {
@@ -186,7 +238,8 @@ private enum SystemMediaBridge {
             isPlaying: object["playing"] as? Bool ?? false,
             position: number(object["elapsedTimeNow"] ?? object["elapsedTime"]),
             duration: number(object["duration"]),
-            artworkData: artworkData
+            artworkData: artworkData,
+            itemIdentifier: object["contentItemIdentifier"] as? String
         )
     }
 

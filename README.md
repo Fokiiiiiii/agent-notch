@@ -86,12 +86,12 @@ CLIは`~/.agent-notch/run/agent-notch.sock`だけを使用し、外部通信や�
 - Finderを含む通常のSpaceでは最小ノッチを常時表示する。
 - Finder以外のアプリが真のフルスクリーンになった場合だけ隠し、画面上端中央への300ms滞留で再表示する。
 - クリックでNookを確実に開閉する。hoverは部品の反応に限定し、承認待ち中は自動で閉じない。
-- 承認要求・イベント時は自動で表示+展開する。
+- 承認要求・質問・失敗時はCompact通知だけを表示し、クリック後に操作画面を展開する。操作中のページは奪わない。
 
 ## UI
 
 - Nook: Agents / Media / Today / Systemを1ページ1主要機能で切り替え。
-- Media: macOSの現在の再生セッションを自動検出し、Music / Spotify / Safari / Chromium系ブラウザなどControl Center対応プレイヤーの曲情報、アートワーク、進捗、再生操作を表示。
+- Media: macOSの現在の再生セッションを自動検出。再生中はジャケット色に連動するCompact波形を表示し、250msホバーで曲名をプレビュー、クリック後に進捗と再生操作を表示する。
 - Tray: ローカルファイルの一時ShelfとAirDrop / Compress / Copy Path / AI Attach操作。
 - Agent: 複数セッション、状態、現在の処理、Pause / Resume / Stop / Terminal。
 - Approval / Plan Review / Agent QuestionはNook内のインライン操作面として表示。

@@ -180,6 +180,7 @@ final class NotchWindowController: NSObject {
         permissions.$queue
             .sink { [weak self] _ in
                 guard let self else { return }
+                guard self.uiState.mode != .open || !self.isClickPinned else { return }
                 self.syncOverlay()
             }
             .store(in: &cancellables)
@@ -187,8 +188,10 @@ final class NotchWindowController: NSObject {
         questions.$queue
             .sink { [weak self] queue in
                 guard let self else { return }
-                self.syncOverlay()
-                if queue.isEmpty, self.permissions.queue.isEmpty, self.uiState.overlay == nil {
+                if self.uiState.mode != .open || !self.isClickPinned {
+                    self.syncOverlay()
+                }
+                if queue.isEmpty, self.permissions.queue.isEmpty, !self.isClickPinned {
                     self.setMode(.closed)
                 }
             }
@@ -338,7 +341,7 @@ final class NotchWindowController: NSObject {
         let targetFrame = NotchWindowController.frame(for: targetSize, on: screen)
 
         NSAnimationContext.runAnimationGroup { context in
-            context.duration = uiState.mode == .closed ? 0.20 : 0.32
+            context.duration = uiState.mode == .closed ? 0.25 : 0.40
             context.timingFunction = CAMediaTimingFunction(controlPoints: 0.20, 0.72, 0.24, 1)
             panel.animator().setFrame(targetFrame, display: true)
         }
@@ -403,14 +406,27 @@ final class NotchWindowController: NSObject {
         setMode(.open)
     }
 
+    /// Important events reveal the compact notch but never take over the
+    /// current page. The user opens the actionable surface with a click.
+    func showAttention() {
+        guard shouldPersistVisible else { return }
+        dwellTask?.cancel()
+        hideTask?.cancel()
+        uiState.isVisible = true
+        if uiState.mode != .open {
+            syncOverlay()
+            setMode(.closed)
+        }
+    }
+
     func showAgentActivity(urgent: Bool) {
-        uiState.activeTab = .nook
-        uiState.activeView = .agents
+        if uiState.mode != .open || !isClickPinned {
+            uiState.activeTab = .nook
+            uiState.activeView = .agents
+        }
         guard shouldPersistVisible else { return }
         uiState.isVisible = true
-        if urgent {
-            forceShow()
-        }
+        if urgent { showAttention() }
     }
 
     func showFromCLI() {
@@ -446,6 +462,7 @@ final class NotchWindowController: NSObject {
             setMode(.closed)
         } else {
             isClickPinned = true
+            syncOverlay()
             setMode(.open)
         }
     }

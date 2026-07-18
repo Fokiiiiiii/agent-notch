@@ -24,6 +24,6 @@ enum DesignTokens {
 
     /// Hover-driven panels should settle without overshoot. A critically
     /// damped response also remains interruptible when the pointer reverses.
-    static let spring = Animation.spring(response: 0.34, dampingFraction: 0.94)
-    static let contentTransition = Animation.easeInOut(duration: 0.24)
+    static let spring = Animation.spring(response: 0.42, dampingFraction: 0.92)
+    static let contentTransition = Animation.easeInOut(duration: 0.30)
 }
