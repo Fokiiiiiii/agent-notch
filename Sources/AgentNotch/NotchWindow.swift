@@ -220,7 +220,13 @@ final class NotchWindowController: NSObject {
 
         let outsideClickMask: NSEvent.EventTypeMask = [.leftMouseDown, .rightMouseDown, .otherMouseDown]
         outsideClickLocalMonitor = NSEvent.addLocalMonitorForEvents(matching: outsideClickMask) { [weak self] event in
-            self?.collapseForOutsideClickIfNeeded()
+            guard let self else { return event }
+            // An event delivered to the notch panel is always an inside
+            // interaction. AXPress may not update `NSEvent.mouseLocation`,
+            // so coordinate-only checks incorrectly dismissed tab clicks.
+            if event.window !== self.panel {
+                self.collapseForOutsideClickIfNeeded()
+            }
             return event
         }
         outsideClickGlobalMonitor = NSEvent.addGlobalMonitorForEvents(matching: outsideClickMask) { [weak self] _ in

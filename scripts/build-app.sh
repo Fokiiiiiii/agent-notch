@@ -28,6 +28,10 @@ cat > "$APP/Contents/Info.plist" <<'EOF'
     <true/>
     <key>NSHighResolutionCapable</key>
     <true/>
+    <key>NSCalendarsFullAccessUsageDescription</key>
+    <string>AgentNotch shows today's upcoming events in the Today tab.</string>
+    <key>NSAppleEventsUsageDescription</key>
+    <string>AgentNotch controls playback in Music or Spotify when you use the Media tab.</string>
     <key>LSMinimumSystemVersion</key>
     <string>14.0</string>
 </dict>

@@ -348,11 +348,11 @@ struct NotchView: View {
                 ("Usage", "5h 11% · 7d 2%")
             ])
         case .media:
-            DetailStrip(items: [("Output", "MacBook Pro"), ("Quality", "Lossless · 24-bit"), ("Up Next", "Midnight City")])
+            DetailStrip(items: [("Sources", "Music · Spotify"), ("Control", "Local Apple Events"), ("Privacy", "No telemetry")])
         case .today:
-            DetailStrip(items: [("Next", "Design sync · 10:30"), ("Focus", "2h available"), ("Calendar", "Studio")])
+            DetailStrip(items: [("Calendar", "Today only"), ("Focus", "Local timer"), ("Privacy", "On-device")])
         case .system:
-            DetailStrip(items: [("CPU", "18% · 48°C"), ("Network", "42 MB/s"), ("Docker", "Layer 12 of 18")])
+            DetailStrip(items: [("Source", "macOS live data"), ("Refresh", "Every 3 sec"), ("Access", "Read only")])
         }
     }
 
@@ -364,14 +364,26 @@ struct NotchView: View {
                 trayFeedback = nil
             case .copyPath:
                 NSPasteboard.general.clearContents()
-                NSPasteboard.general.setString(trayItems.first?.url.path ?? "", forType: .string)
-                trayFeedback = "Path copied"
+                NSPasteboard.general.setString(trayItems.map(\.url.path).joined(separator: "\n"), forType: .string)
+                trayFeedback = "Paths copied"
             case .airDrop:
-                trayFeedback = "Ready for AirDrop"
+                let urls = trayItems.map(\.url)
+                if let service = NSSharingService(named: .sendViaAirDrop), service.canPerform(withItems: urls) {
+                    service.perform(withItems: urls)
+                    trayFeedback = "AirDrop opened"
+                } else {
+                    trayFeedback = "AirDrop unavailable"
+                }
             case .compress:
-                trayFeedback = "Compress queued"
+                let urls = trayItems.map(\.url)
+                trayFeedback = "Compressing…"
+                Task {
+                    trayFeedback = await compressTrayItems(urls)
+                }
             case .attach:
-                trayFeedback = "Attached to agent"
+                NSPasteboard.general.clearContents()
+                NSPasteboard.general.writeObjects(trayItems.map { $0.url as NSURL })
+                trayFeedback = "Copied for agent"
             }
         }
         .onDrop(of: [UTType.fileURL], isTargeted: $isDropTargeted) { providers in
@@ -390,6 +402,32 @@ struct NotchView: View {
                 }
             }
             return accepted
+        }
+    }
+
+    private func compressTrayItems(_ urls: [URL]) async -> String {
+        guard !urls.isEmpty, let directory = urls.first?.deletingLastPathComponent() else { return "Nothing to compress" }
+        var output = directory.appendingPathComponent("AgentNotch Archive.zip")
+        var suffix = 2
+        while FileManager.default.fileExists(atPath: output.path) {
+            output = directory.appendingPathComponent("AgentNotch Archive \(suffix).zip")
+            suffix += 1
+        }
+        let process = Process()
+        process.executableURL = URL(fileURLWithPath: "/usr/bin/zip")
+        process.arguments = ["-r", output.path] + urls.map(\.path)
+        process.standardOutput = FileHandle.nullDevice
+        process.standardError = FileHandle.nullDevice
+        let outputName = output.lastPathComponent
+        return await withCheckedContinuation { continuation in
+            process.terminationHandler = { finished in
+                continuation.resume(returning: finished.terminationStatus == 0 ? "Saved \(outputName)" : "Compression failed")
+            }
+            do {
+                try process.run()
+            } catch {
+                continuation.resume(returning: "Compression failed")
+            }
         }
     }
 
@@ -855,9 +893,7 @@ private struct CellSurface<Content: View>: View {
 }
 
 private struct MediaCell: View {
-    @State private var isPlaying = true
-    @State private var progress = 0.43
-    @State private var volume = 0.72
+    @StateObject private var media = MediaController()
 
     var body: some View {
         CellSurface {
@@ -867,16 +903,33 @@ private struct MediaCell: View {
                     .frame(width: 68, height: 68)
                     .overlay(Image(systemName: "waveform").font(.system(size: 21, weight: .light)).foregroundColor(.white.opacity(0.82)))
                 VStack(alignment: .leading, spacing: 7) {
-                    Text("Night Drive").font(.system(size: 12, weight: .semibold)).lineLimit(1)
-                    Text("Neon Coast · Apple Music").font(.system(size: 9)).foregroundColor(DesignTokens.muted).lineLimit(1)
-                    Slider(value: $progress).controlSize(.mini).tint(.white.opacity(0.9))
+                    Text(media.title).font(.system(size: 12, weight: .semibold)).lineLimit(1)
+                    Text("\(media.artist) · \(media.source)").font(.system(size: 9)).foregroundColor(DesignTokens.muted).lineLimit(1)
+                    ProgressView(value: media.progress).progressViewStyle(.linear).tint(.white.opacity(0.9))
                     HStack {
-                        MediaControlButton(icon: "backward.fill", help: "Previous") { progress = max(0, progress - 0.08) }
-                        MediaControlButton(icon: isPlaying ? "pause.fill" : "play.fill", help: isPlaying ? "Pause" : "Play", prominent: true) { isPlaying.toggle() }
-                        MediaControlButton(icon: "forward.fill", help: "Next") { progress = min(1, progress + 0.08) }
+                        if media.isConnected {
+                            MediaControlButton(icon: "backward.fill", help: "Previous", action: media.previous)
+                            MediaControlButton(icon: media.isPlaying ? "pause.fill" : "play.fill", help: media.isPlaying ? "Pause" : "Play", prominent: true, action: media.togglePlayback)
+                            MediaControlButton(icon: "forward.fill", help: "Next", action: media.next)
+                        } else {
+                            Button {
+                                SoundPlayer.shared.play(.action)
+                                media.connect()
+                            } label: {
+                                Label("Connect Music", systemImage: "music.note")
+                                    .font(.system(size: 8.5, weight: .medium))
+                                    .padding(.horizontal, 9)
+                                    .frame(height: 24)
+                                    .background(RoundedRectangle(cornerRadius: 8).fill(Color.white.opacity(0.09)))
+                            }
+                            .buttonStyle(NotchPressStyle())
+                            .hoverLift(cornerRadius: 8)
+                            .help("Connect to a running Music or Spotify app")
+                        }
                         Spacer()
-                        Image(systemName: "speaker.fill").foregroundColor(DesignTokens.muted)
-                        Slider(value: $volume).frame(width: 74).controlSize(.mini)
+                        Text(media.isConnected ? media.source : "Local only")
+                            .font(.system(size: 7.5))
+                            .foregroundColor(DesignTokens.muted)
                     }
                     .font(.system(size: 11))
                 }
@@ -908,20 +961,49 @@ private struct MediaControlButton: View {
 }
 
 private struct TodayCell: View {
+    @StateObject private var model = TodayModel()
     @State private var focusRunning = false
 
     var body: some View {
         CellSurface {
             HStack(spacing: 14) {
                 VStack(spacing: 1) {
-                    Text("19").font(.system(size: 34, weight: .light, design: .rounded))
-                    Text("JUL · SUN").font(.system(size: 8, weight: .semibold)).tracking(0.7).foregroundColor(DesignTokens.muted)
+                    Text(Date.now.formatted(.dateTime.day())).font(.system(size: 34, weight: .light, design: .rounded))
+                    Text(Date.now.formatted(.dateTime.month(.abbreviated).weekday(.abbreviated)).uppercased())
+                        .font(.system(size: 8, weight: .semibold)).tracking(0.7).foregroundColor(DesignTokens.muted)
                 }
                 .frame(width: 76)
                 Divider().overlay(DesignTokens.line)
                 VStack(alignment: .leading, spacing: 8) {
-                    ScheduleRow(time: "10:30", title: "Design sync", detail: "Studio · 30 min")
-                    ScheduleRow(time: "13:00", title: "AgentNotch review", detail: "Focus block · 1 hr")
+                    if model.canReadCalendar {
+                        if model.events.isEmpty {
+                            Label("No more events today", systemImage: "calendar.badge.checkmark")
+                                .font(.system(size: 9, weight: .medium))
+                                .foregroundColor(.white.opacity(0.72))
+                        } else {
+                            ForEach(model.events.prefix(2)) { event in
+                                ScheduleRow(
+                                    time: event.startDate.formatted(date: .omitted, time: .shortened),
+                                    title: event.title,
+                                    detail: event.calendar
+                                )
+                            }
+                        }
+                    } else {
+                        Button {
+                            SoundPlayer.shared.play(.action)
+                            model.requestAccess()
+                        } label: {
+                            Label("Enable Calendar", systemImage: "calendar.badge.plus")
+                                .font(.system(size: 9, weight: .medium))
+                                .padding(.horizontal, 9)
+                                .frame(height: 24)
+                                .background(RoundedRectangle(cornerRadius: 8).fill(Color.white.opacity(0.09)))
+                        }
+                        .buttonStyle(NotchPressStyle())
+                        .hoverLift(cornerRadius: 8)
+                        .help("Allow access to today's events")
+                    }
                     Spacer(minLength: 0)
                     Button {
                         SoundPlayer.shared.play(.action)
@@ -937,6 +1019,7 @@ private struct TodayCell: View {
                 }
             }.foregroundColor(.white)
         }
+        .onAppear { model.refresh() }
     }
 }
 
@@ -956,21 +1039,42 @@ private struct ScheduleRow: View {
 }
 
 private struct SystemCell: View {
-    @State private var dockerProgress = 0.68
-    @State private var downloadProgress = 0.34
+    @StateObject private var monitor = SystemMonitor()
 
     var body: some View {
         CellSurface {
             VStack(spacing: 5) {
                 HStack(spacing: 6) {
-                    SystemMetric(icon: "battery.75percent", title: "Battery", value: "78%", detail: "4h 12m")
-                    SystemMetric(icon: "memorychip", title: "Memory", value: "11.4 GB", detail: "of 24 GB")
-                    SystemMetric(icon: "externaldrive", title: "Storage", value: "214 GB", detail: "available")
+                    SystemMetric(
+                        icon: monitor.isCharging ? "battery.100percent.bolt" : "battery.75percent",
+                        title: "Battery",
+                        value: monitor.batteryLevel.map { "\($0)%" } ?? "Desktop",
+                        detail: monitor.isCharging ? "Power adapter" : "Battery"
+                    )
+                    SystemMetric(icon: "memorychip", title: "Memory", value: monitor.memoryUsed, detail: monitor.memoryDetail)
+                    SystemMetric(icon: "externaldrive", title: "Storage", value: monitor.storageAvailable, detail: monitor.storageDetail)
                 }
-                TaskProgress(icon: "shippingbox.fill", title: "Docker · Building api", progress: dockerProgress, detail: "Layer 12 of 18")
-                TaskProgress(icon: "arrow.down.circle.fill", title: "Download · Xcode 18", progress: downloadProgress, detail: "2.1 of 6.2 GB")
+                HStack(spacing: 6) {
+                    SystemStatus(icon: "clock.arrow.circlepath", title: "Uptime", value: monitor.uptime)
+                    SystemStatus(icon: "desktopcomputer", title: "Host", value: Host.current().localizedName ?? "Mac")
+                }
             }.foregroundColor(.white)
         }
+    }
+}
+
+private struct SystemStatus: View {
+    let icon: String, title: String, value: String
+    var body: some View {
+        HStack(spacing: 7) {
+            Image(systemName: icon).font(.system(size: 9.5)).foregroundColor(.white.opacity(0.7))
+            Text(title).font(.system(size: 8)).foregroundColor(DesignTokens.muted)
+            Spacer()
+            Text(value).font(.system(size: 8.5, weight: .medium)).lineLimit(1)
+        }
+        .padding(.horizontal, 8)
+        .frame(height: 25)
+        .background(RoundedRectangle(cornerRadius: 8).fill(Color.white.opacity(0.045)))
     }
 }
 
@@ -1029,9 +1133,13 @@ private struct TrayCell: View {
                     HStack(spacing: 8) {
                         ForEach(items.prefix(5)) { item in
                             VStack(spacing: 4) {
-                                RoundedRectangle(cornerRadius: 9).fill(Color.white.opacity(0.08)).frame(width: 50, height: 50)
-                                    .overlay(Image(systemName: iconName(for: item.url)).font(.system(size: 19)).foregroundColor(.white.opacity(0.8)))
-                                Text(item.url.lastPathComponent).font(.system(size: 7)).lineLimit(1).frame(width: 58)
+                                Image(nsImage: NSWorkspace.shared.icon(forFile: item.url.path))
+                                    .resizable()
+                                    .scaledToFit()
+                                    .frame(width: 38, height: 38)
+                                    .padding(6)
+                                    .background(RoundedRectangle(cornerRadius: 9).fill(Color.white.opacity(0.08)))
+                                Text(item.url.lastPathComponent).font(.system(size: 7)).lineLimit(1).frame(width: 58).help(item.url.path)
                             }
                         }
                         Spacer(minLength: 0)
@@ -1058,15 +1166,6 @@ private struct TrayCell: View {
                     .disabled(items.isEmpty)
                 }
             }.foregroundColor(.white)
-        }
-    }
-
-    private func iconName(for url: URL) -> String {
-        switch url.pathExtension.lowercased() {
-        case "png", "jpg", "jpeg", "heic": return "photo"
-        case "pdf": return "doc.richtext"
-        case "md", "txt": return "doc.text"
-        default: return "doc.fill"
         }
     }
 }
