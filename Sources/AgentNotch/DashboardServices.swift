@@ -63,6 +63,8 @@ final class TodayModel: ObservableObject {
 
 @MainActor
 final class MediaController: ObservableObject {
+    static let shared = MediaController()
+
     @Published private(set) var source = "No media"
     @Published private(set) var title = "Nothing Playing"
     @Published private(set) var artist = "Play media in any app"

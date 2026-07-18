@@ -7,6 +7,7 @@ struct NotchView: View {
     @ObservedObject var permissions: PermissionCenter
     @ObservedObject var questions: QuestionCenter
     @EnvironmentObject var uiState: NotchUIState
+    @StateObject private var media = MediaController.shared
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @State private var trayItems: [TrayItem] = []
     @State private var isDropTargeted = false
@@ -75,41 +76,84 @@ struct NotchView: View {
 
     private var compactContent: some View {
         Button {
+            if shouldShowCompactMedia {
+                uiState.activeTab = .nook
+                uiState.activeView = .media
+            }
             controller.toggleOpen()
         } label: {
-            HStack(spacing: 9) {
-                GlyphBox(agent: selectedSession?.agent)
-                if let session = selectedSession {
-                    Text(session.title)
-                        .font(.system(size: 11, weight: .semibold))
-                        .foregroundColor(.white)
-                        .lineLimit(1)
-                        .truncationMode(.tail)
-                    Spacer(minLength: 4)
-                    HStack(spacing: 7) {
-                        Circle()
-                            .fill(statusColor(session.state))
-                            .frame(width: 6, height: 6)
-                        Text(session.agent.displayName)
-                            .font(.system(size: 9))
-                            .foregroundColor(DesignTokens.muted)
-                    }
+            Group {
+                if shouldShowCompactMedia {
+                    compactMediaContent
                 } else {
-                    Text("AgentNotch")
-                        .font(.system(size: 11, weight: .semibold))
-                        .foregroundColor(.white)
-                    Spacer(minLength: 4)
-                    Text("idle")
-                        .font(.system(size: 9))
-                        .foregroundColor(DesignTokens.muted)
+                    compactAgentContent
                 }
             }
             .padding(.horizontal, 12)
             .contentShape(Rectangle())
+            .transition(.opacity)
         }
         .buttonStyle(NotchPressStyle(pressedScale: 0.985))
         .accessibilityLabel("Open AgentNotch")
-        .help("Open AgentNotch")
+        .help(shouldShowCompactMedia ? "Open Media" : "Open AgentNotch")
+        .animation(.easeOut(duration: reduceMotion ? 0.12 : 0.2), value: shouldShowCompactMedia)
+    }
+
+    private var shouldShowCompactMedia: Bool {
+        media.isPlaying && selectedSession?.state != .waitingApproval
+    }
+
+    private var compactMediaContent: some View {
+        HStack(spacing: 8) {
+            Group {
+                if let artwork = media.artwork {
+                    Image(nsImage: artwork)
+                        .resizable()
+                        .scaledToFill()
+                } else {
+                    RoundedRectangle(cornerRadius: 6, style: .continuous)
+                        .fill(Color.white.opacity(0.1))
+                        .overlay(Image(systemName: "music.note").font(.system(size: 9, weight: .medium)))
+                }
+            }
+            .frame(width: 22, height: 22)
+            .clipShape(RoundedRectangle(cornerRadius: 6, style: .continuous))
+            MarqueeText(text: media.title, size: 10.5, weight: .semibold, speed: 20)
+                .frame(height: 15)
+                .help(media.title)
+            Spacer(minLength: 5)
+            CompactMediaWaveform(isPlaying: media.isPlaying)
+        }
+    }
+
+    private var compactAgentContent: some View {
+        HStack(spacing: 9) {
+            GlyphBox(agent: selectedSession?.agent)
+            if let session = selectedSession {
+                Text(session.title)
+                    .font(.system(size: 11, weight: .semibold))
+                    .foregroundColor(.white)
+                    .lineLimit(1)
+                    .truncationMode(.tail)
+                Spacer(minLength: 4)
+                HStack(spacing: 7) {
+                    Circle()
+                        .fill(statusColor(session.state))
+                        .frame(width: 6, height: 6)
+                    Text(session.agent.displayName)
+                        .font(.system(size: 9))
+                        .foregroundColor(DesignTokens.muted)
+                }
+            } else {
+                Text("AgentNotch")
+                    .font(.system(size: 11, weight: .semibold))
+                    .foregroundColor(.white)
+                Spacer(minLength: 4)
+                Text("idle")
+                    .font(.system(size: 9))
+                    .foregroundColor(DesignTokens.muted)
+            }
+        }
     }
 
     // MARK: - Notice (structure only; nothing triggers this mode yet)
@@ -244,7 +288,7 @@ struct NotchView: View {
                     case .agents:
                         AgentsCell(store: store, uiState: uiState)
                     case .media:
-                        MediaCell()
+                        MediaCell(media: media)
                     case .today:
                         TodayCell()
                     case .system:
@@ -895,15 +939,16 @@ private struct CellSurface<Content: View>: View {
             .overlay(RoundedRectangle(cornerRadius: 14).fill(Color.black.opacity(reduceTransparency ? 0 : 0.32)))
             .overlay(RoundedRectangle(cornerRadius: 14).stroke(Color.white.opacity(0.065), lineWidth: 0.75))
             .overlay(content.padding(7))
+            .clipShape(RoundedRectangle(cornerRadius: 14, style: .continuous))
     }
 }
 
 private struct MediaCell: View {
-    @StateObject private var media = MediaController()
+    @ObservedObject var media: MediaController
 
     var body: some View {
         CellSurface {
-            HStack(spacing: 12) {
+            HStack(spacing: 10) {
                 ZStack {
                     RoundedRectangle(cornerRadius: 12)
                         .fill(LinearGradient(colors: [.purple.opacity(0.75), .blue.opacity(0.55), .black], startPoint: .topLeading, endPoint: .bottomTrailing))
@@ -917,11 +962,13 @@ private struct MediaCell: View {
                             .foregroundColor(.white.opacity(0.82))
                     }
                 }
-                .frame(width: 68, height: 68)
-                .clipShape(RoundedRectangle(cornerRadius: 12))
-                .overlay(RoundedRectangle(cornerRadius: 12).stroke(Color.white.opacity(0.08), lineWidth: 0.5))
-                VStack(alignment: .leading, spacing: 7) {
-                    Text(media.title).font(.system(size: 12, weight: .semibold)).lineLimit(1)
+                .frame(width: 58, height: 58)
+                .clipShape(RoundedRectangle(cornerRadius: 10, style: .continuous))
+                .overlay(RoundedRectangle(cornerRadius: 10, style: .continuous).stroke(Color.white.opacity(0.08), lineWidth: 0.5))
+                VStack(alignment: .leading, spacing: 5) {
+                    MarqueeText(text: media.title, size: 12, weight: .semibold, speed: 24)
+                        .frame(height: 16)
+                        .help(media.title)
                     Text("\(media.artist) · \(media.source)").font(.system(size: 9)).foregroundColor(DesignTokens.muted).lineLimit(1)
                     ProgressView(value: media.progress).progressViewStyle(.linear).tint(.white.opacity(0.9))
                     HStack {
@@ -951,9 +998,86 @@ private struct MediaCell: View {
                     }
                     .font(.system(size: 11))
                 }
+                .frame(maxWidth: .infinity, alignment: .leading)
             }
             .foregroundColor(.white)
+            .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .center)
         }
+    }
+}
+
+private struct CompactMediaWaveform: View {
+    let isPlaying: Bool
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+
+    var body: some View {
+        TimelineView(.animation(minimumInterval: 0.16, paused: reduceMotion || !isPlaying)) { context in
+            let phase = context.date.timeIntervalSinceReferenceDate * 5.5
+            HStack(alignment: .center, spacing: 2) {
+                ForEach(0..<4, id: \.self) { index in
+                    let level = reduceMotion ? 0.45 : 0.35 + abs(sin(phase + Double(index) * 1.35)) * 0.65
+                    Capsule()
+                        .fill(Color.white.opacity(index == 2 ? 0.95 : 0.7))
+                        .frame(width: 2, height: 4 + 9 * level)
+                }
+            }
+            .frame(width: 16, height: 16)
+        }
+        .accessibilityHidden(true)
+    }
+}
+
+private struct MarqueeText: View {
+    let text: String
+    let size: CGFloat
+    let weight: Font.Weight
+    let speed: CGFloat
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+
+    private let gap: CGFloat = 28
+    private let leadingPause: TimeInterval = 1.1
+
+    var body: some View {
+        GeometryReader { proxy in
+            let textWidth = measuredWidth
+            let overflows = textWidth > proxy.size.width + 1
+            TimelineView(.animation(minimumInterval: 1 / 30, paused: reduceMotion || !overflows)) { context in
+                let travel = textWidth + gap
+                let movingDuration = TimeInterval(travel / speed)
+                let cycle = leadingPause + movingDuration
+                let elapsed = context.date.timeIntervalSinceReferenceDate.truncatingRemainder(dividingBy: cycle)
+                let offset = elapsed <= leadingPause ? 0 : min(CGFloat(elapsed - leadingPause) * speed, travel)
+
+                HStack(spacing: gap) {
+                    label
+                    if overflows && !reduceMotion { label }
+                }
+                .offset(x: overflows && !reduceMotion ? -offset : 0)
+                .frame(maxHeight: .infinity, alignment: .center)
+            }
+        }
+        .clipped()
+        .accessibilityElement(children: .ignore)
+        .accessibilityLabel(text)
+    }
+
+    private var label: some View {
+        Text(text)
+            .font(.system(size: size, weight: weight))
+            .foregroundColor(.white)
+            .lineLimit(1)
+            .fixedSize(horizontal: true, vertical: false)
+    }
+
+    private var measuredWidth: CGFloat {
+        let appKitWeight: NSFont.Weight
+        switch weight {
+        case .bold: appKitWeight = .bold
+        case .semibold: appKitWeight = .semibold
+        case .medium: appKitWeight = .medium
+        default: appKitWeight = .regular
+        }
+        return (text as NSString).size(withAttributes: [.font: NSFont.systemFont(ofSize: size, weight: appKitWeight)]).width
     }
 }
 
