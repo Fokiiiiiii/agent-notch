@@ -24,6 +24,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private var soundPlayer: SoundPlayer?
     private var store: SessionStore?
     private var collapseTask: Task<Void, Never>?
+    private var hadPendingPermission = false
     private var cancellables = Set<AnyCancellable>()
 
     func applicationDidFinishLaunching(_ notification: Notification) {
@@ -103,7 +104,14 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
     private func handleQueueChange(isEmpty: Bool) {
         collapseTask?.cancel()
-        guard isEmpty else { return }
+        if !isEmpty {
+            hadPendingPermission = true
+            return
+        }
+        // Ignore the publisher's initial empty value. Only a real transition
+        // from pending to empty should schedule the post-approval collapse.
+        guard hadPendingPermission else { return }
+        hadPendingPermission = false
         collapseTask = Task { [weak self] in
             try? await Task.sleep(nanoseconds: 1_500_000_000)
             guard !Task.isCancelled else { return }

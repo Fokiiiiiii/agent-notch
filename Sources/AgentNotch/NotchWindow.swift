@@ -64,7 +64,7 @@ final class NotchWindowController: NSObject {
     private var closedSize: CGSize
     private let noticeSize = CGSize(width: 400, height: 64)
     private let openSize = CGSize(width: 520, height: 180)
-    private let openOverlaySize = CGSize(width: 520, height: 220)
+    private let openOverlaySize = CGSize(width: 520, height: 204)
     private var hoverTask: Task<Void, Never>?
     private var cancellables = Set<AnyCancellable>()
 
@@ -81,6 +81,7 @@ final class NotchWindowController: NSObject {
     private var dwellTask: Task<Void, Never>?
     private var hideTask: Task<Void, Never>?
     private var shouldPersistVisible = true
+    private var isClickPinned = false
     private var workspaceObserver: NSObjectProtocol?
     private var spaceObserver: NSObjectProtocol?
 
@@ -286,10 +287,12 @@ final class NotchWindowController: NSObject {
             return
         }
         guard permissions.queue.isEmpty else { return }
+        guard !isClickPinned else { return }
         hoverTask = Task { [weak self] in
             try? await Task.sleep(nanoseconds: 140_000_000)
             guard !Task.isCancelled, let self, !self.isHovering else { return }
             guard self.permissions.queue.isEmpty else { return }
+            guard !self.isClickPinned else { return }
             self.setMode(.closed)
         }
     }
@@ -314,6 +317,7 @@ final class NotchWindowController: NSObject {
     func forceShow() {
         dwellTask?.cancel()
         hideTask?.cancel()
+        isClickPinned = false
         uiState.isVisible = true
         setMode(.open)
     }
@@ -321,7 +325,18 @@ final class NotchWindowController: NSObject {
     func toggleOpen() {
         hideTask?.cancel()
         uiState.isVisible = true
-        setMode(uiState.mode == .open ? .closed : .open)
+        if uiState.mode == .open {
+            isClickPinned = false
+            setMode(.closed)
+        } else {
+            isClickPinned = true
+            setMode(.open)
+        }
+    }
+
+    func closeExplicitly() {
+        isClickPinned = false
+        setMode(.closed)
     }
 
     private func handleFrontmostChange(bundleId: String?) {
@@ -340,6 +355,7 @@ final class NotchWindowController: NSObject {
         if shouldPersistVisible {
             showMinimal()
         } else if permissions.queue.isEmpty, !isHovering {
+            isClickPinned = false
             setMode(.closed)
             scheduleHideIfIdle()
         }

@@ -96,6 +96,10 @@ struct NotchView: View {
         .padding(.horizontal, 14)
         .contentShape(Rectangle())
         .onTapGesture { controller.toggleOpen() }
+        .accessibilityElement(children: .combine)
+        .accessibilityAddTraits(.isButton)
+        .accessibilityLabel("Open AgentNotch")
+        .accessibilityAction { controller.toggleOpen() }
     }
 
     // MARK: - Notice (structure only; nothing triggers this mode yet)
@@ -143,15 +147,15 @@ struct NotchView: View {
     private var nookbar: some View {
         HStack(spacing: 6) {
             HStack(spacing: 4) {
-                tabButton(title: "⌁ Nook", isActive: uiState.activeTab == .nook) {
+                tabButton(title: "Nook", icon: "sparkles", isActive: uiState.activeTab == .nook) {
                     uiState.activeTab = .nook
                 }
-                tabButton(title: "▰ Tray", isActive: uiState.activeTab == .tray) {
+                tabButton(title: "Tray", icon: "tray.full", isActive: uiState.activeTab == .tray) {
                     uiState.activeTab = .tray
                 }
             }
             Spacer()
-            Button { controller.setMode(.closed) } label: {
+            Button { controller.closeExplicitly() } label: {
                 Image(systemName: "xmark")
                     .font(.system(size: 13))
                     .foregroundColor(.white.opacity(0.62))
@@ -162,12 +166,12 @@ struct NotchView: View {
         .frame(height: 29)
     }
 
-    private func tabButton(title: String, isActive: Bool, action: @escaping () -> Void) -> some View {
+    private func tabButton(title: String, icon: String, isActive: Bool, action: @escaping () -> Void) -> some View {
         Button(action: action) {
-            Text(title)
-                .font(.system(size: 11, weight: .semibold))
+            Label(title, systemImage: icon)
+                .font(.system(size: 10.5, weight: .semibold))
                 .foregroundColor(isActive ? .white : .white.opacity(0.72))
-                .padding(.horizontal, 11)
+                .padding(.horizontal, 10)
                 .frame(height: 27)
                 .background(
                     Capsule().fill(isActive ? Color.white.opacity(0.13) : Color.clear)
@@ -351,14 +355,12 @@ private struct AgentsCell: View {
     var body: some View {
         cellShape
             .overlay(
-                VStack(alignment: .leading, spacing: 6) {
-                    usageRow
+                VStack(alignment: .leading, spacing: 5) {
                     if let selected {
                         heroRow(selected)
                         activityRow(selected)
-                        sessionList
                         Spacer(minLength: 0)
-                        actionsRow
+                        footerRow
                     } else {
                         Spacer(minLength: 0)
                         Text("No active sessions")
@@ -374,22 +376,12 @@ private struct AgentsCell: View {
     }
 
     private var cellShape: some View {
-        RoundedRectangle(cornerRadius: 16)
+        RoundedRectangle(cornerRadius: 14)
             .fill(DesignTokens.surface2)
             .overlay(
-                RoundedRectangle(cornerRadius: 16)
+                RoundedRectangle(cornerRadius: 14)
                     .stroke(Color.white.opacity(0.035), lineWidth: 1)
             )
-    }
-
-    private var usageRow: some View {
-        // TODO: real rate-limit usage isn't tracked yet; fixed dummy text
-        // matching the design mock until that data source exists.
-        Text("5h 11% 4h1m · 7d 2% 6h1m")
-            .font(.system(size: 8, design: .monospaced))
-            .foregroundColor(.white.opacity(0.43))
-            .frame(height: 18, alignment: .leading)
-            .frame(maxWidth: .infinity, alignment: .leading)
     }
 
     private func heroRow(_ session: AgentSession) -> some View {
@@ -414,9 +406,14 @@ private struct AgentsCell: View {
                     .truncationMode(.tail)
             }
             Spacer(minLength: 4)
-            Text(elapsedString(session))
-                .font(.system(size: 8))
-                .foregroundColor(.white.opacity(0.35))
+            VStack(alignment: .trailing, spacing: 2) {
+                Text(elapsedString(session))
+                    .font(.system(size: 8))
+                    .foregroundColor(.white.opacity(0.42))
+                Text("5h 11% · 7d 2%")
+                    .font(.system(size: 7, design: .monospaced))
+                    .foregroundColor(.white.opacity(0.34))
+            }
         }
         .padding(.horizontal, 6)
         .padding(.vertical, 5)
@@ -441,23 +438,38 @@ private struct AgentsCell: View {
                 .lineLimit(1)
                 .truncationMode(.tail)
             Spacer(minLength: 0)
+            if let actionFeedback {
+                Text(actionFeedback)
+                    .font(.system(size: 7))
+                    .foregroundColor(DesignTokens.muted)
+                    .lineLimit(1)
+            }
         }
         .padding(.horizontal, 6)
         .frame(height: 20)
     }
 
-    private var sessionList: some View {
-        VStack(spacing: 2) {
-            ForEach(others.prefix(2)) { session in
-                SessionListRow(session: session) {
-                    uiState.selectedSessionId = session.id
-                }
-            }
-        }
-    }
-
-    private var actionsRow: some View {
+    private var footerRow: some View {
         HStack(spacing: 4) {
+            ForEach(others.prefix(2)) { session in
+                Button {
+                    uiState.selectedSessionId = session.id
+                } label: {
+                    HStack(spacing: 4) {
+                        Circle().fill(statusColor(session.state)).frame(width: 5, height: 5)
+                        Text(session.agent.displayName)
+                            .font(.system(size: 7.5, weight: .medium))
+                            .lineLimit(1)
+                    }
+                    .foregroundColor(.white.opacity(0.62))
+                    .padding(.horizontal, 7)
+                    .frame(height: 24)
+                    .background(RoundedRectangle(cornerRadius: 8).fill(Color.white.opacity(0.055)))
+                }
+                .buttonStyle(.plain)
+                .help(session.title)
+            }
+            Spacer(minLength: 4)
             MiniButton(title: selected.map { pausedSessionIDs.contains($0.id) ? "Resume" : "Pause" } ?? "Pause") {
                 guard let selected else { return }
                 if pausedSessionIDs.contains(selected.id) {
@@ -476,57 +488,11 @@ private struct AgentsCell: View {
                     Jumper.jump(to: selected)
                 }
             }
-            Spacer(minLength: 3)
-            if let actionFeedback {
-                Text(actionFeedback).font(.system(size: 7)).foregroundColor(DesignTokens.muted).lineLimit(1)
-            }
         }
     }
 
     private func cwdTail(_ cwd: String) -> String {
         URL(fileURLWithPath: cwd).lastPathComponent
-    }
-}
-
-private struct SessionListRow: View {
-    let session: AgentSession
-    let action: () -> Void
-    @State private var hovering = false
-
-    var body: some View {
-        Button(action: action) {
-            HStack(spacing: 6) {
-                Circle()
-                    .fill(statusColor(session.state))
-                    .frame(width: 6, height: 6)
-                Text(session.title)
-                    .font(.system(size: 8.5, weight: .medium))
-                    .foregroundColor(hovering ? .white : .white.opacity(0.52))
-                    .lineLimit(1)
-                    .truncationMode(.tail)
-                Spacer(minLength: 4)
-                Text(session.agent.displayName)
-                    .font(.system(size: 7))
-                    .foregroundColor(.white.opacity(0.7))
-                    .padding(.horizontal, 4)
-                    .padding(.vertical, 1)
-                    .background(
-                        RoundedRectangle(cornerRadius: 4)
-                            .fill(Color.white.opacity(0.08))
-                    )
-                Text(elapsedString(session))
-                    .font(.system(size: 8))
-                    .foregroundColor(.white.opacity(0.3))
-            }
-            .padding(.horizontal, 6)
-            .frame(height: 22)
-            .background(
-                RoundedRectangle(cornerRadius: 7)
-                    .fill(hovering ? Color.white.opacity(0.07) : Color.clear)
-            )
-        }
-        .buttonStyle(.plain)
-        .onHover { hovering = $0 }
     }
 }
 
@@ -539,12 +505,12 @@ private struct MiniButton: View {
     var body: some View {
         Button(action: action) {
             Text(title)
-                .font(.system(size: 8, weight: isPrimary ? .bold : .regular))
+                .font(.system(size: 8.5, weight: isPrimary ? .semibold : .regular))
                 .foregroundColor(textColor)
-                .padding(.horizontal, 7)
-                .frame(height: 22)
+                .padding(.horizontal, 8)
+                .frame(height: 24)
                 .background(
-                    RoundedRectangle(cornerRadius: 7)
+                    RoundedRectangle(cornerRadius: 8)
                         .fill(backgroundColor)
                 )
         }
@@ -574,10 +540,10 @@ private struct CellSurface<Content: View>: View {
     }
 
     var body: some View {
-        RoundedRectangle(cornerRadius: 16)
+        RoundedRectangle(cornerRadius: 14)
             .fill(DesignTokens.surface2)
-            .overlay(RoundedRectangle(cornerRadius: 16).stroke(DesignTokens.line.opacity(0.45), lineWidth: 1))
-            .overlay(content.padding(10))
+            .overlay(RoundedRectangle(cornerRadius: 14).stroke(DesignTokens.line.opacity(0.45), lineWidth: 1))
+            .overlay(content.padding(9))
     }
 }
 
@@ -761,7 +727,7 @@ private struct TrayButton: View {
     let title: String, icon: String, action: () -> Void
     init(_ title: String, _ icon: String, action: @escaping () -> Void) { self.title = title; self.icon = icon; self.action = action }
     var body: some View {
-        Button(action: action) { Label(title, systemImage: icon).font(.system(size: 7.5)).padding(.horizontal, 7).frame(height: 22).background(RoundedRectangle(cornerRadius: 7).fill(Color.white.opacity(0.08))) }.buttonStyle(.plain)
+        Button(action: action) { Label(title, systemImage: icon).font(.system(size: 7.5)).padding(.horizontal, 8).frame(height: 24).background(RoundedRectangle(cornerRadius: 8).fill(Color.white.opacity(0.08))) }.buttonStyle(.plain)
     }
 }
 
@@ -809,14 +775,8 @@ private struct ApprovalOverlayView: View {
     // spec they are intentionally left out for now.
 
     var body: some View {
-        RoundedRectangle(cornerRadius: 16)
-            .fill(DesignTokens.surface2)
-            .overlay(
-                RoundedRectangle(cornerRadius: 16)
-                    .stroke(Color.white.opacity(0.035), lineWidth: 1)
-            )
-            .overlay(
-                VStack(alignment: .leading, spacing: 4) {
+        CellSurface {
+            VStack(alignment: .leading, spacing: 5) {
                     HStack(spacing: 6) {
                         Circle()
                             .fill(DesignTokens.orange)
@@ -849,14 +809,12 @@ private struct ApprovalOverlayView: View {
                             RoundedRectangle(cornerRadius: 6)
                                 .fill(Color.white.opacity(0.04))
                         )
-                    Spacer(minLength: 0)
-                    HStack(spacing: 4) {
-                        MiniButton(title: "Allow Once", isPrimary: true, action: onAllowOnce)
-                        MiniButton(title: "Deny", isDanger: true, action: onDeny)
-                    }
+                Spacer(minLength: 4)
+                HStack(spacing: 5) {
+                    MiniButton(title: "Allow Once", isPrimary: true, action: onAllowOnce)
+                    MiniButton(title: "Deny", isDanger: true, action: onDeny)
                 }
-                .padding(.horizontal, 10)
-                .padding(.vertical, 8)
-            )
+            }
+        }
     }
 }

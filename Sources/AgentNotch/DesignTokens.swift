@@ -20,7 +20,7 @@ enum DesignTokens {
 
     // Shell geometry
     static let closedRadius: CGFloat = 15
-    static let openRadius: CGFloat = 34
+    static let openRadius: CGFloat = 28
     static let shellShadowColor = Color.black.opacity(0.62)
     static let shellShadowRadius: CGFloat = 10
     static let shellShadowY: CGFloat = 3
