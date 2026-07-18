@@ -11,6 +11,7 @@ struct NotchView: View {
     @State private var isDropTargeted = false
     @State private var trayFeedback: String?
     @GestureState private var horizontalDrag: CGFloat = 0
+    @GestureState private var verticalDrag: CGFloat = 0
 
     var body: some View {
         ZStack(alignment: .top) {
@@ -161,6 +162,7 @@ struct NotchView: View {
             .animation(reduceMotion ? .easeOut(duration: 0.14) : DesignTokens.contentTransition, value: contentIdentity)
             .frame(maxHeight: .infinity)
             .offset(x: reduceMotion ? 0 : horizontalDrag / 7)
+            .offset(y: reduceMotion ? 0 : rubberBand(verticalDrag, limit: 36) / 8)
             .opacity(reduceMotion ? 1 : 1 - min(abs(horizontalDrag) / 900, 0.08))
         }
         .padding(.horizontal, 12)
@@ -168,6 +170,7 @@ struct NotchView: View {
         .padding(.bottom, 10)
         .contentShape(Rectangle())
         .simultaneousGesture(horizontalSwipeGesture)
+        .simultaneousGesture(verticalDetailGesture)
         .focusable()
         .focusEffectDisabled()
         .onMoveCommand { direction in
@@ -249,7 +252,13 @@ struct NotchView: View {
                 }
             }
             .frame(maxHeight: .infinity)
-            viewDots
+            if uiState.overlay == nil, uiState.isDetailExpanded {
+                expandedDetail
+                    .transition(.opacity.combined(with: .offset(y: reduceMotion ? 0 : -3)))
+            }
+            if uiState.overlay == nil {
+                viewTabs
+            }
         }
     }
 
@@ -285,23 +294,66 @@ struct NotchView: View {
         }
     }
 
-    private var viewDots: some View {
-        HStack(spacing: 6) {
+    private var viewTabs: some View {
+        HStack(spacing: 4) {
             ForEach(NookView.allCases, id: \.self) { view in
                 Button {
                     selectView(view)
                 } label: {
-                    RoundedRectangle(cornerRadius: 4)
-                        .fill(uiState.activeView == view ? Color.white.opacity(0.72) : Color.white.opacity(0.22))
-                        .frame(width: uiState.activeView == view ? 14 : 5, height: 5)
+                    Label(view.title, systemImage: viewIcon(view))
+                        .font(.system(size: 7.5, weight: .medium))
+                        .foregroundColor(uiState.activeView == view ? .white : .white.opacity(0.48))
+                        .padding(.horizontal, 7)
+                        .frame(height: 18)
+                        .background(
+                            Capsule().fill(uiState.activeView == view ? Color.white.opacity(0.11) : Color.clear)
+                        )
                 }
                 .buttonStyle(NotchPressStyle(pressedScale: 0.9))
-                .hoverLift(cornerRadius: 5, strength: 0.1)
+                .hoverLift(cornerRadius: 9, strength: 0.08)
                 .accessibilityLabel(view.title)
-                .help(view.title)
+                .help(uiState.activeView == view ? "Show or hide details" : "Show \(view.title)")
             }
+            Spacer(minLength: 2)
+            Button { controller.toggleDetailExpansion() } label: {
+                Image(systemName: uiState.isDetailExpanded ? "chevron.up" : "chevron.down")
+                    .font(.system(size: 8, weight: .semibold))
+                    .foregroundColor(.white.opacity(0.48))
+                    .frame(width: 22, height: 18)
+                    .background(Capsule().fill(Color.white.opacity(0.055)))
+            }
+            .buttonStyle(NotchPressStyle(pressedScale: 0.9))
+            .hoverLift(cornerRadius: 9)
+            .help(uiState.isDetailExpanded ? "Collapse details" : "Expand details")
         }
-        .frame(height: 10)
+        .frame(height: 20)
+    }
+
+    private func viewIcon(_ view: NookView) -> String {
+        switch view {
+        case .agents: return "terminal"
+        case .media: return "play.fill"
+        case .today: return "calendar"
+        case .system: return "gauge.with.dots.needle.50percent"
+        }
+    }
+
+    @ViewBuilder
+    private var expandedDetail: some View {
+        switch uiState.activeView {
+        case .agents:
+            DetailStrip(items: [
+                ("Repository", selectedSession.map { URL(fileURLWithPath: $0.cwd).lastPathComponent } ?? "—"),
+                ("Activity", selectedSession?.lastMessage ?? "No active session"),
+                ("Usage", "5h 11% · 7d 2%")
+            ])
+        case .media:
+            DetailStrip(items: [("Output", "MacBook Pro"), ("Quality", "Lossless · 24-bit"), ("Up Next", "Midnight City")])
+        case .today:
+            DetailStrip(items: [("Next", "Design sync · 10:30"), ("Focus", "2h available"), ("Calendar", "Studio")])
+        case .system:
+            DetailStrip(items: [("CPU", "18% · 48°C"), ("Network", "42 MB/s"), ("Docker", "Layer 12 of 18")])
+        }
     }
 
     private var trayPlaceholder: some View {
@@ -358,6 +410,23 @@ struct NotchView: View {
             }
     }
 
+    private var verticalDetailGesture: some Gesture {
+        DragGesture(minimumDistance: 10, coordinateSpace: .local)
+            .updating($verticalDrag) { value, state, _ in
+                guard uiState.overlay == nil,
+                      abs(value.translation.height) > abs(value.translation.width) else { return }
+                state = value.translation.height
+            }
+            .onEnded { value in
+                guard uiState.overlay == nil,
+                      abs(value.translation.height) > abs(value.translation.width) * 1.15 else { return }
+                let projected = value.predictedEndTranslation.height
+                let committed = abs(value.translation.height) > 34 || abs(projected) > 58
+                guard committed else { return }
+                controller.setDetailExpanded(projected > 0)
+            }
+    }
+
     private func rubberBand(_ value: CGFloat, limit: CGFloat) -> CGFloat {
         let magnitude = abs(value)
         let damped = (magnitude * limit * 0.55) / (limit + 0.55 * magnitude)
@@ -365,7 +434,10 @@ struct NotchView: View {
     }
 
     private func selectTab(_ tab: NotchTab) {
-        guard uiState.activeTab != tab else { return }
+        if uiState.activeTab == tab {
+            controller.toggleDetailExpansion()
+            return
+        }
         SoundPlayer.shared.play(.navigation)
         withAnimation(reduceMotion ? .easeOut(duration: 0.12) : DesignTokens.spring) {
             uiState.activeTab = tab
@@ -373,7 +445,10 @@ struct NotchView: View {
     }
 
     private func selectView(_ view: NookView) {
-        guard uiState.activeView != view else { return }
+        if uiState.activeView == view {
+            controller.toggleDetailExpansion()
+            return
+        }
         SoundPlayer.shared.play(.navigation)
         withAnimation(reduceMotion ? .easeOut(duration: 0.12) : DesignTokens.contentTransition) {
             uiState.activeView = view
@@ -399,6 +474,31 @@ struct NotchView: View {
         let views = NookView.allCases
         guard let index = views.firstIndex(of: uiState.activeView), index > 0 else { return }
         selectView(views[index - 1])
+    }
+}
+
+private struct DetailStrip: View {
+    let items: [(String, String)]
+
+    var body: some View {
+        HStack(spacing: 6) {
+            ForEach(Array(items.enumerated()), id: \.offset) { _, item in
+                VStack(alignment: .leading, spacing: 2) {
+                    Text(item.0)
+                        .font(.system(size: 6.5, weight: .medium))
+                        .foregroundColor(DesignTokens.muted)
+                    Text(item.1)
+                        .font(.system(size: 8.5, weight: .medium))
+                        .foregroundColor(.white.opacity(0.82))
+                        .lineLimit(2)
+                        .truncationMode(.tail)
+                        .help(item.1)
+                }
+                .frame(maxWidth: .infinity, minHeight: 42, alignment: .leading)
+                .padding(.horizontal, 8)
+                .background(RoundedRectangle(cornerRadius: 9).fill(Color.white.opacity(0.055)))
+            }
+        }
     }
 }
 

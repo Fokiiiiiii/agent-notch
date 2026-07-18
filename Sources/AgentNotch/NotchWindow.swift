@@ -51,6 +51,7 @@ final class NotchUIState: ObservableObject {
     @Published var overlay: IslandOverlay? = nil
     @Published var approvalOutcome: ApprovalOutcome? = nil
     @Published var selectedSessionId: String? = nil
+    @Published var isDetailExpanded = false
     /// Whether the notch is visible at all (fully independent of `mode`,
     /// which only tracks compact/notice/open *sizing* once visible). See
     /// `NotchWindowController`'s visibility state machine.
@@ -69,6 +70,7 @@ final class NotchWindowController: NSObject {
     private var closedSize: CGSize
     private let noticeSize = CGSize(width: 320, height: 50)
     private let openSize = CGSize(width: 484, height: 168)
+    private let openDetailSize = CGSize(width: 484, height: 244)
     private let openOverlaySize = CGSize(width: 484, height: 196)
     private var hoverTask: Task<Void, Never>?
     private var cancellables = Set<AnyCancellable>()
@@ -93,6 +95,9 @@ final class NotchWindowController: NSObject {
     private var horizontalScrollTotal: CGFloat = 0
     private var didCommitCurrentScroll = false
     private var lastDiscreteScrollSwitch: TimeInterval = 0
+    private var verticalScrollTotal: CGFloat = 0
+    private var didCommitCurrentVerticalScroll = false
+    private var lastDiscreteVerticalSwitch: TimeInterval = 0
 
     /// Whether the pointer is currently inside the notch. Consulted by
     /// AppDelegate before auto-collapsing after the permission queue drains.
@@ -204,7 +209,7 @@ final class NotchWindowController: NSObject {
         }
 
         scrollMonitor = NSEvent.addLocalMonitorForEvents(matching: .scrollWheel) { [weak self] event in
-            self?.handleHorizontalScroll(event)
+            self?.handleScroll(event)
             return event
         }
     }
@@ -269,7 +274,11 @@ final class NotchWindowController: NSObject {
         case .notice:
             targetSize = noticeSize
         case .open:
-            targetSize = uiState.hasOverlay ? openOverlaySize : openSize
+            if uiState.hasOverlay {
+                targetSize = openOverlaySize
+            } else {
+                targetSize = uiState.isDetailExpanded ? openDetailSize : openSize
+            }
         }
 
         let targetFrame = NotchWindowController.frame(for: targetSize, on: screen)
@@ -371,6 +380,7 @@ final class NotchWindowController: NSObject {
         uiState.isVisible = true
         if uiState.mode == .open {
             isClickPinned = false
+            uiState.isDetailExpanded = false
             setMode(.closed)
         } else {
             isClickPinned = true
@@ -381,7 +391,20 @@ final class NotchWindowController: NSObject {
     func closeExplicitly() {
         isClickPinned = false
         uiState.approvalOutcome = nil
+        uiState.isDetailExpanded = false
         setMode(.closed)
+    }
+
+    func setDetailExpanded(_ expanded: Bool) {
+        guard uiState.mode == .open, uiState.overlay == nil else { return }
+        guard uiState.isDetailExpanded != expanded else { return }
+        uiState.isDetailExpanded = expanded
+        resizeForCurrentState()
+        SoundPlayer.shared.play(.navigation)
+    }
+
+    func toggleDetailExpansion() {
+        setDetailExpanded(!uiState.isDetailExpanded)
     }
 
     func showApprovalOutcome(allowed: Bool) {
@@ -443,7 +466,7 @@ final class NotchWindowController: NSObject {
         hideTask?.cancel()
     }
 
-    private func handleHorizontalScroll(_ event: NSEvent) {
+    private func handleScroll(_ event: NSEvent) {
         guard uiState.isVisible,
               uiState.mode == .open,
               uiState.overlay == nil,
@@ -451,7 +474,14 @@ final class NotchWindowController: NSObject {
 
         let deltaX = event.scrollingDeltaX
         let deltaY = event.scrollingDeltaY
-        guard abs(deltaX) > abs(deltaY) * 1.15, abs(deltaX) > 0.25 else { return }
+        if abs(deltaY) > abs(deltaX) * 1.15, abs(deltaY) > 0.25 {
+            handleVerticalScroll(event, delta: deltaY)
+        } else if abs(deltaX) > abs(deltaY) * 1.15, abs(deltaX) > 0.25 {
+            handleHorizontalScroll(event, delta: deltaX)
+        }
+    }
+
+    private func handleHorizontalScroll(_ event: NSEvent, delta deltaX: CGFloat) {
 
         if event.phase == .began {
             horizontalScrollTotal = 0
@@ -480,6 +510,38 @@ final class NotchWindowController: NSObject {
         if isDiscreteWheel {
             horizontalScrollTotal = 0
             didCommitCurrentScroll = false
+        }
+    }
+
+    private func handleVerticalScroll(_ event: NSEvent, delta deltaY: CGFloat) {
+        if event.phase == .began {
+            verticalScrollTotal = 0
+            didCommitCurrentVerticalScroll = false
+        }
+
+        verticalScrollTotal += deltaY
+        let isDiscreteWheel = event.phase.isEmpty && event.momentumPhase.isEmpty
+        let threshold: CGFloat = isDiscreteWheel ? 1.5 : 18
+        let now = event.timestamp
+        let canCommit = isDiscreteWheel
+            ? now - lastDiscreteVerticalSwitch > 0.28
+            : !didCommitCurrentVerticalScroll
+
+        guard canCommit, abs(verticalScrollTotal) >= threshold else {
+            if event.phase == .ended || event.phase == .cancelled {
+                verticalScrollTotal = 0
+                didCommitCurrentVerticalScroll = false
+            }
+            return
+        }
+
+        didCommitCurrentVerticalScroll = true
+        lastDiscreteVerticalSwitch = now
+        setDetailExpanded(verticalScrollTotal < 0)
+
+        if isDiscreteWheel {
+            verticalScrollTotal = 0
+            didCommitCurrentVerticalScroll = false
         }
     }
 
