@@ -52,9 +52,34 @@ agent-notch session attention --id build-123 --agent codex --message "Approval r
 agent-notch session done --id build-123 --agent codex --message "All tests passed"
 agent-notch session fail --id build-123 --agent codex --message "2 tests failed"
 agent-notch session remove --id build-123 --agent codex
+
+# 対応CLIを自動検出し、バックアップ付きでnative hookを設定
+agent-notch setup
+agent-notch setup --dry-run
+agent-notch setup --all          # 未インストールCLI用の設定経路も作成
+
+# native hookがない／不安定なCLIは共通ラッパーで追跡
+agent-notch run --agent cursor -- cursor-agent
+cursor-notch                     # 上記の短縮ラッパー
 ```
 
 CLIは`~/.agent-notch/run/agent-notch.sock`だけを使用し、外部通信やテレメトリは行わない。`--id`を省略した場合はagentとcwdから安定したIDを生成する。
+
+### Agent連携
+
+| Agent | 接続方法 |
+| --- | --- |
+| Claude Code | native hooks + transcript |
+| Codex | notify + rollout logs |
+| Gemini CLI | native hooks (`~/.gemini/settings.json`) |
+| GitHub Copilot CLI | native user hooks (`~/.copilot/hooks/agent-notch.json`) |
+| OpenCode | native global plugin (`~/.config/opencode/plugins/agent-notch.js`) |
+| Aider | native notifications command |
+| Cursor Agent | `cursor-notch` / `agent-notch run` |
+| Goose | `goose-notch` / `agent-notch run` |
+| Antigravity | conversation watcher |
+
+自動設定は管理対象の設定だけを置換し、既存ファイルには`backup.agent-notch.<timestamp>`を作る。`gemini-notch`、`copilot-notch`、`cursor-notch`、`opencode-notch`、`aider-notch`、`goose-notch`は常に生成される。
 
 ## 表示挙動
 

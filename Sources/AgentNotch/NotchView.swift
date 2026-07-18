@@ -427,6 +427,18 @@ private func glyphContent(_ agent: AgentKind?, size: CGFloat) -> some View {
         Text("›_").font(.system(size: size - 1, weight: .bold, design: .monospaced))
     case .antigravity:
         Image(systemName: "paperplane.fill").font(.system(size: size))
+    case .gemini:
+        Text("✦").font(.system(size: size))
+    case .copilot:
+        Image(systemName: "infinity").font(.system(size: size, weight: .semibold))
+    case .cursor:
+        Image(systemName: "cursorarrow").font(.system(size: size))
+    case .opencode:
+        Text(">_").font(.system(size: size - 1, weight: .bold, design: .monospaced))
+    case .aider:
+        Text("A").font(.system(size: size - 1, weight: .bold, design: .rounded))
+    case .goose:
+        Image(systemName: "bird.fill").font(.system(size: size))
     case .none:
         Text("⌁").font(.system(size: size + 1))
     }

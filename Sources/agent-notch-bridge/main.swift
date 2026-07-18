@@ -108,8 +108,10 @@ AgentNotch CLI
 
   agent-notch ping
   agent-notch show | hide | toggle
+  agent-notch setup [--all]
+  agent-notch run --agent AGENT [--id ID] [--title TEXT] -- COMMAND [ARG...]
   agent-notch session <start|update|done|fail|attention|pause|remove>
-      [--id ID] [--agent claude|codex|antigravity]
+      [--id ID] [--agent AGENT]
       [--title TEXT] [--message TEXT] [--cwd PATH]
 """
 
@@ -118,10 +120,132 @@ private func option(_ name: String, in arguments: [String]) -> String? {
     return arguments[index + 1]
 }
 
+private let supportedAgents = ["claude", "codex", "antigravity", "gemini", "copilot", "cursor", "opencode", "aider", "goose"]
+
+private func sendCLIEvent(_ payload: [String: Any]) -> Bool {
+    let fd = connectSocket()
+    guard fd >= 0 else { return false }
+    let sent = writeEnvelope(payload, to: fd)
+    Darwin.close(fd)
+    return sent
+}
+
+private func runSetup(arguments: [String]) -> Never {
+    let script = FileManager.default.homeDirectoryForCurrentUser
+        .appendingPathComponent(".agent-notch/bin/setup-integrations")
+    guard FileManager.default.isExecutableFile(atPath: script.path) else {
+        cliExit("agent-notch: setup helper is not installed", code: 1)
+    }
+    let process = Process()
+    process.executableURL = URL(fileURLWithPath: "/bin/bash")
+    process.arguments = [script.path] + arguments
+    process.standardInput = FileHandle.standardInput
+    process.standardOutput = FileHandle.standardOutput
+    process.standardError = FileHandle.standardError
+    do { try process.run() } catch { cliExit("agent-notch: setup failed: \(error.localizedDescription)", code: 1) }
+    process.waitUntilExit()
+    exit(process.terminationStatus)
+}
+
+private func runWrappedCommand(arguments: [String]) -> Never {
+    guard let separator = arguments.firstIndex(of: "--"), arguments.indices.contains(separator + 1) else {
+        cliExit("agent-notch: run requires -- COMMAND [ARG...]", code: 2)
+    }
+    let options = Array(arguments[..<separator])
+    let command = Array(arguments[(separator + 1)...])
+    let agent = option("--agent", in: options) ?? "claude"
+    guard supportedAgents.contains(agent) else { cliExit("agent-notch: invalid agent: \(agent)", code: 2) }
+    let cwd = FileManager.default.currentDirectoryPath
+    let id = option("--id", in: options) ?? "\(agent)-\(UUID().uuidString.lowercased())"
+    let title = option("--title", in: options) ?? command[0]
+
+    func event(_ action: String, message: String) -> [String: Any] {
+        [
+            "hook_event_name": "AgentNotchSession",
+            "session_id": id,
+            "cwd": cwd,
+            "tool_input": ["action": action, "agent": agent, "title": title, "message": message],
+        ]
+    }
+
+    guard sendCLIEvent(event("start", message: "Running \(command[0])…")) else {
+        cliExit("agent-notch: app is not running", code: 1)
+    }
+
+    let process = Process()
+    process.executableURL = URL(fileURLWithPath: "/usr/bin/env")
+    process.arguments = command
+    process.standardInput = FileHandle.standardInput
+    process.standardOutput = FileHandle.standardOutput
+    process.standardError = FileHandle.standardError
+    do {
+        try process.run()
+    } catch {
+        _ = sendCLIEvent(event("fail", message: error.localizedDescription))
+        cliExit("agent-notch: could not launch \(command[0]): \(error.localizedDescription)", code: 127)
+    }
+    process.waitUntilExit()
+    let succeeded = process.terminationStatus == 0
+    _ = sendCLIEvent(event(succeeded ? "done" : "fail", message: succeeded ? "Command completed" : "Exited with status \(process.terminationStatus)"))
+    exit(process.terminationStatus)
+}
+
+private func runAgentHook(agent: String) -> Never {
+    guard supportedAgents.contains(agent) else { fail() }
+    let data = readStdinToEOF()
+    guard let object = (try? JSONSerialization.jsonObject(with: data)) as? [String: Any] else { fail() }
+
+    let rawEvent = (object["hook_event_name"] as? String)
+        ?? (object["eventName"] as? String)
+        ?? (object["type"] as? String)
+        ?? "update"
+    let lowerEvent = rawEvent.lowercased()
+    let action: String
+    if lowerEvent.contains("start") || lowerEvent == "session.created" {
+        action = "start"
+    } else if lowerEvent.contains("error") || lowerEvent.contains("fail") {
+        action = "fail"
+    } else if lowerEvent.contains("permission") || lowerEvent.contains("notification") {
+        action = "attention"
+    } else if lowerEvent.contains("end") || lowerEvent.contains("stop") || lowerEvent == "session.idle" || lowerEvent == "afteragent" {
+        action = "done"
+    } else {
+        action = "update"
+    }
+
+    let nestedSession = object["session"] as? [String: Any]
+    let sessionId = (object["session_id"] as? String)
+        ?? (object["sessionId"] as? String)
+        ?? (nestedSession?["id"] as? String)
+        ?? "\(agent):\(FileManager.default.currentDirectoryPath)"
+    let cwd = (object["cwd"] as? String) ?? FileManager.default.currentDirectoryPath
+    let toolName = (object["tool_name"] as? String) ?? (object["toolName"] as? String)
+    let message = (object["message"] as? String)
+        ?? (object["notification_message"] as? String)
+        ?? toolName.map { "Running \($0)…" }
+        ?? rawEvent
+    let title = URL(fileURLWithPath: cwd).lastPathComponent
+
+    _ = sendCLIEvent([
+        "hook_event_name": "AgentNotchSession",
+        "session_id": sessionId,
+        "cwd": cwd,
+        "tool_input": ["action": action, "agent": agent, "title": title, "message": message],
+    ])
+    // Native hook hosts require valid, quiet JSON on stdout.
+    cliExit("{}")
+}
+
 private func runCLI(arguments: [String]) -> Never {
     guard let command = arguments.first else { cliExit(cliHelp) }
     if command == "help" || command == "--help" || command == "-h" {
         cliExit(cliHelp)
+    }
+    if command == "setup" {
+        runSetup(arguments: Array(arguments.dropFirst()))
+    }
+    if command == "run" {
+        runWrappedCommand(arguments: Array(arguments.dropFirst()))
     }
 
     let payload: [String: Any]
@@ -139,7 +263,7 @@ private func runCLI(arguments: [String]) -> Never {
         let allowedActions = ["start", "update", "done", "fail", "attention", "pause", "remove"]
         guard allowedActions.contains(action) else { cliExit("agent-notch: invalid session action: \(action)", code: 2) }
         let agent = option("--agent", in: arguments) ?? "claude"
-        guard ["claude", "codex", "antigravity"].contains(agent) else {
+        guard supportedAgents.contains(agent) else {
             cliExit("agent-notch: invalid agent: \(agent)", code: 2)
         }
         let cwd = option("--cwd", in: arguments) ?? FileManager.default.currentDirectoryPath
@@ -184,6 +308,9 @@ if executableName == "agent-notch" {
 }
 if CommandLine.arguments.count >= 2, CommandLine.arguments[1] == "--cli" {
     runCLI(arguments: Array(CommandLine.arguments.dropFirst(2)))
+}
+if CommandLine.arguments.count >= 3, CommandLine.arguments[1] == "--agent-hook" {
+    runAgentHook(agent: CommandLine.arguments[2])
 }
 
 // MARK: - Codex notify mode
