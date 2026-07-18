@@ -91,6 +91,7 @@ CLIは`~/.agent-notch/run/agent-notch.sock`だけを使用し、外部通信や�
 ## UI
 
 - Nook: Agents / Media / Today / Systemを1ページ1主要機能で切り替え。
+- Media: macOSの現在の再生セッションを自動検出し、Music / Spotify / Safari / Chromium系ブラウザなどControl Center対応プレイヤーの曲情報、アートワーク、進捗、再生操作を表示。
 - Tray: ローカルファイルの一時ShelfとAirDrop / Compress / Copy Path / AI Attach操作。
 - Agent: 複数セッション、状態、現在の処理、Pause / Resume / Stop / Terminal。
 - Approval / Plan Review / Agent QuestionはNook内のインライン操作面として表示。
@@ -100,4 +101,8 @@ CLIは`~/.agent-notch/run/agent-notch.sock`だけを使用し、外部通信や�
 - Pause / Resume / Stopの実エージェント制御チャネル
 - Claude / Codexのusage実値
 - Plan Reviewの実イベント配送
-- OSのMedia Remote・カレンダー・バッテリー・バックグラウンドタスク実データ
+- OSのカレンダー・バックグラウンドタスク実データ
+
+## Third-party components
+
+- `Vendor/MediaRemoteAdapter`: BSD 3-Clause License. macOSの現在の再生セッション取得・操作に使用。ライセンス全文は同ディレクトリの`LICENSE`に収録。

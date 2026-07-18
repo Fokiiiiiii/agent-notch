@@ -65,19 +65,30 @@ final class TodayModel: ObservableObject {
 final class MediaController: ObservableObject {
     @Published private(set) var source = "No media"
     @Published private(set) var title = "Nothing Playing"
-    @Published private(set) var artist = "Open Music or Spotify"
+    @Published private(set) var artist = "Play media in any app"
     @Published private(set) var isPlaying = false
     @Published private(set) var position = 0.0
     @Published private(set) var duration = 1.0
     @Published private(set) var isConnected = false
+    @Published private(set) var hasMedia = false
+    @Published private(set) var artwork: NSImage?
 
     private var timer: AnyCancellable?
+    private var refreshInFlight = false
+    private let adapterScriptPath: String?
+    private let adapterLibraryPath: String?
 
     init() {
-        timer = Timer.publish(every: 2, on: .main, in: .common)
+        adapterScriptPath = Bundle.main.resourceURL?
+            .appendingPathComponent("mediaremote-adapter.pl").path
+        adapterLibraryPath = Bundle.main.resourceURL?
+            .appendingPathComponent("MediaRemoteAdapter.dylib").path
+        isConnected = adapterScriptPath.map(FileManager.default.fileExists) == true
+            && adapterLibraryPath.map(FileManager.default.fileExists) == true
+        refresh()
+        timer = Timer.publish(every: 1.5, on: .main, in: .common)
             .autoconnect()
             .sink { [weak self] _ in
-                guard self?.isConnected == true else { return }
                 self?.refresh()
             }
     }
@@ -87,70 +98,120 @@ final class MediaController: ObservableObject {
         return min(max(position / duration, 0), 1)
     }
 
-    func togglePlayback() { run(command: "playpause") }
-    func previous() { run(command: "previous track") }
-    func next() { run(command: "next track") }
-    func connect() {
-        isConnected = true
-        refresh()
+    func togglePlayback() { send(command: 2) }
+    func previous() { send(command: 5) }
+    func next() { send(command: 4) }
+    func connect() { refresh() }
+
+    func refresh() {
+        guard !refreshInFlight,
+              let script = adapterScriptPath,
+              let library = adapterLibraryPath else { return }
+        refreshInFlight = true
+        Task {
+            let snapshot = await Task.detached(priority: .utility) {
+                SystemMediaBridge.read(script: script, library: library)
+            }.value
+            refreshInFlight = false
+            apply(snapshot)
+        }
     }
 
-    private func activeBundleID() -> String? {
-        let running = NSWorkspace.shared.runningApplications
-        if running.contains(where: { $0.bundleIdentifier == "com.apple.Music" }) { return "com.apple.Music" }
-        if running.contains(where: { $0.bundleIdentifier == "com.spotify.client" }) { return "com.spotify.client" }
-        return nil
-    }
-
-    private func refresh() {
-        guard let bundleID = activeBundleID() else {
-            source = "No media"
+    private func apply(_ snapshot: SystemMediaSnapshot?) {
+        guard let snapshot else {
+            source = isConnected ? "System media" : "Media unavailable"
             title = "Nothing Playing"
-            artist = "Open Music or Spotify"
+            artist = isConnected ? "Play media in any app" : "Media adapter is missing"
             isPlaying = false
             position = 0
             duration = 1
+            hasMedia = false
+            artwork = nil
             return
         }
 
-        let application = bundleID == "com.apple.Music" ? "Music" : "Spotify"
-        let script = """
-        tell application "\(application)"
-            if player state is stopped then return "stopped"
-            set trackName to name of current track
-            set artistName to artist of current track
-            set trackDuration to duration of current track
-            set trackPosition to player position
-            set playingNow to (player state is playing)
-            return trackName & "|||" & artistName & "|||" & trackDuration & "|||" & trackPosition & "|||" & playingNow
-        end tell
-        """
-        var error: NSDictionary?
-        guard let value = NSAppleScript(source: script)?.executeAndReturnError(&error).stringValue,
-              value != "stopped" else {
-            source = application
-            title = "Nothing Playing"
-            artist = application
-            isPlaying = false
-            return
+        let application = snapshot.bundleIdentifier.flatMap {
+            NSRunningApplication.runningApplications(withBundleIdentifier: $0).first?.localizedName
         }
-        let parts = value.components(separatedBy: "|||")
-        guard parts.count == 5 else { return }
-        source = application
-        title = parts[0]
-        artist = parts[1]
-        duration = Double(parts[2]) ?? 1
-        position = Double(parts[3]) ?? 0
-        isPlaying = parts[4].lowercased() == "true"
+        source = application ?? snapshot.bundleIdentifier ?? "System media"
+        title = snapshot.title
+        artist = snapshot.artist?.isEmpty == false ? snapshot.artist! : source
+        isPlaying = snapshot.isPlaying
+        position = snapshot.position
+        duration = max(snapshot.duration, 1)
+        hasMedia = true
+        artwork = snapshot.artworkData.flatMap(NSImage.init(data:))
     }
 
-    private func run(command: String) {
-        guard let bundleID = activeBundleID() else { return }
-        let application = bundleID == "com.apple.Music" ? "Music" : "Spotify"
-        var error: NSDictionary?
-        NSAppleScript(source: "tell application \"\(application)\" to \(command)")?
-            .executeAndReturnError(&error)
-        refresh()
+    private func send(command: Int) {
+        guard let script = adapterScriptPath, let library = adapterLibraryPath else { return }
+        Task {
+            _ = await Task.detached(priority: .userInitiated) {
+                SystemMediaBridge.send(command: command, script: script, library: library)
+            }.value
+            refresh()
+        }
+    }
+}
+
+private struct SystemMediaSnapshot: Sendable {
+    let bundleIdentifier: String?
+    let title: String
+    let artist: String?
+    let isPlaying: Bool
+    let position: Double
+    let duration: Double
+    let artworkData: Data?
+}
+
+private enum SystemMediaBridge {
+    static func read(script: String, library: String) -> SystemMediaSnapshot? {
+        guard let data = run(script: script, library: library, arguments: ["get"]),
+              let object = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+              let title = object["title"] as? String,
+              !title.isEmpty else { return nil }
+
+        let artworkData: Data?
+        if let encoded = object["artworkData"] as? String {
+            artworkData = Data(base64Encoded: encoded)
+        } else {
+            artworkData = nil
+        }
+        return SystemMediaSnapshot(
+            bundleIdentifier: object["bundleIdentifier"] as? String,
+            title: title,
+            artist: object["artist"] as? String,
+            isPlaying: object["playing"] as? Bool ?? false,
+            position: number(object["elapsedTimeNow"] ?? object["elapsedTime"]),
+            duration: number(object["duration"]),
+            artworkData: artworkData
+        )
+    }
+
+    @discardableResult
+    static func send(command: Int, script: String, library: String) -> Bool {
+        run(script: script, library: library, arguments: ["send", String(command)]) != nil
+    }
+
+    private static func number(_ value: Any?) -> Double {
+        (value as? NSNumber)?.doubleValue ?? 0
+    }
+
+    private static func run(script: String, library: String, arguments: [String]) -> Data? {
+        let process = Process()
+        let output = Pipe()
+        process.executableURL = URL(fileURLWithPath: "/usr/bin/perl")
+        process.arguments = [script, library] + arguments
+        process.standardOutput = output
+        process.standardError = FileHandle.nullDevice
+        do {
+            try process.run()
+            let data = output.fileHandleForReading.readDataToEndOfFile()
+            process.waitUntilExit()
+            return process.terminationStatus == 0 ? data : nil
+        } catch {
+            return nil
+        }
     }
 }
 

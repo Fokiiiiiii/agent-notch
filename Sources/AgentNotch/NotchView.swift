@@ -354,7 +354,7 @@ struct NotchView: View {
                 ("Usage", "5h 11% · 7d 2%")
             ])
         case .media:
-            DetailStrip(items: [("Sources", "Music · Spotify"), ("Control", "Local Apple Events"), ("Privacy", "No telemetry")])
+            DetailStrip(items: [("Sources", "System Now Playing"), ("Control", "Current media session"), ("Privacy", "Local only")])
         case .today:
             DetailStrip(items: [("Calendar", "Today only"), ("Focus", "Local timer"), ("Privacy", "On-device")])
         case .system:
@@ -904,25 +904,37 @@ private struct MediaCell: View {
     var body: some View {
         CellSurface {
             HStack(spacing: 12) {
-                RoundedRectangle(cornerRadius: 12)
-                    .fill(LinearGradient(colors: [.purple.opacity(0.9), .blue.opacity(0.7), .black], startPoint: .topLeading, endPoint: .bottomTrailing))
-                    .frame(width: 68, height: 68)
-                    .overlay(Image(systemName: "waveform").font(.system(size: 21, weight: .light)).foregroundColor(.white.opacity(0.82)))
+                ZStack {
+                    RoundedRectangle(cornerRadius: 12)
+                        .fill(LinearGradient(colors: [.purple.opacity(0.75), .blue.opacity(0.55), .black], startPoint: .topLeading, endPoint: .bottomTrailing))
+                    if let artwork = media.artwork {
+                        Image(nsImage: artwork)
+                            .resizable()
+                            .scaledToFill()
+                    } else {
+                        Image(systemName: media.hasMedia ? "waveform" : "music.note")
+                            .font(.system(size: 21, weight: .light))
+                            .foregroundColor(.white.opacity(0.82))
+                    }
+                }
+                .frame(width: 68, height: 68)
+                .clipShape(RoundedRectangle(cornerRadius: 12))
+                .overlay(RoundedRectangle(cornerRadius: 12).stroke(Color.white.opacity(0.08), lineWidth: 0.5))
                 VStack(alignment: .leading, spacing: 7) {
                     Text(media.title).font(.system(size: 12, weight: .semibold)).lineLimit(1)
                     Text("\(media.artist) · \(media.source)").font(.system(size: 9)).foregroundColor(DesignTokens.muted).lineLimit(1)
                     ProgressView(value: media.progress).progressViewStyle(.linear).tint(.white.opacity(0.9))
                     HStack {
-                        if media.isConnected {
+                        if media.hasMedia {
                             MediaControlButton(icon: "backward.fill", help: "Previous", action: media.previous)
                             MediaControlButton(icon: media.isPlaying ? "pause.fill" : "play.fill", help: media.isPlaying ? "Pause" : "Play", prominent: true, action: media.togglePlayback)
                             MediaControlButton(icon: "forward.fill", help: "Next", action: media.next)
                         } else {
                             Button {
                                 SoundPlayer.shared.play(.action)
-                                media.connect()
+                                media.refresh()
                             } label: {
-                                Label("Connect Music", systemImage: "music.note")
+                                Label("Check Now Playing", systemImage: "arrow.clockwise")
                                     .font(.system(size: 8.5, weight: .medium))
                                     .padding(.horizontal, 9)
                                     .frame(height: 24)
@@ -930,10 +942,10 @@ private struct MediaCell: View {
                             }
                             .buttonStyle(NotchPressStyle())
                             .hoverLift(cornerRadius: 8)
-                            .help("Connect to a running Music or Spotify app")
+                            .help("Check the current macOS media session")
                         }
                         Spacer()
-                        Text(media.isConnected ? media.source : "Local only")
+                        Text(media.isConnected ? media.source : "Unavailable")
                             .font(.system(size: 7.5))
                             .foregroundColor(DesignTokens.muted)
                     }
