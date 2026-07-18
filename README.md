@@ -20,6 +20,7 @@ bash scripts/install-hooks.sh
 ```
 
 - bridge を `~/.agent-notch/bin/agent-notch-bridge` にコピーし、`~/.claude/settings.json` の hooks（Notification / PermissionRequest / Stop / SessionStart / SessionEnd）を登録する。実行前に settings.json を自動バックアップ。
+- 共通CLIを `~/.local/bin/agent-notch` に配置する（PATHに`~/.local/bin`が必要）。
 - Codex は `~/.codex/config.toml` の `notify` → `~/.agent-notch/bin/codex-notify`（既存 Computer Use クライアントと多重配送するラッパー）。
 
 ## アーキテクチャ
@@ -35,11 +36,31 @@ Antigravity ──── conversations/ mtime ──────────┘
 - PermissionRequest はブロッキング hook: bridge がソケットで承認要求を送り、ノッチの Allow/Deny 押下で decision JSON を hook stdout に返す。応答不能時は無出力 exit 0 で通常プロンプトにフォールバック。
 - デバッグ: 受信イベントは `~/.agent-notch/events.log` に追記される。
 
+## 共通CLI
+
+```bash
+agent-notch ping
+agent-notch show                 # Nookを固定表示
+agent-notch hide
+agent-notch toggle
+
+agent-notch session start \
+  --id build-123 --agent codex \
+  --title "Build API" --message "Running tests" --cwd "$PWD"
+agent-notch session update --id build-123 --agent codex --message "18 / 24 tests"
+agent-notch session attention --id build-123 --agent codex --message "Approval required"
+agent-notch session done --id build-123 --agent codex --message "All tests passed"
+agent-notch session fail --id build-123 --agent codex --message "2 tests failed"
+agent-notch session remove --id build-123 --agent codex
+```
+
+CLIは`~/.agent-notch/run/agent-notch.sock`だけを使用し、外部通信やテレメトリは行わない。`--id`を省略した場合はagentとcwdから安定したIDを生成する。
+
 ## 表示挙動
 
 - Finderを含む通常のSpaceでは最小ノッチを常時表示する。
 - Finder以外のアプリが真のフルスクリーンになった場合だけ隠し、画面上端中央への300ms滞留で再表示する。
-- 200msのhoverでNookを展開し、離脱時は140ms後に縮小する。承認待ち中は自動で閉じない。
+- クリックでNookを確実に開閉する。hoverは部品の反応に限定し、承認待ち中は自動で閉じない。
 - 承認要求・イベント時は自動で表示+展開する。
 
 ## UI

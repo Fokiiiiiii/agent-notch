@@ -86,6 +86,106 @@ private func writeEnvelope(_ payload: [String: Any], to fd: Int32) -> Bool {
     }
 }
 
+private func readResponseLine(from fd: Int32) -> Data? {
+    var buffer = Data()
+    while true {
+        var byte: UInt8 = 0
+        let n = Darwin.read(fd, &byte, 1)
+        guard n > 0 else { return nil }
+        if byte == 0x0A { return buffer }
+        buffer.append(byte)
+    }
+}
+
+private func cliExit(_ message: String, code: Int32 = 0) -> Never {
+    let handle = code == 0 ? FileHandle.standardOutput : FileHandle.standardError
+    handle.write(Data((message + "\n").utf8))
+    exit(code)
+}
+
+private let cliHelp = """
+AgentNotch CLI
+
+  agent-notch ping
+  agent-notch show | hide | toggle
+  agent-notch session <start|update|done|fail|attention|pause|remove>
+      [--id ID] [--agent claude|codex|antigravity]
+      [--title TEXT] [--message TEXT] [--cwd PATH]
+"""
+
+private func option(_ name: String, in arguments: [String]) -> String? {
+    guard let index = arguments.firstIndex(of: name), arguments.indices.contains(index + 1) else { return nil }
+    return arguments[index + 1]
+}
+
+private func runCLI(arguments: [String]) -> Never {
+    guard let command = arguments.first else { cliExit(cliHelp) }
+    if command == "help" || command == "--help" || command == "-h" {
+        cliExit(cliHelp)
+    }
+
+    let payload: [String: Any]
+    let waitsForResponse: Bool
+    switch command {
+    case "ping":
+        payload = ["hook_event_name": "AgentNotchPing", "session_id": "cli", "cwd": FileManager.default.currentDirectoryPath]
+        waitsForResponse = true
+    case "show", "hide", "toggle":
+        payload = ["hook_event_name": "AgentNotch\(command.capitalized)", "session_id": "cli", "cwd": FileManager.default.currentDirectoryPath]
+        waitsForResponse = false
+    case "session":
+        guard arguments.count >= 2 else { cliExit("agent-notch: missing session action", code: 2) }
+        let action = arguments[1]
+        let allowedActions = ["start", "update", "done", "fail", "attention", "pause", "remove"]
+        guard allowedActions.contains(action) else { cliExit("agent-notch: invalid session action: \(action)", code: 2) }
+        let agent = option("--agent", in: arguments) ?? "claude"
+        guard ["claude", "codex", "antigravity"].contains(agent) else {
+            cliExit("agent-notch: invalid agent: \(agent)", code: 2)
+        }
+        let cwd = option("--cwd", in: arguments) ?? FileManager.default.currentDirectoryPath
+        let id = option("--id", in: arguments) ?? "\(agent):\(cwd)"
+        var input: [String: Any] = ["action": action, "agent": agent]
+        if let title = option("--title", in: arguments) { input["title"] = title }
+        if let message = option("--message", in: arguments) { input["message"] = message }
+        payload = [
+            "hook_event_name": "AgentNotchSession",
+            "session_id": id,
+            "cwd": cwd,
+            "tool_input": input,
+        ]
+        waitsForResponse = false
+    default:
+        cliExit("agent-notch: unknown command: \(command)\n\n\(cliHelp)", code: 2)
+    }
+
+    let fd = connectSocket()
+    guard fd >= 0 else { cliExit("agent-notch: app is not running", code: 1) }
+    guard writeEnvelope(payload, to: fd) else {
+        Darwin.close(fd)
+        cliExit("agent-notch: failed to send event", code: 1)
+    }
+
+    if waitsForResponse {
+        guard let data = readResponseLine(from: fd), let response = String(data: data, encoding: .utf8) else {
+            Darwin.close(fd)
+            cliExit("agent-notch: app disconnected", code: 1)
+        }
+        Darwin.close(fd)
+        cliExit(response)
+    }
+
+    Darwin.close(fd)
+    cliExit("ok")
+}
+
+let executableName = URL(fileURLWithPath: CommandLine.arguments[0]).lastPathComponent
+if executableName == "agent-notch" {
+    runCLI(arguments: Array(CommandLine.arguments.dropFirst()))
+}
+if CommandLine.arguments.count >= 2, CommandLine.arguments[1] == "--cli" {
+    runCLI(arguments: Array(CommandLine.arguments.dropFirst(2)))
+}
+
 // MARK: - Codex notify mode
 
 /// `--codex '<json>'`: Codex passes the notify event JSON as argv, not
@@ -141,18 +241,9 @@ guard eventName == "PermissionRequest" else {
 }
 
 // Block (no timeout) waiting for exactly one NDJSON response line.
-var responseBuffer = Data()
-readLoop: while true {
-    var byte: UInt8 = 0
-    let n = Darwin.read(fd, &byte, 1)
-    if n <= 0 {
-        Darwin.close(fd)
-        fail() // disconnected before a response arrived
-    }
-    if byte == 0x0A {
-        break readLoop
-    }
-    responseBuffer.append(byte)
+guard let responseBuffer = readResponseLine(from: fd) else {
+    Darwin.close(fd)
+    fail()
 }
 Darwin.close(fd)
 

@@ -25,16 +25,24 @@ final class SocketConnection {
 
     /// Writes `{"behavior":"allow"|"deny"}\n` and closes the connection.
     func respond(behavior: String) {
+        respond(json: ["behavior": behavior])
+    }
+
+    func respond(json: [String: Any]) {
         lock.lock()
         defer { lock.unlock() }
         guard !isClosed else { return }
         isClosed = true
-        let line = "{\"behavior\":\"\(behavior)\"}\n"
-        _ = line.withCString { ptr -> Int in
-            let len = strlen(ptr)
+        guard var data = try? JSONSerialization.data(withJSONObject: json) else {
+            Darwin.close(fd)
+            return
+        }
+        data.append(0x0A)
+        _ = data.withUnsafeBytes { raw -> Int in
+            guard let base = raw.baseAddress else { return 0 }
             var written = 0
-            while written < len {
-                let n = Darwin.write(fd, ptr + written, len - written)
+            while written < raw.count {
+                let n = Darwin.write(fd, base + written, raw.count - written)
                 if n <= 0 { break }
                 written += n
             }
@@ -224,7 +232,7 @@ final class SocketServer {
             return
         }
 
-        if event.eventName == "PermissionRequest" {
+        if event.eventName == "PermissionRequest" || event.eventName == "AgentNotchPing" {
             // Keep the read source alive: it now watches for an unexpected
             // client disconnect while the app awaits Allow/Deny.
         } else {
@@ -256,7 +264,7 @@ final class SocketServer {
             cwd: cwd,
             toolName: toolName,
             toolInput: toolInput,
-            connection: eventName == "PermissionRequest" ? connection : nil
+            connection: eventName == "PermissionRequest" || eventName == "AgentNotchPing" ? connection : nil
         )
     }
 

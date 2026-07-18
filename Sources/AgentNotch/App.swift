@@ -76,6 +76,24 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private func handle(event: HookEvent) {
         Self.logEvent(event)
         switch event.eventName {
+        case "AgentNotchPing":
+            event.connection?.respond(json: [
+                "ok": true,
+                "sessions": store?.sessions.count ?? 0,
+                "version": 1,
+            ])
+        case "AgentNotchShow":
+            notchWindowController?.showFromCLI()
+        case "AgentNotchHide":
+            notchWindowController?.hideFromCLI()
+        case "AgentNotchToggle":
+            notchWindowController?.toggleOpen()
+        case "AgentNotchSession":
+            store?.applyHookEvent(event)
+            let action = event.toolInput["action"] as? String ?? "update"
+            let urgent = action == "attention" || action == "fail"
+            notchWindowController?.showAgentActivity(urgent: urgent)
+            soundPlayer?.play(action == "done" ? .done : urgent ? .permission : .action)
         case "PermissionRequest":
             permissionCenter?.enqueue(event)
             soundPlayer?.play(.permission)

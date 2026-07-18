@@ -337,6 +337,35 @@ final class NotchWindowController: NSObject {
         setMode(.open)
     }
 
+    func showAgentActivity(urgent: Bool) {
+        uiState.activeTab = .nook
+        uiState.activeView = .agents
+        uiState.isVisible = true
+        if urgent {
+            forceShow()
+        }
+    }
+
+    func showFromCLI() {
+        dwellTask?.cancel()
+        hideTask?.cancel()
+        isClickPinned = true
+        uiState.isVisible = true
+        uiState.mode = .open
+        resizeForCurrentState()
+    }
+
+    func hideFromCLI() {
+        hoverTask?.cancel()
+        dwellTask?.cancel()
+        hideTask?.cancel()
+        isClickPinned = false
+        uiState.approvalOutcome = nil
+        uiState.mode = .closed
+        uiState.isVisible = false
+        resizeForCurrentState()
+    }
+
     func toggleOpen() {
         hideTask?.cancel()
         uiState.isVisible = true

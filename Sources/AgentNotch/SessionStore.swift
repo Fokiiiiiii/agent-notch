@@ -7,6 +7,7 @@ final class SessionStore: ObservableObject {
     /// Hook-driven overrides keyed by session id, layered on top of the
     /// transcript-derived state until they expire or are superseded.
     private var hookOverrides: [String: (state: SessionState, at: Date)] = [:]
+    private var cliSessions: [String: AgentSession] = [:]
     private let overrideTTL: TimeInterval = 5 * 60
 
     /// Set by AppDelegate after both objects exist. Used to decide whether a
@@ -30,6 +31,8 @@ final class SessionStore: ObservableObject {
     /// long as the id space doesn't collide across agents.
     func applyHookEvent(_ e: HookEvent) {
         switch e.eventName {
+        case "AgentNotchSession":
+            applyCLIEvent(e)
         case "Stop", "CodexTurnComplete":
             hookOverrides[e.sessionId] = (.done, Date())
         case "PermissionRequest":
@@ -83,8 +86,50 @@ final class SessionStore: ObservableObject {
         }
 
         var merged = sessions.filter { $0.agent != agent }
+        let cliForAgent = cliSessions.values.filter { $0.agent == agent }
+        let cliIDs = Set(cliForAgent.map(\.id))
+        updated.removeAll { cliIDs.contains($0.id) }
         merged.append(contentsOf: updated)
+        merged.append(contentsOf: cliForAgent)
         merged.sort { $0.lastActivity > $1.lastActivity }
         sessions = merged
+    }
+
+    private func applyCLIEvent(_ event: HookEvent) {
+        let input = event.toolInput
+        let action = (input["action"] as? String) ?? "update"
+        let id = event.sessionId.isEmpty ? "cli-\(event.cwd)" : event.sessionId
+
+        if action == "remove" {
+            cliSessions.removeValue(forKey: id)
+            sessions.removeAll { $0.id == id }
+            return
+        }
+
+        let agent = AgentKind(rawValue: (input["agent"] as? String) ?? "claude") ?? .claude
+        let existing = cliSessions[id]
+        let state: SessionState
+        switch action {
+        case "done": state = .done
+        case "fail": state = .failed
+        case "attention": state = .waitingApproval
+        case "pause": state = .idle
+        default: state = .running
+        }
+
+        let cwd = event.cwd.isEmpty ? (existing?.cwd ?? FileManager.default.currentDirectoryPath) : event.cwd
+        let session = AgentSession(
+            id: id,
+            agent: agent,
+            title: (input["title"] as? String) ?? existing?.title ?? URL(fileURLWithPath: cwd).lastPathComponent,
+            cwd: cwd,
+            lastActivity: Date(),
+            state: state,
+            lastMessage: (input["message"] as? String) ?? existing?.lastMessage ?? action.capitalized
+        )
+        cliSessions[id] = session
+        sessions.removeAll { $0.id == id }
+        sessions.append(session)
+        sessions.sort { $0.lastActivity > $1.lastActivity }
     }
 }
