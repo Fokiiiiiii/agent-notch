@@ -87,11 +87,14 @@ final class NotchWindowController: NSObject {
     // band keeps working while hidden.
     private var dwellTask: Task<Void, Never>?
     private var hideTask: Task<Void, Never>?
+    private var visibilityRefreshTask: Task<Void, Never>?
     private var shouldPersistVisible = true
     private var isClickPinned = false
     private var workspaceObserver: NSObjectProtocol?
     private var spaceObserver: NSObjectProtocol?
     private var scrollMonitor: Any?
+    private var outsideClickLocalMonitor: Any?
+    private var outsideClickGlobalMonitor: Any?
     private var horizontalScrollTotal: CGFloat = 0
     private var didCommitCurrentScroll = false
     private var lastDiscreteScrollSwitch: TimeInterval = 0
@@ -136,7 +139,9 @@ final class NotchWindowController: NSObject {
         panel.backgroundColor = .clear
         panel.hasShadow = false
         panel.level = .statusBar
-        panel.collectionBehavior = [.canJoinAllSpaces, .fullScreenAuxiliary, .stationary]
+        // Do not opt into `.fullScreenAuxiliary`: AgentNotch intentionally
+        // stays out of another app's fullscreen Space.
+        panel.collectionBehavior = [.canJoinAllSpaces, .stationary]
         panel.isMovable = false
         panel.hidesOnDeactivate = false
         panel.setFrame(initialFrame, display: false)
@@ -204,7 +209,7 @@ final class NotchWindowController: NSObject {
             queue: .main
         ) { [weak self] _ in
             Task { @MainActor in
-                self?.refreshVisibilityForCurrentSpace()
+                self?.scheduleVisibilityRefresh()
             }
         }
 
@@ -212,9 +217,21 @@ final class NotchWindowController: NSObject {
             self?.handleScroll(event)
             return event
         }
+
+        let outsideClickMask: NSEvent.EventTypeMask = [.leftMouseDown, .rightMouseDown, .otherMouseDown]
+        outsideClickLocalMonitor = NSEvent.addLocalMonitorForEvents(matching: outsideClickMask) { [weak self] event in
+            self?.collapseForOutsideClickIfNeeded()
+            return event
+        }
+        outsideClickGlobalMonitor = NSEvent.addGlobalMonitorForEvents(matching: outsideClickMask) { [weak self] _ in
+            Task { @MainActor [weak self] in
+                self?.collapseForOutsideClickIfNeeded()
+            }
+        }
     }
 
     deinit {
+        visibilityRefreshTask?.cancel()
         if let workspaceObserver {
             NSWorkspace.shared.notificationCenter.removeObserver(workspaceObserver)
         }
@@ -223,6 +240,12 @@ final class NotchWindowController: NSObject {
         }
         if let scrollMonitor {
             NSEvent.removeMonitor(scrollMonitor)
+        }
+        if let outsideClickLocalMonitor {
+            NSEvent.removeMonitor(outsideClickLocalMonitor)
+        }
+        if let outsideClickGlobalMonitor {
+            NSEvent.removeMonitor(outsideClickGlobalMonitor)
         }
     }
 
@@ -244,7 +267,7 @@ final class NotchWindowController: NSObject {
                   (info[kCGWindowLayer as String] as? Int) == 0,
                   let boundsDictionary = info[kCGWindowBounds as String] as? NSDictionary,
                   let bounds = CGRect(dictionaryRepresentation: boundsDictionary as CFDictionary) else { return false }
-            return bounds.width >= screenFrame.width - 2 && bounds.height >= screenFrame.height - 2
+            return bounds.width >= screenFrame.width - 12 && bounds.height >= screenFrame.height - 12
         }
     }
 
@@ -331,6 +354,7 @@ final class NotchWindowController: NSObject {
     /// Makes the minimal notch visible without changing `mode` (it is
     /// always `.closed` while hidden, so this is a no-op on sizing).
     private func showMinimal() {
+        guard shouldPersistVisible else { return }
         hideTask?.cancel()
         uiState.isVisible = true
     }
@@ -339,6 +363,7 @@ final class NotchWindowController: NSObject {
     /// (including fully hidden). Used by AppDelegate for PermissionRequest
     /// auto-expansion (requirement 6).
     func forceShow() {
+        guard shouldPersistVisible else { return }
         dwellTask?.cancel()
         hideTask?.cancel()
         isClickPinned = false
@@ -349,6 +374,7 @@ final class NotchWindowController: NSObject {
     func showAgentActivity(urgent: Bool) {
         uiState.activeTab = .nook
         uiState.activeView = .agents
+        guard shouldPersistVisible else { return }
         uiState.isVisible = true
         if urgent {
             forceShow()
@@ -356,6 +382,7 @@ final class NotchWindowController: NSObject {
     }
 
     func showFromCLI() {
+        guard shouldPersistVisible else { return }
         dwellTask?.cancel()
         hideTask?.cancel()
         isClickPinned = true
@@ -376,6 +403,7 @@ final class NotchWindowController: NSObject {
     }
 
     func toggleOpen() {
+        guard shouldPersistVisible else { return }
         hideTask?.cancel()
         uiState.isVisible = true
         if uiState.mode == .open {
@@ -393,6 +421,15 @@ final class NotchWindowController: NSObject {
         uiState.approvalOutcome = nil
         uiState.isDetailExpanded = false
         setMode(.closed)
+    }
+
+    private func collapseForOutsideClickIfNeeded() {
+        guard uiState.isVisible,
+              uiState.mode == .open,
+              uiState.overlay == nil,
+              permissions.queue.isEmpty,
+              !panel.frame.contains(NSEvent.mouseLocation) else { return }
+        closeExplicitly()
     }
 
     func setDetailExpanded(_ expanded: Bool) {
@@ -424,12 +461,20 @@ final class NotchWindowController: NSObject {
 
     private func handleFrontmostChange(bundleId: String?) {
         _ = bundleId
-        // Give AppKit a moment to finish moving the new key window to its
-        // Space before measuring its bounds.
-        Task { [weak self] in
-            try? await Task.sleep(nanoseconds: 80_000_000)
-            guard !Task.isCancelled else { return }
-            self?.refreshVisibilityForCurrentSpace()
+        scheduleVisibilityRefresh()
+    }
+
+    private func scheduleVisibilityRefresh() {
+        visibilityRefreshTask?.cancel()
+        refreshVisibilityForCurrentSpace()
+        visibilityRefreshTask = Task { [weak self] in
+            // Fullscreen transitions finish after the activation/Space
+            // notification. Recheck twice so the panel cannot flash back in.
+            for delay in [180_000_000, 520_000_000] as [UInt64] {
+                try? await Task.sleep(nanoseconds: delay)
+                guard !Task.isCancelled, let self else { return }
+                self.refreshVisibilityForCurrentSpace()
+            }
         }
     }
 
@@ -437,10 +482,15 @@ final class NotchWindowController: NSObject {
         shouldPersistVisible = !Self.isNonFinderFullscreen(on: screen)
         if shouldPersistVisible {
             showMinimal()
-        } else if permissions.queue.isEmpty, !isHovering {
+        } else {
+            hoverTask?.cancel()
+            dwellTask?.cancel()
+            hideTask?.cancel()
             isClickPinned = false
-            setMode(.closed)
-            scheduleHideIfIdle()
+            uiState.isDetailExpanded = false
+            uiState.mode = .closed
+            uiState.isVisible = false
+            resizeForCurrentState()
         }
     }
 
