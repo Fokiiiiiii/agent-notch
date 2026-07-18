@@ -1,0 +1,214 @@
+import Foundation
+
+/// Polls `~/.claude/projects/**/*.jsonl` transcripts and reflects active
+/// Claude Code sessions into a `SessionStore`. Read-only.
+@MainActor
+final class ClaudeWatcher {
+    private let store: SessionStore
+    private var timer: Timer?
+    private let fileManager = FileManager.default
+    private let projectsURL: URL
+    /// Tracks last-seen file size per transcript path, so unchanged files are skipped.
+    private var lastSeenSize: [String: UInt64] = [:]
+    /// Cached parsed result per transcript path, reused when the file hasn't changed.
+    private var lastResult: [String: AgentSession] = [:]
+
+    private let pollInterval: TimeInterval = 2
+    private let activeWindow: TimeInterval = 30 * 60
+    private let runningWindow: TimeInterval = 90
+    private let tailByteCount = 64 * 1024
+    private let maxTailLines = 200
+
+    init(store: SessionStore) {
+        self.store = store
+        self.projectsURL = fileManager.homeDirectoryForCurrentUser
+            .appendingPathComponent(".claude/projects", isDirectory: true)
+    }
+
+    func start() {
+        scan()
+        let timer = Timer(timeInterval: pollInterval, repeats: true) { [weak self] _ in
+            Task { @MainActor in
+                self?.scan()
+            }
+        }
+        RunLoop.main.add(timer, forMode: .common)
+        self.timer = timer
+    }
+
+    private func scan() {
+        let transcripts = discoverTranscripts()
+        let now = Date()
+        var activeSessions: [AgentSession] = []
+
+        for path in transcripts {
+            guard let attrs = try? fileManager.attributesOfItem(atPath: path) else { continue }
+            guard let modDate = attrs[.modificationDate] as? Date else { continue }
+            guard now.timeIntervalSince(modDate) <= activeWindow else { continue }
+
+            let size = (attrs[.size] as? UInt64) ?? 0
+            if lastSeenSize[path] == size, let cached = lastResult[path] {
+                // Size unchanged: reuse prior parse but refresh state based on time.
+                activeSessions.append(refreshState(cached, modDate: modDate, now: now))
+                continue
+            }
+
+            if let session = parseSession(atPath: path, modDate: modDate, now: now) {
+                lastSeenSize[path] = size
+                lastResult[path] = session
+                activeSessions.append(session)
+            }
+        }
+
+        store.replaceClaudeSessions(activeSessions)
+    }
+
+    private func refreshState(_ session: AgentSession, modDate: Date, now: Date) -> AgentSession {
+        var updated = session
+        updated.lastActivity = modDate
+        updated.state = now.timeIntervalSince(modDate) <= runningWindow ? .running : .idle
+        return updated
+    }
+
+    /// Finds `*.jsonl` files one level below `~/.claude/projects/<project>/*.jsonl`.
+    private func discoverTranscripts() -> [String] {
+        guard let projectDirs = try? fileManager.contentsOfDirectory(
+            at: projectsURL,
+            includingPropertiesForKeys: [.isDirectoryKey, .isSymbolicLinkKey],
+            options: [.skipsHiddenFiles]
+        ) else {
+            return []
+        }
+
+        var results: [String] = []
+        for projectDir in projectDirs {
+            guard let resourceValues = try? projectDir.resourceValues(forKeys: [.isDirectoryKey, .isSymbolicLinkKey]),
+                  resourceValues.isDirectory == true,
+                  resourceValues.isSymbolicLink != true else { continue }
+
+            guard let files = try? fileManager.contentsOfDirectory(
+                at: projectDir,
+                includingPropertiesForKeys: [.isSymbolicLinkKey],
+                options: [.skipsHiddenFiles]
+            ) else { continue }
+
+            for file in files {
+                guard file.pathExtension == "jsonl" else { continue }
+                if let rv = try? file.resourceValues(forKeys: [.isSymbolicLinkKey]), rv.isSymbolicLink == true {
+                    continue
+                }
+                results.append(file.path)
+            }
+        }
+        return results
+    }
+
+    private func parseSession(atPath path: String, modDate: Date, now: Date) -> AgentSession? {
+        guard let lines = readTailLines(atPath: path) else { return nil }
+
+        var sessionId: String?
+        var cwd: String?
+        var slug: String?
+        var lastMessage: String?
+
+        // Walk from the end to find the most recent metadata / message.
+        for rawLine in lines.reversed() {
+            let line = rawLine.trimmingCharacters(in: .whitespaces)
+            guard !line.isEmpty else { continue }
+            guard let data = line.data(using: .utf8) else { continue }
+            guard let obj = try? JSONSerialization.jsonObject(with: data) as? [String: Any] else { continue }
+
+            if sessionId == nil, let sid = obj["sessionId"] as? String {
+                sessionId = sid
+            }
+            if cwd == nil, let c = obj["cwd"] as? String {
+                cwd = c
+            }
+            if slug == nil, let s = obj["slug"] as? String, !s.isEmpty {
+                slug = s
+            }
+
+            if lastMessage == nil, (obj["type"] as? String) == "assistant" {
+                if let message = obj["message"] as? [String: Any],
+                   let content = message["content"] as? [[String: Any]] {
+                    for item in content {
+                        if let type = item["type"] as? String, type == "text",
+                           let text = item["text"] as? String {
+                            lastMessage = summarize(text: text)
+                            break
+                        } else if let type = item["type"] as? String, type == "tool_use",
+                                  let name = item["name"] as? String {
+                            lastMessage = "Running \(name)…"
+                            break
+                        }
+                    }
+                }
+            }
+
+            if sessionId != nil, cwd != nil, lastMessage != nil {
+                break
+            }
+        }
+
+        guard let sessionId, let cwd else { return nil }
+
+        let fileStem = (path as NSString).lastPathComponent.replacingOccurrences(of: ".jsonl", with: "")
+        let id = sessionId.isEmpty ? fileStem : sessionId
+
+        let title: String
+        if let slug, !slug.isEmpty {
+            let spaced = slug.replacingOccurrences(of: "-", with: " ")
+            title = String(spaced.prefix(40))
+        } else {
+            title = (cwd as NSString).lastPathComponent
+        }
+
+        let state: SessionState = now.timeIntervalSince(modDate) <= runningWindow ? .running : .idle
+
+        return AgentSession(
+            id: id,
+            agent: .claude,
+            title: title,
+            cwd: cwd,
+            lastActivity: modDate,
+            state: state,
+            lastMessage: lastMessage ?? "…"
+        )
+    }
+
+    private func summarize(text: String) -> String {
+        let collapsed = text.replacingOccurrences(of: "\n", with: " ")
+        return String(collapsed.prefix(80))
+    }
+
+    /// Reads the last `tailByteCount` bytes of the file and returns up to
+    /// `maxTailLines` lines, split by newline, from the end.
+    private func readTailLines(atPath path: String) -> [String]? {
+        guard let handle = FileHandle(forReadingAtPath: path) else { return nil }
+        defer { try? handle.close() }
+
+        let fileSize: UInt64
+        do {
+            fileSize = try handle.seekToEnd()
+        } catch {
+            return nil
+        }
+
+        let readSize = min(UInt64(tailByteCount), fileSize)
+        let offset = fileSize - readSize
+        do {
+            try handle.seek(toOffset: offset)
+        } catch {
+            return nil
+        }
+
+        guard let data = try? handle.read(upToCount: Int(readSize)) else { return nil }
+        guard let text = String(data: data, encoding: .utf8) else { return nil }
+
+        var lines = text.components(separatedBy: "\n")
+        if lines.count > maxTailLines {
+            lines = Array(lines.suffix(maxTailLines))
+        }
+        return lines
+    }
+}

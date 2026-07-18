@@ -1,0 +1,7 @@
+.DS_Store
+.build/
+build/
+.serena/
+code_memory.db
+*.log
+*.sock
