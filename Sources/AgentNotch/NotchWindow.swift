@@ -39,12 +39,17 @@ enum IslandOverlay: Equatable {
     case question
 }
 
+struct ApprovalOutcome: Equatable {
+    let allowed: Bool
+}
+
 @MainActor
 final class NotchUIState: ObservableObject {
     @Published var mode: IslandMode = .closed
     @Published var activeTab: NotchTab = .nook
     @Published var activeView: NookView = .agents
     @Published var overlay: IslandOverlay? = nil
+    @Published var approvalOutcome: ApprovalOutcome? = nil
     @Published var selectedSessionId: String? = nil
     /// Whether the notch is visible at all (fully independent of `mode`,
     /// which only tracks compact/notice/open *sizing* once visible). See
@@ -62,7 +67,7 @@ final class NotchWindowController: NSObject {
     private let permissions: PermissionCenter
     private let screen: NSScreen
     private var closedSize: CGSize
-    private let noticeSize = CGSize(width: 360, height: 58)
+    private let noticeSize = CGSize(width: 320, height: 50)
     private let openSize = CGSize(width: 484, height: 168)
     private let openOverlaySize = CGSize(width: 484, height: 196)
     private var hoverTask: Task<Void, Never>?
@@ -84,10 +89,15 @@ final class NotchWindowController: NSObject {
     private var isClickPinned = false
     private var workspaceObserver: NSObjectProtocol?
     private var spaceObserver: NSObjectProtocol?
+    private var scrollMonitor: Any?
+    private var horizontalScrollTotal: CGFloat = 0
+    private var didCommitCurrentScroll = false
+    private var lastDiscreteScrollSwitch: TimeInterval = 0
 
     /// Whether the pointer is currently inside the notch. Consulted by
     /// AppDelegate before auto-collapsing after the permission queue drains.
     private(set) var isHovering = false
+    var isPinnedOpen: Bool { isClickPinned && uiState.mode == .open }
 
     init(store: SessionStore, permissions: PermissionCenter) {
         self.store = store
@@ -192,6 +202,11 @@ final class NotchWindowController: NSObject {
                 self?.refreshVisibilityForCurrentSpace()
             }
         }
+
+        scrollMonitor = NSEvent.addLocalMonitorForEvents(matching: .scrollWheel) { [weak self] event in
+            self?.handleHorizontalScroll(event)
+            return event
+        }
     }
 
     deinit {
@@ -200,6 +215,9 @@ final class NotchWindowController: NSObject {
         }
         if let spaceObserver {
             NSWorkspace.shared.notificationCenter.removeObserver(spaceObserver)
+        }
+        if let scrollMonitor {
+            NSEvent.removeMonitor(scrollMonitor)
         }
     }
 
@@ -278,12 +296,9 @@ final class NotchWindowController: NSObject {
                 }
                 return
             }
-            guard uiState.mode == .closed else { return }
-            hoverTask = Task { [weak self] in
-                try? await Task.sleep(nanoseconds: 200_000_000)
-                guard !Task.isCancelled, self?.isHovering == true else { return }
-                self?.setMode(.open)
-            }
+            // Hover reveals the compact notch when hidden, but never changes
+            // its mode. Opening is an explicit click so the same pointer
+            // action always has the same result.
             return
         }
         guard permissions.queue.isEmpty else { return }
@@ -336,7 +351,23 @@ final class NotchWindowController: NSObject {
 
     func closeExplicitly() {
         isClickPinned = false
+        uiState.approvalOutcome = nil
         setMode(.closed)
+    }
+
+    func showApprovalOutcome(allowed: Bool) {
+        isClickPinned = false
+        uiState.approvalOutcome = ApprovalOutcome(allowed: allowed)
+        setMode(.notice)
+    }
+
+    func finishApprovalOutcome(hasPendingApproval: Bool) {
+        uiState.approvalOutcome = nil
+        if hasPendingApproval {
+            setMode(.open)
+        } else {
+            setMode(.closed)
+        }
     }
 
     private func handleFrontmostChange(bundleId: String?) {
@@ -381,5 +412,67 @@ final class NotchWindowController: NSObject {
         hoverTask?.cancel()
         dwellTask?.cancel()
         hideTask?.cancel()
+    }
+
+    private func handleHorizontalScroll(_ event: NSEvent) {
+        guard uiState.isVisible,
+              uiState.mode == .open,
+              uiState.overlay == nil,
+              event.window === panel || panel.frame.contains(NSEvent.mouseLocation) else { return }
+
+        let deltaX = event.scrollingDeltaX
+        let deltaY = event.scrollingDeltaY
+        guard abs(deltaX) > abs(deltaY) * 1.15, abs(deltaX) > 0.25 else { return }
+
+        if event.phase == .began {
+            horizontalScrollTotal = 0
+            didCommitCurrentScroll = false
+        }
+
+        horizontalScrollTotal += deltaX
+        let isDiscreteWheel = event.phase.isEmpty && event.momentumPhase.isEmpty
+        let now = event.timestamp
+        let canCommit = isDiscreteWheel
+            ? now - lastDiscreteScrollSwitch > 0.34
+            : !didCommitCurrentScroll
+
+        guard canCommit, abs(horizontalScrollTotal) >= 18 else {
+            if event.phase == .ended || event.phase == .cancelled {
+                horizontalScrollTotal = 0
+                didCommitCurrentScroll = false
+            }
+            return
+        }
+
+        didCommitCurrentScroll = true
+        lastDiscreteScrollSwitch = now
+        navigatePage(forward: horizontalScrollTotal < 0)
+
+        if isDiscreteWheel {
+            horizontalScrollTotal = 0
+            didCommitCurrentScroll = false
+        }
+    }
+
+    private func navigatePage(forward: Bool) {
+        let animation: Animation = NSWorkspace.shared.accessibilityDisplayShouldReduceMotion
+            ? .easeOut(duration: 0.14)
+            : DesignTokens.contentTransition
+
+        withAnimation(animation) {
+            if uiState.activeTab == .tray {
+                guard !forward else { return }
+                uiState.activeTab = .nook
+                uiState.activeView = .system
+            } else if let index = NookView.allCases.firstIndex(of: uiState.activeView) {
+                let nextIndex = forward ? index + 1 : index - 1
+                if NookView.allCases.indices.contains(nextIndex) {
+                    uiState.activeView = NookView.allCases[nextIndex]
+                } else if forward {
+                    uiState.activeTab = .tray
+                }
+            }
+        }
+        SoundPlayer.shared.play(.navigation)
     }
 }

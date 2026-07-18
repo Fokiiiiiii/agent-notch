@@ -68,62 +68,72 @@ struct NotchView: View {
     }
 
     private var compactContent: some View {
-        HStack(spacing: 9) {
-            GlyphBox(agent: selectedSession?.agent)
-            if let session = selectedSession {
-                Text(session.title)
-                    .font(.system(size: 11, weight: .semibold))
-                    .foregroundColor(.white)
-                    .lineLimit(1)
-                    .truncationMode(.tail)
-                Spacer(minLength: 4)
-                HStack(spacing: 7) {
-                    Circle()
-                        .fill(statusColor(session.state))
-                        .frame(width: 6, height: 6)
-                    Text(session.agent.displayName)
+        Button {
+            controller.toggleOpen()
+        } label: {
+            HStack(spacing: 9) {
+                GlyphBox(agent: selectedSession?.agent)
+                if let session = selectedSession {
+                    Text(session.title)
+                        .font(.system(size: 11, weight: .semibold))
+                        .foregroundColor(.white)
+                        .lineLimit(1)
+                        .truncationMode(.tail)
+                    Spacer(minLength: 4)
+                    HStack(spacing: 7) {
+                        Circle()
+                            .fill(statusColor(session.state))
+                            .frame(width: 6, height: 6)
+                        Text(session.agent.displayName)
+                            .font(.system(size: 9))
+                            .foregroundColor(DesignTokens.muted)
+                    }
+                } else {
+                    Text("AgentNotch")
+                        .font(.system(size: 11, weight: .semibold))
+                        .foregroundColor(.white)
+                    Spacer(minLength: 4)
+                    Text("idle")
                         .font(.system(size: 9))
                         .foregroundColor(DesignTokens.muted)
                 }
-            } else {
-                Text("AgentNotch")
-                    .font(.system(size: 11, weight: .semibold))
-                    .foregroundColor(.white)
-                Spacer(minLength: 4)
-                Text("idle")
-                    .font(.system(size: 9))
-                    .foregroundColor(DesignTokens.muted)
             }
+            .padding(.horizontal, 12)
+            .contentShape(Rectangle())
         }
-        .padding(.horizontal, 14)
-        .contentShape(Rectangle())
-        .onTapGesture { controller.toggleOpen() }
-        .accessibilityElement(children: .combine)
-        .accessibilityAddTraits(.isButton)
+        .buttonStyle(NotchPressStyle(pressedScale: 0.985))
         .accessibilityLabel("Open AgentNotch")
-        .accessibilityAction { controller.toggleOpen() }
+        .help("Open AgentNotch")
     }
 
     // MARK: - Notice (structure only; nothing triggers this mode yet)
 
     private var noticeContent: some View {
-        // TODO: no notification source is wired up yet. This mirrors the
-        // mock's `.compact.notice-content` layout so IslandMode.notice has a
-        // real view once a trigger exists.
-        HStack(alignment: .top, spacing: 9) {
-            GlyphBox(agent: nil)
-            VStack(alignment: .leading, spacing: 2) {
+        HStack(spacing: 9) {
+            if let outcome = uiState.approvalOutcome {
+                Image(systemName: outcome.allowed ? "checkmark.circle.fill" : "xmark.circle.fill")
+                    .font(.system(size: 16, weight: .medium))
+                    .foregroundColor(outcome.allowed ? DesignTokens.green : DesignTokens.red)
+                    .symbolEffect(.bounce, value: outcome)
+                VStack(alignment: .leading, spacing: 1) {
+                    Text(outcome.allowed ? "Allowed once" : "Denied")
+                        .font(.system(size: 10.5, weight: .semibold))
+                        .foregroundColor(.white)
+                    Text(outcome.allowed ? "Claude is continuing" : "Returned to Claude")
+                        .font(.system(size: 7.5))
+                        .foregroundColor(DesignTokens.muted)
+                }
+            } else {
+                GlyphBox(agent: nil)
                 Text("Notification")
-                    .font(.system(size: 11, weight: .semibold))
+                    .font(.system(size: 10.5, weight: .semibold))
                     .foregroundColor(.white)
-                Text(" ")
-                    .font(.system(size: 9))
-                    .foregroundColor(DesignTokens.muted)
             }
             Spacer()
         }
-        .padding(.horizontal, 14)
-        .padding(.top, 8)
+        .padding(.horizontal, 13)
+        .frame(maxHeight: .infinity)
+        .transition(.opacity.combined(with: .scale(scale: reduceMotion ? 1 : 0.98, anchor: .top)))
     }
 
     // MARK: - Open (expanded)
@@ -149,9 +159,9 @@ struct NotchView: View {
             .offset(x: reduceMotion ? 0 : horizontalDrag / 7)
             .opacity(reduceMotion ? 1 : 1 - min(abs(horizontalDrag) / 900, 0.08))
         }
-        .padding(.horizontal, 14)
-        .padding(.top, 8)
-        .padding(.bottom, 13)
+        .padding(.horizontal, 12)
+        .padding(.top, 6)
+        .padding(.bottom, 10)
         .contentShape(Rectangle())
         .simultaneousGesture(horizontalSwipeGesture)
         .focusable()
@@ -178,18 +188,26 @@ struct NotchView: View {
                     selectTab(.tray)
                 }
             }
-            Spacer()
+            Button {
+                controller.closeExplicitly()
+            } label: {
+                Color.clear
+                    .contentShape(Rectangle())
+            }
+            .buttonStyle(.plain)
+            .frame(maxWidth: .infinity, minHeight: 24)
+            .help("Click the notch bar to close")
             Button { controller.closeExplicitly() } label: {
                 Image(systemName: "xmark")
                     .font(.system(size: 13))
                     .foregroundColor(.white.opacity(0.62))
-                    .frame(width: 27, height: 27)
+                    .frame(width: 24, height: 24)
             }
             .buttonStyle(NotchPressStyle())
             .hoverLift(cornerRadius: 8)
             .help("Close  Esc")
         }
-        .frame(height: 29)
+        .frame(height: 26)
     }
 
     private func tabButton(title: String, icon: String, isActive: Bool, action: @escaping () -> Void) -> some View {
@@ -197,8 +215,8 @@ struct NotchView: View {
             Label(title, systemImage: icon)
                 .font(.system(size: 10.5, weight: .semibold))
                 .foregroundColor(isActive ? .white : .white.opacity(0.72))
-                .padding(.horizontal, 10)
-                .frame(height: 27)
+                .padding(.horizontal, 9)
+                .frame(height: 24)
                 .background(
                     Capsule().fill(isActive ? Color.white.opacity(0.13) : Color.clear)
                 )
@@ -248,6 +266,12 @@ struct NotchView: View {
                     if let id = permissions.queue.first?.id {
                         permissions.resolve(id, behavior: "deny")
                     }
+                },
+                onCompactOutcome: { allowed in
+                    controller.showApprovalOutcome(allowed: allowed)
+                },
+                onFinishOutcome: {
+                    controller.finishApprovalOutcome(hasPendingApproval: !permissions.queue.isEmpty)
                 }
             )
         case .plan:
@@ -710,7 +734,7 @@ private struct CellSurface<Content: View>: View {
             .fill(reduceTransparency ? AnyShapeStyle(Color(white: 0.075)) : AnyShapeStyle(.ultraThinMaterial))
             .overlay(RoundedRectangle(cornerRadius: 14).fill(Color.black.opacity(reduceTransparency ? 0 : 0.32)))
             .overlay(RoundedRectangle(cornerRadius: 14).stroke(Color.white.opacity(0.065), lineWidth: 0.75))
-            .overlay(content.padding(9))
+            .overlay(content.padding(7))
     }
 }
 
@@ -821,8 +845,8 @@ private struct SystemCell: View {
 
     var body: some View {
         CellSurface {
-            VStack(spacing: 8) {
-                HStack(spacing: 8) {
+            VStack(spacing: 5) {
+                HStack(spacing: 6) {
                     SystemMetric(icon: "battery.75percent", title: "Battery", value: "78%", detail: "4h 12m")
                     SystemMetric(icon: "memorychip", title: "Memory", value: "11.4 GB", detail: "of 24 GB")
                     SystemMetric(icon: "externaldrive", title: "Storage", value: "214 GB", detail: "available")
@@ -837,27 +861,31 @@ private struct SystemCell: View {
 private struct SystemMetric: View {
     let icon: String, title: String, value: String, detail: String
     var body: some View {
-        HStack(spacing: 6) {
-            Image(systemName: icon).font(.system(size: 11)).foregroundColor(.white.opacity(0.72))
+        HStack(spacing: 5) {
+            Image(systemName: icon).font(.system(size: 9.5)).foregroundColor(.white.opacity(0.72))
             VStack(alignment: .leading, spacing: 1) {
-                Text(title).font(.system(size: 7)).foregroundColor(DesignTokens.muted)
-                Text(value).font(.system(size: 9, weight: .semibold)).lineLimit(1)
+                Text(title).font(.system(size: 6.5)).foregroundColor(DesignTokens.muted)
+                Text(value).font(.system(size: 8.5, weight: .semibold)).lineLimit(1)
             }
             Spacer(minLength: 0)
-        }.padding(7).background(RoundedRectangle(cornerRadius: 9).fill(Color.white.opacity(0.055)))
+        }
+        .padding(.horizontal, 6)
+        .frame(height: 28)
+        .background(RoundedRectangle(cornerRadius: 8).fill(Color.white.opacity(0.055)))
     }
 }
 
 private struct TaskProgress: View {
     let icon: String, title: String, progress: Double, detail: String
     var body: some View {
-        HStack(spacing: 8) {
-            Image(systemName: icon).frame(width: 16).foregroundColor(.white.opacity(0.72))
-            VStack(alignment: .leading, spacing: 4) {
-                HStack { Text(title).font(.system(size: 9, weight: .medium)).lineLimit(1); Spacer(); Text(detail).font(.system(size: 7)).foregroundColor(DesignTokens.muted) }
+        HStack(spacing: 7) {
+            Image(systemName: icon).font(.system(size: 9.5)).frame(width: 14).foregroundColor(.white.opacity(0.72))
+            VStack(alignment: .leading, spacing: 2) {
+                HStack { Text(title).font(.system(size: 8.5, weight: .medium)).lineLimit(1); Spacer(); Text(detail).font(.system(size: 6.5)).foregroundColor(DesignTokens.muted) }
                 ProgressView(value: progress).progressViewStyle(.linear).tint(.white.opacity(0.72))
             }
         }
+        .frame(height: 25)
     }
 }
 
@@ -1029,6 +1057,8 @@ private struct ApprovalOverlayView: View {
     var extraCount: Int = 0
     var onAllowOnce: () -> Void = {}
     var onDeny: () -> Void = {}
+    var onCompactOutcome: (Bool) -> Void = { _ in }
+    var onFinishOutcome: () -> Void = {}
     @State private var decision: ApprovalDecision?
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
@@ -1114,8 +1144,15 @@ private struct ApprovalOverlayView: View {
             decision = newDecision
         }
         Task { @MainActor in
-            try? await Task.sleep(nanoseconds: reduceMotion ? 180_000_000 : 520_000_000)
-            newDecision == .allow ? onAllowOnce() : onDeny()
+            try? await Task.sleep(nanoseconds: reduceMotion ? 180_000_000 : 300_000_000)
+            onCompactOutcome(newDecision == .allow)
+            try? await Task.sleep(nanoseconds: 1_000_000_000)
+            if newDecision == .allow {
+                onAllowOnce()
+            } else {
+                onDeny()
+            }
+            onFinishOutcome()
         }
     }
 }

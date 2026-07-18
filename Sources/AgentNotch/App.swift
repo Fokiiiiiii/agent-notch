@@ -118,6 +118,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             guard let self else { return }
             guard self.permissionCenter?.queue.isEmpty == true else { return }
             guard self.notchWindowController?.isHovering != true else { return }
+            guard self.notchWindowController?.isPinnedOpen != true else { return }
             self.notchWindowController?.setMode(.closed)
         }
     }
