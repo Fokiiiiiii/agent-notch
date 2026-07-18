@@ -66,6 +66,7 @@ final class NotchWindowController: NSObject {
     private let uiState = NotchUIState()
     private let store: SessionStore
     private let permissions: PermissionCenter
+    private let questions: QuestionCenter
     private let screen: NSScreen
     private var closedSize: CGSize
     private let noticeSize = CGSize(width: 320, height: 50)
@@ -107,9 +108,10 @@ final class NotchWindowController: NSObject {
     private(set) var isHovering = false
     var isPinnedOpen: Bool { isClickPinned && uiState.mode == .open }
 
-    init(store: SessionStore, permissions: PermissionCenter) {
+    init(store: SessionStore, permissions: PermissionCenter, questions: QuestionCenter) {
         self.store = store
         self.permissions = permissions
+        self.questions = questions
 
         let chosenScreen = NSScreen.screens.first(where: { $0.safeAreaInsets.top > 0 }) ?? NSScreen.main
         let resolvedScreen = chosenScreen ?? NSScreen.screens.first ?? NSScreen()
@@ -150,7 +152,7 @@ final class NotchWindowController: NSObject {
 
         super.init()
 
-        let notchView = NotchView(store: store, controller: self, permissions: permissions)
+        let notchView = NotchView(store: store, controller: self, permissions: permissions, questions: questions)
             .environmentObject(uiState)
         let hostingView = NSHostingView(rootView: notchView)
         panel.contentView = hostingView
@@ -171,17 +173,18 @@ final class NotchWindowController: NSObject {
         // panel and the post-drain auto-collapse; this just keeps the
         // overlay content in sync with the queue.
         permissions.$queue
+            .sink { [weak self] _ in
+                guard let self else { return }
+                self.syncOverlay()
+            }
+            .store(in: &cancellables)
+
+        questions.$queue
             .sink { [weak self] queue in
                 guard let self else { return }
-                if let first = queue.first {
-                    self.uiState.activeTab = .nook
-                    self.uiState.overlay = .approval(
-                        toolName: first.toolName,
-                        summary: first.summary,
-                        extraCount: queue.count - 1
-                    )
-                } else {
-                    self.uiState.overlay = nil
+                self.syncOverlay()
+                if queue.isEmpty, self.permissions.queue.isEmpty, self.uiState.overlay == nil {
+                    self.setMode(.closed)
                 }
             }
             .store(in: &cancellables)
@@ -233,6 +236,21 @@ final class NotchWindowController: NSObject {
             Task { @MainActor [weak self] in
                 self?.collapseForOutsideClickIfNeeded()
             }
+        }
+    }
+
+    private func syncOverlay() {
+        uiState.activeTab = .nook
+        if let first = permissions.queue.first {
+            uiState.overlay = .approval(
+                toolName: first.toolName,
+                summary: first.summary,
+                extraCount: permissions.queue.count - 1
+            )
+        } else if !questions.queue.isEmpty {
+            uiState.overlay = .question
+        } else {
+            uiState.overlay = nil
         }
     }
 
@@ -339,12 +357,12 @@ final class NotchWindowController: NSObject {
             // action always has the same result.
             return
         }
-        guard permissions.queue.isEmpty else { return }
+        guard permissions.queue.isEmpty, questions.queue.isEmpty else { return }
         guard !isClickPinned else { return }
         hoverTask = Task { [weak self] in
             try? await Task.sleep(nanoseconds: 140_000_000)
             guard !Task.isCancelled, let self, !self.isHovering else { return }
-            guard self.permissions.queue.isEmpty else { return }
+            guard self.permissions.queue.isEmpty, self.questions.queue.isEmpty else { return }
             guard !self.isClickPinned else { return }
             self.setMode(.closed)
         }
@@ -510,7 +528,7 @@ final class NotchWindowController: NSObject {
             guard !Task.isCancelled else { return }
             guard let self else { return }
             guard !self.isHovering else { return }
-            guard self.permissions.queue.isEmpty else { return }
+            guard self.permissions.queue.isEmpty, self.questions.queue.isEmpty else { return }
             guard !self.shouldPersistVisible else { return }
             self.uiState.isVisible = false
         }

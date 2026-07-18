@@ -21,6 +21,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private var antigravityWatcher: AntigravityWatcher?
     private var socketServer: SocketServer?
     private var permissionCenter: PermissionCenter?
+    private var questionCenter: QuestionCenter?
     private var soundPlayer: SoundPlayer?
     private var store: SessionStore?
     private var collapseTask: Task<Void, Never>?
@@ -32,14 +33,16 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
         let store = SessionStore()
         let permissionCenter = PermissionCenter()
+        let questionCenter = QuestionCenter()
         store.permissionCenter = permissionCenter
         let soundPlayer = SoundPlayer.shared
 
-        let controller = NotchWindowController(store: store, permissions: permissionCenter)
+        let controller = NotchWindowController(store: store, permissions: permissionCenter, questions: questionCenter)
         controller.showWindow()
 
         self.store = store
         self.permissionCenter = permissionCenter
+        self.questionCenter = questionCenter
         self.soundPlayer = soundPlayer
         self.notchWindowController = controller
 
@@ -61,6 +64,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             },
             onCancel: { [weak self] connection in
                 self?.permissionCenter?.cancel(connection: connection)
+                self?.questionCenter?.cancel(connection: connection)
             }
         )
         server.start()
@@ -96,6 +100,14 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             soundPlayer?.play(action == "done" ? .done : urgent ? .permission : .action)
         case "PermissionRequest":
             permissionCenter?.enqueue(event)
+            soundPlayer?.play(.permission)
+            notchWindowController?.forceShow()
+        case "PreToolUse" where event.toolName == "AskUserQuestion":
+            questionCenter?.enqueue(event)
+            soundPlayer?.play(.permission)
+            notchWindowController?.forceShow()
+        case "Notification" where event.toolInput["notification_type"] as? String == "agent_needs_input":
+            questionCenter?.enqueue(event)
             soundPlayer?.play(.permission)
             notchWindowController?.forceShow()
         case "Stop", "CodexTurnComplete":

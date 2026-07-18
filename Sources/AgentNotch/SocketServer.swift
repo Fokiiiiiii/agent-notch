@@ -8,7 +8,7 @@ struct HookEvent {
     let cwd: String
     let toolName: String?
     let toolInput: [String: Any]
-    /// Non-nil (and kept open) only for PermissionRequest events.
+    /// Non-nil for blocking PermissionRequest and AskUserQuestion events.
     let connection: SocketConnection?
 }
 
@@ -232,7 +232,7 @@ final class SocketServer {
             return
         }
 
-        if event.eventName == "PermissionRequest" || event.eventName == "AgentNotchPing" {
+        if event.connection != nil {
             // Keep the read source alive: it now watches for an unexpected
             // client disconnect while the app awaits Allow/Deny.
         } else {
@@ -256,7 +256,10 @@ final class SocketServer {
         let sessionId = (payload["session_id"] as? String) ?? ""
         let cwd = (payload["cwd"] as? String) ?? ""
         let toolName = payload["tool_name"] as? String
-        let toolInput = (payload["tool_input"] as? [String: Any]) ?? [:]
+        var toolInput = (payload["tool_input"] as? [String: Any]) ?? [:]
+        if let message = payload["message"] as? String { toolInput["message"] = message }
+        if let type = payload["notification_type"] as? String { toolInput["notification_type"] = type }
+        let isQuestion = eventName == "PreToolUse" && toolName == "AskUserQuestion"
 
         return HookEvent(
             eventName: eventName,
@@ -264,7 +267,7 @@ final class SocketServer {
             cwd: cwd,
             toolName: toolName,
             toolInput: toolInput,
-            connection: eventName == "PermissionRequest" || eventName == "AgentNotchPing" ? connection : nil
+            connection: eventName == "PermissionRequest" || eventName == "AgentNotchPing" || isQuestion ? connection : nil
         )
     }
 

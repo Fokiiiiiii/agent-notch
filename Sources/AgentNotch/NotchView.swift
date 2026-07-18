@@ -5,6 +5,7 @@ struct NotchView: View {
     @ObservedObject var store: SessionStore
     let controller: NotchWindowController
     @ObservedObject var permissions: PermissionCenter
+    @ObservedObject var questions: QuestionCenter
     @EnvironmentObject var uiState: NotchUIState
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @State private var trayItems: [TrayItem] = []
@@ -290,7 +291,11 @@ struct NotchView: View {
         case .plan:
             PlanReviewView { uiState.overlay = nil }
         case .question:
-            AgentQuestionView { uiState.overlay = nil }
+            if let request = questions.queue.first {
+                AgentQuestionView(request: request) { answer in
+                    questions.resolve(request.id, answer: answer)
+                }
+            }
         }
     }
 
@@ -1211,20 +1216,50 @@ private struct PlanReviewView: View {
 }
 
 private struct AgentQuestionView: View {
-    let dismiss: () -> Void
+    let request: QuestionCenter.Request
+    let answer: (String) -> Void
+    @State private var customAnswer = ""
+
     var body: some View {
         CellSurface {
             VStack(alignment: .leading, spacing: 6) {
-                Label("Claude asks", systemImage: "message.fill")
+                Label(request.header, systemImage: "message.fill")
                     .font(.system(size: 9, weight: .semibold))
                     .foregroundColor(DesignTokens.cyan)
-                Text("Which deployment target?")
+                Text(request.prompt)
                     .font(.system(size: 12, weight: .medium))
-                QuestionChoiceButton(shortcut: "⌘1", key: "1", title: "Production", action: dismiss)
-                QuestionChoiceButton(shortcut: "⌘2", key: "2", title: "Staging", action: dismiss)
-                QuestionChoiceButton(shortcut: "⌘3", key: "3", title: "Local only", action: dismiss)
+                    .lineLimit(2)
+                    .help(request.prompt)
+                ForEach(Array(request.options.enumerated()), id: \.element.id) { index, option in
+                    QuestionChoiceButton(
+                        shortcut: "⌘\(index + 1)",
+                        key: KeyEquivalent(Character("\(index + 1)")),
+                        title: option.label,
+                        detail: option.detail
+                    ) { answer(option.label) }
+                }
+                HStack(spacing: 6) {
+                    TextField("Type another answer…", text: $customAnswer)
+                        .textFieldStyle(.plain)
+                        .font(.system(size: 9))
+                        .padding(.horizontal, 8)
+                        .frame(height: 26)
+                        .background(RoundedRectangle(cornerRadius: 8).fill(Color.white.opacity(0.07)))
+                        .onSubmit { submitCustomAnswer() }
+                    Button("Send") { submitCustomAnswer() }
+                        .buttonStyle(NotchPressStyle())
+                        .font(.system(size: 9, weight: .semibold))
+                        .disabled(customAnswer.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
+                }
             }.foregroundColor(.white)
         }
+    }
+
+    private func submitCustomAnswer() {
+        let value = customAnswer.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !value.isEmpty else { return }
+        SoundPlayer.shared.play(.approve)
+        answer(value)
     }
 }
 
@@ -1232,6 +1267,7 @@ private struct QuestionChoiceButton: View {
     let shortcut: String
     let key: KeyEquivalent
     let title: String
+    let detail: String
     let action: () -> Void
     @State private var hovering = false
 
@@ -1246,7 +1282,15 @@ private struct QuestionChoiceButton: View {
                     .foregroundColor(DesignTokens.cyan.opacity(0.85))
                     .frame(width: 28, height: 20)
                     .background(RoundedRectangle(cornerRadius: 6).fill(DesignTokens.cyan.opacity(0.15)))
-                Text(title).font(.system(size: 10, weight: .medium))
+                VStack(alignment: .leading, spacing: 1) {
+                    Text(title).font(.system(size: 10, weight: .medium))
+                    if !detail.isEmpty {
+                        Text(detail)
+                            .font(.system(size: 7.5))
+                            .foregroundColor(DesignTokens.muted)
+                            .lineLimit(1)
+                    }
+                }
                 Spacer()
                 Image(systemName: "chevron.right")
                     .font(.system(size: 8, weight: .semibold))

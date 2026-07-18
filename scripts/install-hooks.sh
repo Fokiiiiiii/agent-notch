@@ -62,6 +62,7 @@ def add(event, matcher, timeout=None):
 
 add("Notification", "*")
 add("PermissionRequest", "*", timeout=86400)
+add("PreToolUse", "AskUserQuestion", timeout=86400)
 add("Stop", None)
 add("SessionStart", None)
 add("SessionEnd", None)

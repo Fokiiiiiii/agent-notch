@@ -2,8 +2,8 @@ import Foundation
 import Darwin
 
 // Hooks bridge CLI: forwards a single hook stdin JSON event to the AgentNotch
-// app over a Unix domain socket. For PermissionRequest events it blocks
-// waiting for the app's allow/deny decision and prints it to stdout. Any
+// app over a Unix domain socket. For PermissionRequest and AskUserQuestion
+// events it blocks waiting for the user's response and prints it to stdout. Any
 // failure along the way must exit 0 with no stdout, so Claude Code falls
 // back to its normal prompt.
 //
@@ -353,6 +353,8 @@ else {
 }
 
 let eventName = (hookObject["hook_event_name"] as? String) ?? "Unknown"
+let toolName = hookObject["tool_name"] as? String
+let isQuestion = eventName == "PreToolUse" && toolName == "AskUserQuestion"
 
 let fd = connectSocket()
 guard fd >= 0 else { fail() }
@@ -362,7 +364,7 @@ guard writeEnvelope(hookObject, to: fd) else {
     fail()
 }
 
-guard eventName == "PermissionRequest" else {
+guard eventName == "PermissionRequest" || isQuestion else {
     Darwin.close(fd)
     fail()
 }
@@ -374,21 +376,32 @@ guard let responseBuffer = readResponseLine(from: fd) else {
 }
 Darwin.close(fd)
 
-guard let responseObj = (try? JSONSerialization.jsonObject(with: responseBuffer)) as? [String: Any],
-      let behavior = responseObj["behavior"] as? String,
-      behavior == "allow" || behavior == "deny"
-else {
+guard let responseObj = (try? JSONSerialization.jsonObject(with: responseBuffer)) as? [String: Any] else {
     fail()
 }
 
-let output: [String: Any] = [
-    "hookSpecificOutput": [
-        "hookEventName": "PermissionRequest",
-        "decision": [
-            "behavior": behavior,
+let output: [String: Any]
+if isQuestion {
+    guard let answer = responseObj["answer"] as? String, !answer.isEmpty else { fail() }
+    output = [
+        "hookSpecificOutput": [
+            "hookEventName": "PreToolUse",
+            "permissionDecision": "deny",
+            "permissionDecisionReason": "User answered in AgentNotch: \(answer)",
         ],
-    ],
-]
+    ]
+} else {
+    guard let behavior = responseObj["behavior"] as? String,
+          behavior == "allow" || behavior == "deny" else { fail() }
+    output = [
+        "hookSpecificOutput": [
+            "hookEventName": "PermissionRequest",
+            "decision": [
+                "behavior": behavior,
+            ],
+        ],
+    ]
+}
 
 if let outData = try? JSONSerialization.data(withJSONObject: output),
    let outStr = String(data: outData, encoding: .utf8) {
