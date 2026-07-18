@@ -12,8 +12,8 @@ struct HookEvent {
     let connection: SocketConnection?
 }
 
-/// Wraps an accepted client file descriptor. For PermissionRequest events the
-/// app holds this open until the user picks Allow/Deny.
+/// Wraps an accepted client file descriptor. Blocking approval and question
+/// hooks keep it open until the user responds in the notch.
 final class SocketConnection {
     private let fd: Int32
     private let lock = NSLock()
@@ -204,8 +204,12 @@ final class SocketServer {
             Darwin.read(incoming.fd, raw.baseAddress, raw.count)
         }
 
+        if n < 0, errno == EAGAIN || errno == EWOULDBLOCK || errno == EINTR {
+            return
+        }
+
         if n <= 0 {
-            // EOF or error: client disconnected.
+            // EOF or a terminal socket error: client disconnected.
             incoming.source?.cancel()
             if incoming.eventDelivered {
                 Task { @MainActor in
@@ -259,7 +263,8 @@ final class SocketServer {
         var toolInput = (payload["tool_input"] as? [String: Any]) ?? [:]
         if let message = payload["message"] as? String { toolInput["message"] = message }
         if let type = payload["notification_type"] as? String { toolInput["notification_type"] = type }
-        let isQuestion = eventName == "PreToolUse" && toolName == "AskUserQuestion"
+        let isQuestion = eventName == "PreToolUse"
+            && (toolName == "AskUserQuestion" || toolName == "request_user_input")
 
         return HookEvent(
             eventName: eventName,

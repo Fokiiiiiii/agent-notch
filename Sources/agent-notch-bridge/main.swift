@@ -354,7 +354,8 @@ else {
 
 let eventName = (hookObject["hook_event_name"] as? String) ?? "Unknown"
 let toolName = hookObject["tool_name"] as? String
-let isQuestion = eventName == "PreToolUse" && toolName == "AskUserQuestion"
+let isQuestion = eventName == "PreToolUse"
+    && (toolName == "AskUserQuestion" || toolName == "request_user_input")
 
 let fd = connectSocket()
 guard fd >= 0 else { fail() }

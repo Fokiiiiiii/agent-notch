@@ -11,6 +11,7 @@ final class QuestionCenter: ObservableObject {
 
     struct Request: Identifiable {
         let id = UUID()
+        let agent: AgentKind
         let sessionID: String
         let prompt: String
         let header: String
@@ -32,22 +33,27 @@ final class QuestionCenter: ObservableObject {
                 detail: ($0["description"] as? String) ?? ""
             )
         }
-        queue.append(Request(
+        let request = Request(
+            agent: event.toolName == "request_user_input" ? .codex : .claude,
             sessionID: event.sessionId,
             prompt: prompt,
             header: header,
             options: options,
             connection: event.connection
-        ))
+        )
+        queue = queue + [request]
     }
 
     func resolve(_ id: UUID, answer: String) {
         guard let index = queue.firstIndex(where: { $0.id == id }) else { return }
-        let request = queue.remove(at: index)
+        let request = queue[index]
+        var updated = queue
+        updated.remove(at: index)
+        queue = updated
         request.connection?.respond(json: ["answer": answer])
     }
 
     func cancel(connection: SocketConnection) {
-        queue.removeAll { $0.connection === connection }
+        queue = queue.filter { $0.connection !== connection }
     }
 }

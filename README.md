@@ -1,7 +1,7 @@
 # AgentNotch
 
 Mac のノッチに常駐する AI コーディングエージェント監視アプリ（Vibe Island 風、Nook デザイン）。
-Claude Code / Codex / Antigravity のセッションをノッチから監視し、Claude Code の権限承認をノッチ上の Allow/Deny で応答できる。
+Claude Code / Codex / Antigravity のセッションをノッチから監視し、Claude CodeとCodexの質問・権限承認へノッチ上で応答できる。
 
 ## ビルド & 起動
 
@@ -19,7 +19,7 @@ open build/AgentNotch.app
 bash scripts/install-hooks.sh
 ```
 
-- bridge を `~/.agent-notch/bin/agent-notch-bridge` にコピーし、`~/.claude/settings.json` の hooks（Notification / PermissionRequest / Stop / SessionStart / SessionEnd）を登録する。実行前に settings.json を自動バックアップ。
+- bridge を `~/.agent-notch/bin/agent-notch-bridge` にコピーし、Claude Codeの`AskUserQuestion`／承認hookと、Codexの`request_user_input`／承認hookを登録する。設定ファイルは実行前に自動バックアップ。
 - 共通CLIを `~/.local/bin/agent-notch` に配置する（PATHに`~/.local/bin`が必要）。
 - Codex は `~/.codex/config.toml` の `notify` → `~/.agent-notch/bin/codex-notify`（既存 Computer Use クライアントと多重配送するラッパー）。
 
@@ -28,7 +28,7 @@ bash scripts/install-hooks.sh
 ```
 Claude Code CLI ─ hooks ──▶ agent-notch-bridge ─┐ UNIX socket
                 └ ~/.claude/projects/*.jsonl ───┤ (~/.agent-notch/run/agent-notch.sock)
-Codex ────────── notify (codex-notify) ─────────┼──▶ AgentNotch.app
+Codex ─ hooks + notify (codex-notify) ──────────┼──▶ AgentNotch.app
                 └ ~/.codex/sessions rollout ────┤
 Antigravity ──── conversations/ mtime ──────────┘
 ```
@@ -70,7 +70,7 @@ CLIは`~/.agent-notch/run/agent-notch.sock`だけを使用し、外部通信や�
 | Agent | 接続方法 |
 | --- | --- |
 | Claude Code | native hooks + transcript |
-| Codex | notify + rollout logs |
+| Codex | native hooks (`request_user_input` / `PermissionRequest`) + notify + rollout logs |
 | Gemini CLI | native hooks (`~/.gemini/settings.json`) |
 | GitHub Copilot CLI | native user hooks (`~/.copilot/hooks/agent-notch.json`) |
 | OpenCode | native global plugin (`~/.config/opencode/plugins/agent-notch.js`) |
@@ -99,5 +99,5 @@ CLIは`~/.agent-notch/run/agent-notch.sock`だけを使用し、外部通信や�
 
 - Pause / Resume / Stopの実エージェント制御チャネル
 - Claude / Codexのusage実値
-- Plan Review / Agent Questionのhookイベント配送
+- Plan Reviewの実イベント配送
 - OSのMedia Remote・カレンダー・バッテリー・バックグラウンドタスク実データ

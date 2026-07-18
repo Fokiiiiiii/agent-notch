@@ -84,6 +84,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             event.connection?.respond(json: [
                 "ok": true,
                 "sessions": store?.sessions.count ?? 0,
+                "questions": questionCenter?.queue.count ?? 0,
+                "permissions": permissionCenter?.queue.count ?? 0,
+                "mode": notchWindowController?.debugMode ?? "missing",
+                "overlay": notchWindowController?.debugOverlay ?? "missing",
+                "visible": notchWindowController?.debugVisible ?? false,
+                "persists": notchWindowController?.debugPersists ?? false,
                 "version": 1,
             ])
         case "AgentNotchShow":
@@ -102,7 +108,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             permissionCenter?.enqueue(event)
             soundPlayer?.play(.permission)
             notchWindowController?.forceShow()
-        case "PreToolUse" where event.toolName == "AskUserQuestion":
+        case "PreToolUse" where event.toolName == "AskUserQuestion" || event.toolName == "request_user_input":
             questionCenter?.enqueue(event)
             soundPlayer?.play(.permission)
             notchWindowController?.forceShow()

@@ -294,6 +294,7 @@ struct NotchView: View {
             if let request = questions.queue.first {
                 AgentQuestionView(request: request) { answer in
                     questions.resolve(request.id, answer: answer)
+                    controller.finishQuestionResponse()
                 }
             }
         }
@@ -1219,39 +1220,93 @@ private struct AgentQuestionView: View {
     let request: QuestionCenter.Request
     let answer: (String) -> Void
     @State private var customAnswer = ""
+    @State private var customMode: Bool
+    @FocusState private var customFieldFocused: Bool
+
+    init(request: QuestionCenter.Request, answer: @escaping (String) -> Void) {
+        self.request = request
+        self.answer = answer
+        _customMode = State(initialValue: request.options.isEmpty)
+    }
 
     var body: some View {
         CellSurface {
-            VStack(alignment: .leading, spacing: 6) {
-                Label(request.header, systemImage: "message.fill")
-                    .font(.system(size: 9, weight: .semibold))
-                    .foregroundColor(DesignTokens.cyan)
-                Text(request.prompt)
-                    .font(.system(size: 12, weight: .medium))
-                    .lineLimit(2)
-                    .help(request.prompt)
-                ForEach(Array(request.options.enumerated()), id: \.element.id) { index, option in
-                    QuestionChoiceButton(
-                        shortcut: "⌘\(index + 1)",
-                        key: KeyEquivalent(Character("\(index + 1)")),
-                        title: option.label,
-                        detail: option.detail
-                    ) { answer(option.label) }
-                }
+            VStack(alignment: .leading, spacing: 5) {
                 HStack(spacing: 6) {
-                    TextField("Type another answer…", text: $customAnswer)
-                        .textFieldStyle(.plain)
-                        .font(.system(size: 9))
-                        .padding(.horizontal, 8)
-                        .frame(height: 26)
-                        .background(RoundedRectangle(cornerRadius: 8).fill(Color.white.opacity(0.07)))
-                        .onSubmit { submitCustomAnswer() }
-                    Button("Send") { submitCustomAnswer() }
-                        .buttonStyle(NotchPressStyle())
+                    Label("\(request.agent.displayName) asks", systemImage: request.agent.symbolName)
                         .font(.system(size: 9, weight: .semibold))
-                        .disabled(customAnswer.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
+                        .foregroundColor(request.agent == .codex ? .white.opacity(0.9) : DesignTokens.cyan)
+                    Text(request.header)
+                        .font(.system(size: 7.5, weight: .medium))
+                        .foregroundColor(DesignTokens.muted)
+                        .lineLimit(1)
+                        .padding(.horizontal, 6)
+                        .frame(height: 18)
+                        .background(Capsule().fill(Color.white.opacity(0.07)))
+                    Spacer(minLength: 4)
+                    if !request.options.isEmpty {
+                        Button(customMode ? "Choices" : "Other…") {
+                            withAnimation(.easeOut(duration: 0.15)) {
+                                customMode.toggle()
+                            }
+                            customFieldFocused = customMode
+                        }
+                        .buttonStyle(NotchPressStyle())
+                        .font(.system(size: 8, weight: .medium))
+                        .foregroundColor(.white.opacity(0.66))
+                        .padding(.horizontal, 7)
+                        .frame(height: 20)
+                        .background(Capsule().fill(Color.white.opacity(0.07)))
+                        .help(customMode ? "Show choices" : "Type another answer")
+                    }
+                }
+                Text(request.prompt)
+                    .font(.system(size: 11.5, weight: .medium))
+                    .lineLimit(2)
+                    .fixedSize(horizontal: false, vertical: true)
+                    .help(request.prompt)
+                Group {
+                    if customMode {
+                        customAnswerView
+                            .transition(.opacity.combined(with: .offset(y: 2)))
+                    } else {
+                        VStack(spacing: 4) {
+                            ForEach(Array(request.options.enumerated()), id: \.element.id) { index, option in
+                                QuestionChoiceButton(
+                                    shortcut: "⌘\(index + 1)",
+                                    key: KeyEquivalent(Character("\(index + 1)")),
+                                    title: option.label,
+                                    detail: option.detail
+                                ) { answer(option.label) }
+                            }
+                        }
+                        .transition(.opacity.combined(with: .offset(y: 2)))
+                    }
                 }
             }.foregroundColor(.white)
+        }
+    }
+
+    private var customAnswerView: some View {
+        VStack(spacing: 6) {
+            TextField("Type your answer…", text: $customAnswer)
+                .textFieldStyle(.plain)
+                .font(.system(size: 10))
+                .padding(.horizontal, 9)
+                .frame(height: 30)
+                .background(RoundedRectangle(cornerRadius: 9).fill(Color.white.opacity(0.075)))
+                .overlay(RoundedRectangle(cornerRadius: 9).stroke(customFieldFocused ? Color.white.opacity(0.24) : .clear, lineWidth: 1))
+                .focused($customFieldFocused)
+                .onSubmit { submitCustomAnswer() }
+            Button { submitCustomAnswer() } label: {
+                Label("Send answer", systemImage: "arrow.up")
+                    .font(.system(size: 9, weight: .semibold))
+                    .frame(maxWidth: .infinity, minHeight: 26)
+                    .background(RoundedRectangle(cornerRadius: 8).fill(Color.white.opacity(0.92)))
+                    .foregroundColor(.black)
+            }
+            .buttonStyle(NotchPressStyle())
+            .disabled(customAnswer.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
         }
     }
 
@@ -1279,18 +1334,13 @@ private struct QuestionChoiceButton: View {
             HStack(spacing: 8) {
                 Text(shortcut)
                     .font(.system(size: 8, weight: .semibold, design: .rounded))
-                    .foregroundColor(DesignTokens.cyan.opacity(0.85))
-                    .frame(width: 28, height: 20)
-                    .background(RoundedRectangle(cornerRadius: 6).fill(DesignTokens.cyan.opacity(0.15)))
-                VStack(alignment: .leading, spacing: 1) {
-                    Text(title).font(.system(size: 10, weight: .medium))
-                    if !detail.isEmpty {
-                        Text(detail)
-                            .font(.system(size: 7.5))
-                            .foregroundColor(DesignTokens.muted)
-                            .lineLimit(1)
-                    }
-                }
+                    .foregroundColor(.white.opacity(0.62))
+                    .frame(width: 26, height: 18)
+                    .background(RoundedRectangle(cornerRadius: 5).fill(Color.white.opacity(0.09)))
+                Text(title)
+                    .font(.system(size: 10, weight: .medium))
+                    .lineLimit(1)
+                    .truncationMode(.tail)
                 Spacer()
                 Image(systemName: "chevron.right")
                     .font(.system(size: 8, weight: .semibold))
@@ -1298,13 +1348,13 @@ private struct QuestionChoiceButton: View {
             }
             .padding(.horizontal, 8)
             .frame(height: 28)
-            .background(RoundedRectangle(cornerRadius: 9).fill(DesignTokens.cyan.opacity(hovering ? 0.16 : 0.09)))
+            .background(RoundedRectangle(cornerRadius: 9).fill(Color.white.opacity(hovering ? 0.12 : 0.065)))
         }
         .buttonStyle(NotchPressStyle())
         .onHover { hovering = $0 }
         .animation(.easeOut(duration: 0.14), value: hovering)
         .keyboardShortcut(key, modifiers: .command)
-        .help("Choose \(title)")
+        .help(detail.isEmpty ? "Choose \(title)" : "\(title)\n\(detail)")
     }
 }
 

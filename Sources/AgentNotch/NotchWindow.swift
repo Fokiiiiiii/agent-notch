@@ -30,9 +30,7 @@ enum NotchTab {
     case nook, tray
 }
 
-/// Structural placeholder for the approval/plan/question overlays. Only
-/// `.approval` has a real view today, driven by `PermissionCenter.queue`'s
-/// head element (see `NotchWindowController`'s subscription below).
+/// Inline approval, plan, and agent-question surfaces displayed in the Nook.
 enum IslandOverlay: Equatable {
     case approval(toolName: String, summary: String, extraCount: Int)
     case plan
@@ -73,6 +71,7 @@ final class NotchWindowController: NSObject {
     private let openSize = CGSize(width: 484, height: 168)
     private let openDetailSize = CGSize(width: 484, height: 244)
     private let openOverlaySize = CGSize(width: 484, height: 196)
+    private let openQuestionSize = CGSize(width: 484, height: 216)
     private var hoverTask: Task<Void, Never>?
     private var cancellables = Set<AnyCancellable>()
 
@@ -107,6 +106,15 @@ final class NotchWindowController: NSObject {
     /// AppDelegate before auto-collapsing after the permission queue drains.
     private(set) var isHovering = false
     var isPinnedOpen: Bool { isClickPinned && uiState.mode == .open }
+    var debugMode: String {
+        switch uiState.mode { case .closed: return "closed"; case .notice: return "notice"; case .open: return "open" }
+    }
+    var debugOverlay: String {
+        guard let overlay = uiState.overlay else { return "none" }
+        switch overlay { case .approval: return "approval"; case .plan: return "plan"; case .question: return "question" }
+    }
+    var debugVisible: Bool { uiState.isVisible }
+    var debugPersists: Bool { shouldPersistVisible }
 
     init(store: SessionStore, permissions: PermissionCenter, questions: QuestionCenter) {
         self.store = store
@@ -167,11 +175,8 @@ final class NotchWindowController: NSObject {
             }
             .store(in: &cancellables)
 
-        // Drives `uiState.overlay` from the live PermissionCenter queue: the
-        // head request becomes the `.approval` overlay, with the remaining
-        // count surfaced as `extraCount`. AppDelegate handles opening the
-        // panel and the post-drain auto-collapse; this just keeps the
-        // overlay content in sync with the queue.
+        // Approval takes priority over agent questions. Both queues feed the
+        // same inline surface without replacing the user's current Nook page.
         permissions.$queue
             .sink { [weak self] _ in
                 guard let self else { return }
@@ -321,7 +326,9 @@ final class NotchWindowController: NSObject {
         case .notice:
             targetSize = noticeSize
         case .open:
-            if uiState.hasOverlay {
+            if uiState.overlay == .question {
+                targetSize = openQuestionSize
+            } else if uiState.hasOverlay {
                 targetSize = openOverlaySize
             } else {
                 targetSize = uiState.isDetailExpanded ? openDetailSize : openSize
@@ -388,6 +395,7 @@ final class NotchWindowController: NSObject {
     /// auto-expansion (requirement 6).
     func forceShow() {
         guard shouldPersistVisible else { return }
+        syncOverlay()
         dwellTask?.cancel()
         hideTask?.cancel()
         isClickPinned = false
@@ -406,9 +414,11 @@ final class NotchWindowController: NSObject {
     }
 
     func showFromCLI() {
-        guard shouldPersistVisible else { return }
+        // An explicit CLI command is a manual override. Automatic activity,
+        // questions and hover still respect fullscreen suppression.
         dwellTask?.cancel()
         hideTask?.cancel()
+        syncOverlay()
         isClickPinned = true
         uiState.isVisible = true
         uiState.mode = .open
@@ -480,6 +490,16 @@ final class NotchWindowController: NSObject {
             setMode(.open)
         } else {
             setMode(.closed)
+        }
+    }
+
+    func finishQuestionResponse() {
+        syncOverlay()
+        if permissions.queue.isEmpty, questions.queue.isEmpty {
+            isClickPinned = false
+            setMode(.closed)
+        } else {
+            setMode(.open)
         }
     }
 

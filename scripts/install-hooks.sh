@@ -1,7 +1,7 @@
 #!/bin/bash
 # AgentNotch hooks installer:
 #  - bridge を ~/.agent-notch/bin/ にコピー
-#  - ~/.claude/settings.json の hooks を AgentNotch bridge に入替（vibe-island hooks は除去）
+#  - Claude Code / Codex の質問・承認 hooks を AgentNotch bridge に接続
 #  - statusLine には触れない
 # 冪等。実行前に settings.json をタイムスタンプ付きでバックアップする。
 set -euo pipefail
@@ -72,4 +72,54 @@ with open(path, "w") as f:
     json.dump(settings, f, indent=2, ensure_ascii=False)
     f.write("\n")
 print("hooks installed:", ", ".join(sorted(hooks.keys())))
+EOF
+
+CODEX_HOOKS="$HOME/.codex/hooks.json"
+mkdir -p "$(dirname "$CODEX_HOOKS")"
+[[ -f "$CODEX_HOOKS" ]] || printf '{"hooks":{}}\n' > "$CODEX_HOOKS"
+CODEX_BACKUP="$CODEX_HOOKS.backup.agent-notch.$(date +%Y%m%dT%H%M%S)"
+cp "$CODEX_HOOKS" "$CODEX_BACKUP"
+echo "backup: $CODEX_BACKUP"
+
+python3 - "$CODEX_HOOKS" <<'EOF'
+import json, sys
+
+path = sys.argv[1]
+with open(path) as f:
+    settings = json.load(f)
+
+cmd = '/bin/sh -c \'[ -x "$HOME/.agent-notch/bin/agent-notch-bridge" ] && exec "$HOME/.agent-notch/bin/agent-notch-bridge"; exit 0\''
+hooks = settings.setdefault("hooks", {})
+
+for event in list(hooks):
+    kept = []
+    for group in hooks[event]:
+        group["hooks"] = [item for item in group.get("hooks", [])
+                          if "vibe-island" not in item.get("command", "")
+                          and "agent-notch" not in item.get("command", "")]
+        if group["hooks"]:
+            kept.append(group)
+    if kept:
+        hooks[event] = kept
+    else:
+        del hooks[event]
+
+def add(event, matcher):
+    hooks.setdefault(event, []).append({
+        "matcher": matcher,
+        "hooks": [{
+            "type": "command",
+            "command": cmd,
+            "timeout": 86400,
+            "statusMessage": "Waiting in AgentNotch",
+        }],
+    })
+
+add("PreToolUse", "^request_user_input$")
+add("PermissionRequest", "*")
+
+with open(path, "w") as f:
+    json.dump(settings, f, indent=2, ensure_ascii=False)
+    f.write("\n")
+print("Codex hooks installed: PermissionRequest, request_user_input")
 EOF
