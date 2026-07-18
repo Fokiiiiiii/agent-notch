@@ -6,9 +6,11 @@ struct NotchView: View {
     let controller: NotchWindowController
     @ObservedObject var permissions: PermissionCenter
     @EnvironmentObject var uiState: NotchUIState
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @State private var trayItems: [TrayItem] = []
     @State private var isDropTargeted = false
     @State private var trayFeedback: String?
+    @GestureState private var horizontalDrag: CGFloat = 0
 
     var body: some View {
         ZStack(alignment: .top) {
@@ -137,21 +139,43 @@ struct NotchView: View {
                     trayPlaceholder
                 }
             }
+            .id(contentIdentity)
+            .transition(.asymmetric(
+                insertion: .opacity.combined(with: .offset(y: reduceMotion ? 0 : 3)),
+                removal: .opacity.combined(with: .offset(y: reduceMotion ? 0 : -2))
+            ))
+            .animation(reduceMotion ? .easeOut(duration: 0.14) : DesignTokens.contentTransition, value: contentIdentity)
             .frame(maxHeight: .infinity)
+            .offset(x: reduceMotion ? 0 : horizontalDrag / 7)
+            .opacity(reduceMotion ? 1 : 1 - min(abs(horizontalDrag) / 900, 0.08))
         }
         .padding(.horizontal, 14)
         .padding(.top, 8)
         .padding(.bottom, 13)
+        .contentShape(Rectangle())
+        .simultaneousGesture(horizontalSwipeGesture)
+        .focusable()
+        .focusEffectDisabled()
+        .onMoveCommand { direction in
+            if direction == .left { navigateForward() }
+            if direction == .right { navigateBackward() }
+        }
+        .onExitCommand { controller.closeExplicitly() }
+    }
+
+    private var contentIdentity: String {
+        if let overlay = uiState.overlay { return "overlay-\(String(describing: overlay))" }
+        return uiState.activeTab == .tray ? "tray" : "nook-\(uiState.activeView.title)"
     }
 
     private var nookbar: some View {
         HStack(spacing: 6) {
             HStack(spacing: 4) {
                 tabButton(title: "Nook", icon: "sparkles", isActive: uiState.activeTab == .nook) {
-                    uiState.activeTab = .nook
+                    selectTab(.nook)
                 }
                 tabButton(title: "Tray", icon: "tray.full", isActive: uiState.activeTab == .tray) {
-                    uiState.activeTab = .tray
+                    selectTab(.tray)
                 }
             }
             Spacer()
@@ -161,7 +185,9 @@ struct NotchView: View {
                     .foregroundColor(.white.opacity(0.62))
                     .frame(width: 27, height: 27)
             }
-            .buttonStyle(.plain)
+            .buttonStyle(NotchPressStyle())
+            .hoverLift(cornerRadius: 8)
+            .help("Close  Esc")
         }
         .frame(height: 29)
     }
@@ -177,7 +203,9 @@ struct NotchView: View {
                     Capsule().fill(isActive ? Color.white.opacity(0.13) : Color.clear)
                 )
         }
-        .buttonStyle(.plain)
+        .buttonStyle(NotchPressStyle())
+        .hoverLift(cornerRadius: 14)
+        .help(isActive ? "Current tab" : "Show \(title)")
     }
 
     private var nookContentView: some View {
@@ -233,14 +261,16 @@ struct NotchView: View {
         HStack(spacing: 6) {
             ForEach(NookView.allCases, id: \.self) { view in
                 Button {
-                    uiState.activeView = view
+                    selectView(view)
                 } label: {
                     RoundedRectangle(cornerRadius: 4)
                         .fill(uiState.activeView == view ? Color.white.opacity(0.72) : Color.white.opacity(0.22))
                         .frame(width: uiState.activeView == view ? 14 : 5, height: 5)
                 }
-                .buttonStyle(.plain)
+                .buttonStyle(NotchPressStyle(pressedScale: 0.9))
+                .hoverLift(cornerRadius: 5, strength: 0.1)
                 .accessibilityLabel(view.title)
+                .help(view.title)
             }
         }
         .frame(height: 10)
@@ -281,6 +311,66 @@ struct NotchView: View {
             }
             return accepted
         }
+    }
+
+    private var horizontalSwipeGesture: some Gesture {
+        DragGesture(minimumDistance: 10, coordinateSpace: .local)
+            .updating($horizontalDrag) { value, state, _ in
+                guard uiState.overlay == nil,
+                      abs(value.translation.width) > abs(value.translation.height) else { return }
+                state = rubberBand(value.translation.width, limit: 180)
+            }
+            .onEnded { value in
+                guard uiState.overlay == nil,
+                      abs(value.translation.width) > abs(value.translation.height) * 1.15 else { return }
+                let projected = value.predictedEndTranslation.width
+                let committed = abs(value.translation.width) > 52 || abs(projected) > 88
+                guard committed else { return }
+                projected < 0 ? navigateForward() : navigateBackward()
+            }
+    }
+
+    private func rubberBand(_ value: CGFloat, limit: CGFloat) -> CGFloat {
+        let magnitude = abs(value)
+        let damped = (magnitude * limit * 0.55) / (limit + 0.55 * magnitude)
+        return value < 0 ? -damped : damped
+    }
+
+    private func selectTab(_ tab: NotchTab) {
+        guard uiState.activeTab != tab else { return }
+        SoundPlayer.shared.play(.navigation)
+        withAnimation(reduceMotion ? .easeOut(duration: 0.12) : DesignTokens.spring) {
+            uiState.activeTab = tab
+        }
+    }
+
+    private func selectView(_ view: NookView) {
+        guard uiState.activeView != view else { return }
+        SoundPlayer.shared.play(.navigation)
+        withAnimation(reduceMotion ? .easeOut(duration: 0.12) : DesignTokens.contentTransition) {
+            uiState.activeView = view
+        }
+    }
+
+    private func navigateForward() {
+        if uiState.activeTab == .tray { return }
+        let views = NookView.allCases
+        guard let index = views.firstIndex(of: uiState.activeView) else { return }
+        if index < views.count - 1 {
+            selectView(views[index + 1])
+        } else {
+            selectTab(.tray)
+        }
+    }
+
+    private func navigateBackward() {
+        if uiState.activeTab == .tray {
+            selectTab(.nook)
+            return
+        }
+        let views = NookView.allCases
+        guard let index = views.firstIndex(of: uiState.activeView), index > 0 else { return }
+        selectView(views[index - 1])
     }
 }
 
@@ -332,6 +422,53 @@ private struct GlyphBox: View {
     }
 }
 
+// MARK: - Native interaction feedback
+
+private struct NotchPressStyle: ButtonStyle {
+    var pressedScale: CGFloat = 0.97
+
+    func makeBody(configuration: Configuration) -> some View {
+        NotchPressedBody(configuration: configuration, pressedScale: pressedScale)
+    }
+}
+
+private struct NotchPressedBody: View {
+    let configuration: ButtonStyle.Configuration
+    let pressedScale: CGFloat
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+
+    var body: some View {
+        configuration.label
+            .scaleEffect(configuration.isPressed && !reduceMotion ? pressedScale : 1)
+            .opacity(configuration.isPressed ? 0.82 : 1)
+            .animation(.easeOut(duration: reduceMotion ? 0.01 : 0.11), value: configuration.isPressed)
+    }
+}
+
+private struct HoverLiftModifier: ViewModifier {
+    let cornerRadius: CGFloat
+    let strength: Double
+    @State private var hovering = false
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+
+    func body(content: Content) -> some View {
+        content
+            .background(
+                RoundedRectangle(cornerRadius: cornerRadius)
+                    .fill(Color.white.opacity(hovering ? strength : 0))
+            )
+            .scaleEffect(hovering && !reduceMotion ? 1.012 : 1)
+            .onHover { hovering = $0 }
+            .animation(.easeOut(duration: reduceMotion ? 0.01 : 0.14), value: hovering)
+    }
+}
+
+private extension View {
+    func hoverLift(cornerRadius: CGFloat = 8, strength: Double = 0.055) -> some View {
+        modifier(HoverLiftModifier(cornerRadius: cornerRadius, strength: strength))
+    }
+}
+
 // MARK: - Agents cell (implemented)
 
 private struct AgentsCell: View {
@@ -377,10 +514,11 @@ private struct AgentsCell: View {
 
     private var cellShape: some View {
         RoundedRectangle(cornerRadius: 14)
-            .fill(DesignTokens.surface2)
+            .fill(.ultraThinMaterial)
+            .overlay(RoundedRectangle(cornerRadius: 14).fill(Color.black.opacity(0.34)))
             .overlay(
                 RoundedRectangle(cornerRadius: 14)
-                    .stroke(Color.white.opacity(0.035), lineWidth: 1)
+                    .stroke(Color.white.opacity(0.055), lineWidth: 1)
             )
     }
 
@@ -422,9 +560,12 @@ private struct AgentsCell: View {
                 .fill(Color.white.opacity(0.065))
         )
         .contentShape(Rectangle())
+        .hoverLift(cornerRadius: 10, strength: 0.04)
         .onTapGesture(count: 2) {
+            SoundPlayer.shared.play(.navigation)
             Jumper.jump(to: session)
         }
+        .help("Double-click to return to \(session.agent.displayName)")
     }
 
     private func activityRow(_ session: AgentSession) -> some View {
@@ -453,7 +594,10 @@ private struct AgentsCell: View {
         HStack(spacing: 4) {
             ForEach(others.prefix(2)) { session in
                 Button {
-                    uiState.selectedSessionId = session.id
+                    SoundPlayer.shared.play(.navigation)
+                    withAnimation(DesignTokens.contentTransition) {
+                        uiState.selectedSessionId = session.id
+                    }
                 } label: {
                     HStack(spacing: 4) {
                         Circle().fill(statusColor(session.state)).frame(width: 5, height: 5)
@@ -466,11 +610,16 @@ private struct AgentsCell: View {
                     .frame(height: 24)
                     .background(RoundedRectangle(cornerRadius: 8).fill(Color.white.opacity(0.055)))
                 }
-                .buttonStyle(.plain)
-                .help(session.title)
+                .buttonStyle(NotchPressStyle())
+                .hoverLift(cornerRadius: 8)
+                .help("Show \(session.title)")
             }
             Spacer(minLength: 4)
-            MiniButton(title: selected.map { pausedSessionIDs.contains($0.id) ? "Resume" : "Pause" } ?? "Pause") {
+            MiniButton(
+                title: selected.map { pausedSessionIDs.contains($0.id) ? "Resume" : "Pause" } ?? "Pause",
+                icon: selected.map { pausedSessionIDs.contains($0.id) ? "play.fill" : "pause.fill" } ?? "pause.fill",
+                helpText: "Pause or resume this agent"
+            ) {
                 guard let selected else { return }
                 if pausedSessionIDs.contains(selected.id) {
                     pausedSessionIDs.remove(selected.id)
@@ -480,10 +629,10 @@ private struct AgentsCell: View {
                     actionFeedback = "Pause requested"
                 }
             }
-            MiniButton(title: "Stop", isDanger: true) {
+            MiniButton(title: "Stop", icon: "stop.fill", isDanger: true, helpText: "Stop this agent") {
                 actionFeedback = "Stop requested"
             }
-            MiniButton(title: "Terminal") {
+            MiniButton(title: "Terminal", icon: "terminal", helpText: "Return to Terminal") {
                 if let selected {
                     Jumper.jump(to: selected)
                 }
@@ -498,23 +647,39 @@ private struct AgentsCell: View {
 
 private struct MiniButton: View {
     let title: String
+    var icon: String? = nil
+    var shortcut: String? = nil
     var isDanger: Bool = false
     var isPrimary: Bool = false
+    var helpText: String? = nil
     let action: () -> Void
+    @State private var hovering = false
 
     var body: some View {
-        Button(action: action) {
-            Text(title)
-                .font(.system(size: 8.5, weight: isPrimary ? .semibold : .regular))
-                .foregroundColor(textColor)
-                .padding(.horizontal, 8)
-                .frame(height: 24)
-                .background(
-                    RoundedRectangle(cornerRadius: 8)
-                        .fill(backgroundColor)
-                )
+        Button {
+            SoundPlayer.shared.play(.action)
+            action()
+        } label: {
+            HStack(spacing: 4) {
+                if let icon { Image(systemName: icon).font(.system(size: 8, weight: .semibold)) }
+                Text(title)
+                if let shortcut {
+                    Text(shortcut).foregroundColor(textColor.opacity(0.55))
+                }
+            }
+            .font(.system(size: 8.5, weight: isPrimary ? .semibold : .regular))
+            .foregroundColor(textColor)
+            .padding(.horizontal, 8)
+            .frame(height: 24)
+            .background(
+                RoundedRectangle(cornerRadius: 8)
+                    .fill(backgroundColor)
+            )
         }
-        .buttonStyle(.plain)
+        .buttonStyle(NotchPressStyle())
+        .onHover { hovering = $0 }
+        .animation(.easeOut(duration: 0.14), value: hovering)
+        .help(helpText ?? title)
     }
 
     private var textColor: Color {
@@ -524,9 +689,9 @@ private struct MiniButton: View {
     }
 
     private var backgroundColor: Color {
-        if isPrimary { return Color(white: 0.965) }
-        if isDanger { return DesignTokens.red.opacity(0.13) }
-        return Color.white.opacity(0.085)
+        if isPrimary { return Color(white: hovering ? 1 : 0.965) }
+        if isDanger { return DesignTokens.red.opacity(hovering ? 0.22 : 0.13) }
+        return Color.white.opacity(hovering ? 0.14 : 0.085)
     }
 }
 
@@ -534,6 +699,7 @@ private struct MiniButton: View {
 
 private struct CellSurface<Content: View>: View {
     let content: Content
+    @Environment(\.accessibilityReduceTransparency) private var reduceTransparency
 
     init(@ViewBuilder content: () -> Content) {
         self.content = content()
@@ -541,8 +707,9 @@ private struct CellSurface<Content: View>: View {
 
     var body: some View {
         RoundedRectangle(cornerRadius: 14)
-            .fill(DesignTokens.surface2)
-            .overlay(RoundedRectangle(cornerRadius: 14).stroke(DesignTokens.line.opacity(0.45), lineWidth: 1))
+            .fill(reduceTransparency ? AnyShapeStyle(Color(white: 0.075)) : AnyShapeStyle(.ultraThinMaterial))
+            .overlay(RoundedRectangle(cornerRadius: 14).fill(Color.black.opacity(reduceTransparency ? 0 : 0.32)))
+            .overlay(RoundedRectangle(cornerRadius: 14).stroke(Color.white.opacity(0.065), lineWidth: 0.75))
             .overlay(content.padding(9))
     }
 }
@@ -557,26 +724,46 @@ private struct MediaCell: View {
             HStack(spacing: 12) {
                 RoundedRectangle(cornerRadius: 12)
                     .fill(LinearGradient(colors: [.purple.opacity(0.9), .blue.opacity(0.7), .black], startPoint: .topLeading, endPoint: .bottomTrailing))
-                    .frame(width: 82, height: 82)
-                    .overlay(Image(systemName: "waveform").font(.system(size: 24, weight: .light)).foregroundColor(.white.opacity(0.82)))
+                    .frame(width: 68, height: 68)
+                    .overlay(Image(systemName: "waveform").font(.system(size: 21, weight: .light)).foregroundColor(.white.opacity(0.82)))
                 VStack(alignment: .leading, spacing: 7) {
                     Text("Night Drive").font(.system(size: 12, weight: .semibold)).lineLimit(1)
                     Text("Neon Coast · Apple Music").font(.system(size: 9)).foregroundColor(DesignTokens.muted).lineLimit(1)
                     Slider(value: $progress).controlSize(.mini).tint(.white.opacity(0.9))
                     HStack {
-                        Button { progress = max(0, progress - 0.08) } label: { Image(systemName: "backward.fill") }
-                        Button { isPlaying.toggle() } label: { Image(systemName: isPlaying ? "pause.fill" : "play.fill").frame(width: 22) }
-                        Button { progress = min(1, progress + 0.08) } label: { Image(systemName: "forward.fill") }
+                        MediaControlButton(icon: "backward.fill", help: "Previous") { progress = max(0, progress - 0.08) }
+                        MediaControlButton(icon: isPlaying ? "pause.fill" : "play.fill", help: isPlaying ? "Pause" : "Play", prominent: true) { isPlaying.toggle() }
+                        MediaControlButton(icon: "forward.fill", help: "Next") { progress = min(1, progress + 0.08) }
                         Spacer()
                         Image(systemName: "speaker.fill").foregroundColor(DesignTokens.muted)
                         Slider(value: $volume).frame(width: 74).controlSize(.mini)
                     }
                     .font(.system(size: 11))
-                    .buttonStyle(.plain)
                 }
             }
             .foregroundColor(.white)
         }
+    }
+}
+
+private struct MediaControlButton: View {
+    let icon: String
+    let help: String
+    var prominent = false
+    let action: () -> Void
+
+    var body: some View {
+        Button {
+            SoundPlayer.shared.play(.action)
+            action()
+        } label: {
+            Image(systemName: icon)
+                .frame(width: prominent ? 26 : 20, height: 22)
+                .background(Circle().fill(Color.white.opacity(prominent ? 0.11 : 0)))
+        }
+        .buttonStyle(NotchPressStyle())
+        .hoverLift(cornerRadius: 11, strength: 0.08)
+        .help(help)
     }
 }
 
@@ -596,11 +783,17 @@ private struct TodayCell: View {
                     ScheduleRow(time: "10:30", title: "Design sync", detail: "Studio · 30 min")
                     ScheduleRow(time: "13:00", title: "AgentNotch review", detail: "Focus block · 1 hr")
                     Spacer(minLength: 0)
-                    Button { focusRunning.toggle() } label: {
+                    Button {
+                        SoundPlayer.shared.play(.action)
+                        focusRunning.toggle()
+                    } label: {
                         Label(focusRunning ? "End Focus · 21:42" : "Start Focus", systemImage: focusRunning ? "timer" : "moon.fill")
                             .font(.system(size: 9, weight: .medium)).frame(height: 24).padding(.horizontal, 9)
                             .background(RoundedRectangle(cornerRadius: 8).fill(Color.white.opacity(0.09)))
-                    }.buttonStyle(.plain)
+                    }
+                    .buttonStyle(NotchPressStyle())
+                    .hoverLift(cornerRadius: 8)
+                    .help(focusRunning ? "End Focus" : "Start Focus")
                 }
             }.foregroundColor(.white)
         }
@@ -707,7 +900,18 @@ private struct TrayCell: View {
                     TrayButton("AI Attach", "paperclip", action: { action(.attach) })
                     Spacer()
                     if let feedback { Text(feedback).font(.system(size: 7)).foregroundColor(DesignTokens.muted) }
-                    Button { action(.clear) } label: { Image(systemName: "trash").frame(width: 24, height: 22) }.buttonStyle(.plain).disabled(items.isEmpty)
+                    Button {
+                        SoundPlayer.shared.play(.deny)
+                        action(.clear)
+                    } label: {
+                        Image(systemName: "trash")
+                            .frame(width: 24, height: 22)
+                            .background(RoundedRectangle(cornerRadius: 8).fill(Color.white.opacity(0.055)))
+                    }
+                    .buttonStyle(NotchPressStyle())
+                    .hoverLift(cornerRadius: 8)
+                    .help("Clear Tray")
+                    .disabled(items.isEmpty)
                 }
             }.foregroundColor(.white)
         }
@@ -727,7 +931,19 @@ private struct TrayButton: View {
     let title: String, icon: String, action: () -> Void
     init(_ title: String, _ icon: String, action: @escaping () -> Void) { self.title = title; self.icon = icon; self.action = action }
     var body: some View {
-        Button(action: action) { Label(title, systemImage: icon).font(.system(size: 7.5)).padding(.horizontal, 8).frame(height: 24).background(RoundedRectangle(cornerRadius: 8).fill(Color.white.opacity(0.08))) }.buttonStyle(.plain)
+        Button {
+            SoundPlayer.shared.play(.action)
+            action()
+        } label: {
+            Label(title, systemImage: icon)
+                .font(.system(size: 7.5))
+                .padding(.horizontal, 8)
+                .frame(height: 24)
+                .background(RoundedRectangle(cornerRadius: 8).fill(Color.white.opacity(0.08)))
+        }
+        .buttonStyle(NotchPressStyle())
+        .hoverLift(cornerRadius: 8)
+        .help(title)
     }
 }
 
@@ -741,25 +957,67 @@ private struct PlanReviewView: View {
                 Text("Refactor authentication middleware").font(.system(size: 11, weight: .semibold))
                 Text("1. Extract token validation  2. Add refresh path  3. Run auth tests").font(.system(size: 8)).foregroundColor(DesignTokens.muted).lineLimit(2)
                 TextField("Add a comment…", text: $comment).textFieldStyle(.plain).font(.system(size: 9)).padding(7).background(RoundedRectangle(cornerRadius: 7).fill(Color.white.opacity(0.07)))
-                HStack { MiniButton(title: "Request Changes", isDanger: true, action: dismiss); MiniButton(title: "Approve Plan", isPrimary: true, action: dismiss); MiniButton(title: "Open Terminal", action: dismiss) }
+                HStack {
+                    MiniButton(title: "Changes", icon: "arrow.uturn.backward", isDanger: true, helpText: "Request changes", action: dismiss)
+                    MiniButton(title: "Approve", icon: "checkmark", isPrimary: true, helpText: "Approve plan", action: dismiss)
+                    MiniButton(title: "Terminal", icon: "terminal", helpText: "Open the full plan in Terminal", action: dismiss)
+                }
             }.foregroundColor(.white)
         }
     }
 }
 
 private struct AgentQuestionView: View {
-    @State private var answer = ""
     let dismiss: () -> Void
     var body: some View {
         CellSurface {
-            VStack(alignment: .leading, spacing: 7) {
-                Label("Agent Question", systemImage: "questionmark.bubble").font(.system(size: 10, weight: .semibold))
-                Text("Which compatibility target should I use?").font(.system(size: 11, weight: .semibold))
-                HStack { MiniButton(title: "macOS 14", isPrimary: true, action: dismiss); MiniButton(title: "macOS 13", action: dismiss); MiniButton(title: "Current only", action: dismiss) }
-                TextField("Write another answer…", text: $answer).textFieldStyle(.plain).font(.system(size: 9)).padding(7).background(RoundedRectangle(cornerRadius: 7).fill(Color.white.opacity(0.07)))
-                HStack { Spacer(); MiniButton(title: "Send Answer", isPrimary: true, action: dismiss) }
+            VStack(alignment: .leading, spacing: 6) {
+                Label("Claude asks", systemImage: "message.fill")
+                    .font(.system(size: 9, weight: .semibold))
+                    .foregroundColor(DesignTokens.cyan)
+                Text("Which deployment target?")
+                    .font(.system(size: 12, weight: .medium))
+                QuestionChoiceButton(shortcut: "⌘1", key: "1", title: "Production", action: dismiss)
+                QuestionChoiceButton(shortcut: "⌘2", key: "2", title: "Staging", action: dismiss)
+                QuestionChoiceButton(shortcut: "⌘3", key: "3", title: "Local only", action: dismiss)
             }.foregroundColor(.white)
         }
+    }
+}
+
+private struct QuestionChoiceButton: View {
+    let shortcut: String
+    let key: KeyEquivalent
+    let title: String
+    let action: () -> Void
+    @State private var hovering = false
+
+    var body: some View {
+        Button {
+            SoundPlayer.shared.play(.approve)
+            action()
+        } label: {
+            HStack(spacing: 8) {
+                Text(shortcut)
+                    .font(.system(size: 8, weight: .semibold, design: .rounded))
+                    .foregroundColor(DesignTokens.cyan.opacity(0.85))
+                    .frame(width: 28, height: 20)
+                    .background(RoundedRectangle(cornerRadius: 6).fill(DesignTokens.cyan.opacity(0.15)))
+                Text(title).font(.system(size: 10, weight: .medium))
+                Spacer()
+                Image(systemName: "chevron.right")
+                    .font(.system(size: 8, weight: .semibold))
+                    .foregroundColor(.white.opacity(hovering ? 0.65 : 0.25))
+            }
+            .padding(.horizontal, 8)
+            .frame(height: 28)
+            .background(RoundedRectangle(cornerRadius: 9).fill(DesignTokens.cyan.opacity(hovering ? 0.16 : 0.09)))
+        }
+        .buttonStyle(NotchPressStyle())
+        .onHover { hovering = $0 }
+        .animation(.easeOut(duration: 0.14), value: hovering)
+        .keyboardShortcut(key, modifiers: .command)
+        .help("Choose \(title)")
     }
 }
 
@@ -771,50 +1029,130 @@ private struct ApprovalOverlayView: View {
     var extraCount: Int = 0
     var onAllowOnce: () -> Void = {}
     var onDeny: () -> Void = {}
-    // NOTE: the mock also has "This Session" and "Edit" buttons here; per
-    // spec they are intentionally left out for now.
+    @State private var decision: ApprovalDecision?
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
     var body: some View {
         CellSurface {
-            VStack(alignment: .leading, spacing: 5) {
-                    HStack(spacing: 6) {
-                        Circle()
-                            .fill(DesignTokens.orange)
-                            .frame(width: 6, height: 6)
-                        Text("Permission Request · Claude")
-                            .font(.system(size: 8))
+            Group {
+                if let decision {
+                    VStack(spacing: 8) {
+                        Image(systemName: decision == .allow ? "checkmark.circle.fill" : "xmark.circle.fill")
+                            .font(.system(size: 28, weight: .medium))
+                            .foregroundColor(decision == .allow ? DesignTokens.green : DesignTokens.red)
+                            .symbolEffect(.bounce, value: decision)
+                        Text(decision == .allow ? "Allowed once" : "Denied")
+                            .font(.system(size: 13, weight: .semibold))
+                        Text(decision == .allow ? "Claude can continue this action" : "Claude will return to the task")
+                            .font(.system(size: 8.5))
                             .foregroundColor(DesignTokens.muted)
-                        if extraCount > 0 {
-                            Spacer(minLength: 4)
-                            Text("+\(extraCount) more")
-                                .font(.system(size: 7, weight: .medium))
-                                .foregroundColor(.white.opacity(0.55))
-                                .padding(.horizontal, 5)
-                                .padding(.vertical, 2)
-                                .background(
-                                    Capsule().fill(Color.white.opacity(0.08))
-                                )
+                    }
+                    .frame(maxWidth: .infinity, maxHeight: .infinity)
+                    .transition(.opacity.combined(with: .scale(scale: reduceMotion ? 1 : 0.97)))
+                } else {
+                    VStack(alignment: .leading, spacing: 7) {
+                        HStack(spacing: 6) {
+                            Image(systemName: "exclamationmark.triangle.fill")
+                                .font(.system(size: 9))
+                                .foregroundColor(DesignTokens.orange)
+                            Text("Claude requests permission")
+                                .font(.system(size: 9, weight: .medium))
+                                .foregroundColor(DesignTokens.muted)
+                            Spacer()
+                            if extraCount > 0 {
+                                Text("+\(extraCount)")
+                                    .font(.system(size: 8, weight: .semibold))
+                                    .padding(.horizontal, 6)
+                                    .frame(height: 18)
+                                    .background(Capsule().fill(Color.white.opacity(0.09)))
+                            }
+                        }
+                        HStack(spacing: 7) {
+                            Image(systemName: toolSymbol)
+                                .foregroundColor(DesignTokens.orange)
+                                .frame(width: 16)
+                            Text(toolName)
+                                .font(.system(size: 12, weight: .semibold, design: .rounded))
+                            Text(summary)
+                                .font(.system(size: 10, design: .monospaced))
+                                .foregroundColor(.white.opacity(0.72))
+                                .lineLimit(1)
+                                .truncationMode(.middle)
+                        }
+                        Text(summary.isEmpty ? "Review this action before Claude continues." : summary)
+                            .font(.system(size: 8, design: .monospaced))
+                            .foregroundColor(.white.opacity(0.58))
+                            .padding(.horizontal, 8)
+                            .frame(maxWidth: .infinity, minHeight: 30, alignment: .leading)
+                            .background(RoundedRectangle(cornerRadius: 8).fill(Color.black.opacity(0.28)))
+                        Spacer(minLength: 2)
+                        HStack(spacing: 8) {
+                            ApprovalActionButton(title: "Deny", shortcut: "⌘N", icon: "xmark", role: .deny) { decide(.deny) }
+                            ApprovalActionButton(title: "Allow once", shortcut: "⌘Y", icon: "checkmark", role: .allow) { decide(.allow) }
                         }
                     }
-                    Text(toolName)
-                        .font(.system(size: 11, weight: .semibold))
-                        .foregroundColor(.white)
-                        .lineLimit(2)
-                    Text(summary)
-                        .font(.system(size: 7.5, design: .monospaced))
-                        .foregroundColor(.white.opacity(0.6))
-                        .padding(6)
-                        .frame(maxWidth: .infinity, alignment: .leading)
-                        .background(
-                            RoundedRectangle(cornerRadius: 6)
-                                .fill(Color.white.opacity(0.04))
-                        )
-                Spacer(minLength: 4)
-                HStack(spacing: 5) {
-                    MiniButton(title: "Allow Once", isPrimary: true, action: onAllowOnce)
-                    MiniButton(title: "Deny", isDanger: true, action: onDeny)
+                    .transition(.opacity)
                 }
             }
+            .animation(reduceMotion ? .easeOut(duration: 0.12) : DesignTokens.spring, value: decision)
         }
+    }
+
+    private var toolSymbol: String {
+        switch toolName.lowercased() {
+        case "edit", "write": return "pencil.line"
+        case "bash": return "terminal"
+        case "read": return "doc.text.magnifyingglass"
+        default: return "lock.shield"
+        }
+    }
+
+    private func decide(_ newDecision: ApprovalDecision) {
+        guard decision == nil else { return }
+        SoundPlayer.shared.play(newDecision == .allow ? .approve : .deny)
+        withAnimation(reduceMotion ? .easeOut(duration: 0.12) : DesignTokens.spring) {
+            decision = newDecision
+        }
+        Task { @MainActor in
+            try? await Task.sleep(nanoseconds: reduceMotion ? 180_000_000 : 520_000_000)
+            newDecision == .allow ? onAllowOnce() : onDeny()
+        }
+    }
+}
+
+private enum ApprovalDecision { case allow, deny }
+
+private struct ApprovalActionButton: View {
+    let title: String
+    let shortcut: String
+    let icon: String
+    let role: ApprovalDecision
+    let action: () -> Void
+    @State private var hovering = false
+
+    var body: some View {
+        Button(action: action) {
+            HStack(spacing: 6) {
+                Image(systemName: icon)
+                Text(title)
+                Spacer()
+                Text(shortcut).foregroundColor(foreground.opacity(0.48))
+            }
+            .font(.system(size: 10, weight: .medium))
+            .foregroundColor(foreground)
+            .padding(.horizontal, 11)
+            .frame(maxWidth: .infinity, minHeight: 30)
+            .background(RoundedRectangle(cornerRadius: 9).fill(background))
+        }
+        .buttonStyle(NotchPressStyle())
+        .onHover { hovering = $0 }
+        .animation(.easeOut(duration: 0.14), value: hovering)
+        .keyboardShortcut(role == .allow ? KeyEquivalent("y") : KeyEquivalent("n"), modifiers: .command)
+        .help(role == .allow ? "Allow this action once" : "Deny this action")
+    }
+
+    private var foreground: Color { role == .allow ? .black : .white.opacity(0.86) }
+    private var background: Color {
+        role == .allow ? Color.white.opacity(hovering ? 1 : 0.94) : Color.white.opacity(hovering ? 0.16 : 0.1)
     }
 }

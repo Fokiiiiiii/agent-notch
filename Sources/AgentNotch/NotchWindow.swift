@@ -62,9 +62,9 @@ final class NotchWindowController: NSObject {
     private let permissions: PermissionCenter
     private let screen: NSScreen
     private var closedSize: CGSize
-    private let noticeSize = CGSize(width: 400, height: 64)
-    private let openSize = CGSize(width: 520, height: 180)
-    private let openOverlaySize = CGSize(width: 520, height: 204)
+    private let noticeSize = CGSize(width: 360, height: 58)
+    private let openSize = CGSize(width: 484, height: 168)
+    private let openOverlaySize = CGSize(width: 484, height: 196)
     private var hoverTask: Task<Void, Never>?
     private var cancellables = Set<AnyCancellable>()
 
@@ -104,7 +104,7 @@ final class NotchWindowController: NSObject {
             notchWidth = resolvedScreen.frame.width - leftArea.width - rightArea.width
         }
 
-        self.closedSize = CGSize(width: max(notchWidth + 24, 240), height: max(notchHeight, 36))
+        self.closedSize = CGSize(width: max(notchWidth + 20, 220), height: max(notchHeight, 34))
 
         let initialFrame = NotchWindowController.frame(
             for: closedSize,
@@ -257,8 +257,8 @@ final class NotchWindowController: NSObject {
         let targetFrame = NotchWindowController.frame(for: targetSize, on: screen)
 
         NSAnimationContext.runAnimationGroup { context in
-            context.duration = uiState.mode == .closed ? 0.16 : 0.24
-            context.timingFunction = CAMediaTimingFunction(controlPoints: 0.22, 0.78, 0.28, 1)
+            context.duration = uiState.mode == .closed ? 0.20 : 0.32
+            context.timingFunction = CAMediaTimingFunction(controlPoints: 0.20, 0.72, 0.24, 1)
             panel.animator().setFrame(targetFrame, display: true)
         }
     }

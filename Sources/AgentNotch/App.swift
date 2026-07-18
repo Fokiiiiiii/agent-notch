@@ -33,7 +33,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         let store = SessionStore()
         let permissionCenter = PermissionCenter()
         store.permissionCenter = permissionCenter
-        let soundPlayer = SoundPlayer()
+        let soundPlayer = SoundPlayer.shared
 
         let controller = NotchWindowController(store: store, permissions: permissionCenter)
         controller.showWindow()
