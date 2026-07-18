@@ -21,9 +21,6 @@ enum DesignTokens {
     // Shell geometry
     static let closedRadius: CGFloat = 15
     static let openRadius: CGFloat = 24
-    static let shellShadowColor = Color.black.opacity(0.62)
-    static let shellShadowRadius: CGFloat = 10
-    static let shellShadowY: CGFloat = 3
 
     /// Hover-driven panels should settle without overshoot. A critically
     /// damped response also remains interruptible when the pointer reverses.

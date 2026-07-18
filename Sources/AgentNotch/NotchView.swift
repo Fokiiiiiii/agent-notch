@@ -14,11 +14,13 @@ struct NotchView: View {
 
     var body: some View {
         ZStack(alignment: .top) {
-            Color.black.opacity(0.001)
+            Color.clear
             ZStack {
                 shapeBackground
                 content
             }
+            .clipShape(shellShape)
+            .compositingGroup()
             .opacity(uiState.isVisible ? 1 : 0)
             .allowsHitTesting(uiState.isVisible)
             .animation(DesignTokens.spring, value: uiState.mode)
@@ -30,17 +32,19 @@ struct NotchView: View {
         .environment(\.colorScheme, .dark)
     }
 
-    private var shapeBackground: some View {
-        let radius: CGFloat = uiState.mode == .open ? DesignTokens.openRadius : DesignTokens.closedRadius
-        let shape = UnevenRoundedRectangle(
+    private var shellShape: UnevenRoundedRectangle {
+        let radius = uiState.mode == .open ? DesignTokens.openRadius : DesignTokens.closedRadius
+        return UnevenRoundedRectangle(
             topLeadingRadius: 0,
             bottomLeadingRadius: radius,
             bottomTrailingRadius: radius,
-            topTrailingRadius: 0
+            topTrailingRadius: 0,
+            style: .continuous
         )
-        return shape
-            .fill(Color.black)
-            .shadow(color: DesignTokens.shellShadowColor, radius: DesignTokens.shellShadowRadius, y: DesignTokens.shellShadowY)
+    }
+
+    private var shapeBackground: some View {
+        shellShape.fill(Color.black)
     }
 
     @ViewBuilder
