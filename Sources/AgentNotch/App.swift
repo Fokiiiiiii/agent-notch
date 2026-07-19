@@ -44,7 +44,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         let nativeNotifier = NativeNotifier()
         nativeNotifier.requestAuthorizationIfNeeded()
 
-        let controller = NotchWindowController(store: store, permissions: permissionCenter, questions: questionCenter, plans: planCenter)
+        let controller = NotchWindowController(store: store, permissions: permissionCenter, questions: questionCenter, plans: planCenter, nativeNotifier: nativeNotifier)
         controller.showWindow()
 
         self.store = store
@@ -100,6 +100,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                 "overlay": notchWindowController?.debugOverlay ?? "missing",
                 "visible": notchWindowController?.debugVisible ?? false,
                 "persists": notchWindowController?.debugPersists ?? false,
+                "screenInfo": notchWindowController?.debugScreenInfo ?? [:],
+                "nativeNotifier": nativeNotifier?.debugInfo ?? [:],
                 "version": 1,
             ])
         case "AgentNotchShow":

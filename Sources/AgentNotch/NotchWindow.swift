@@ -123,6 +123,7 @@ final class NotchWindowController: NSObject {
     private let permissions: PermissionCenter
     private let questions: QuestionCenter
     private let plans: PlanCenter
+    private let nativeNotifier: NativeNotifier?
     private let screen: NSScreen
     private var closedSize: CGSize
     /// Narrower than `closedSize`: used only while fullscreen-suppressed, so the
@@ -136,6 +137,23 @@ final class NotchWindowController: NSObject {
     private let openDetailSize = CGSize(width: 540, height: 264)
     private let openOverlaySize = CGSize(width: 540, height: 246)
     private let openQuestionSize = CGSize(width: 540, height: 316)
+    /// Height for the Agents tab with exactly one tracked session (the
+    /// selected-row detail lines plus usage bar and footer already exceed
+    /// `openSize.height`, which is what caused the footer button to visually
+    /// float outside the card). Derived empirically from `AgentsCell`'s
+    /// layout (usage bar ~27pt + selected row ~70pt + footer 30pt + padding
+    ////spacing) plus the chrome above/below it (nookbar, view tabs).
+    private let agentsBaseHeight: CGFloat = 246
+    /// Extra height contributed by each additional, unselected session row
+    /// (row height + list spacing) once more than one session is tracked.
+    private let agentsRowHeight: CGFloat = 36
+    /// Sessions beyond this count no longer grow the panel further —
+    /// `AgentsCell.sessionList`'s own `ScrollView` takes over instead, so
+    /// the notch never grows large enough to run off-screen.
+    private let agentsMaxVisibleRows = 4
+    /// Absolute ceiling on the Agents tab height, independent of session
+    /// count, as a second safety net alongside `agentsMaxVisibleRows`.
+    private let agentsMaxHeight: CGFloat = 340
     private var hoverTask: Task<Void, Never>?
     private var noticeAutoDismissTask: Task<Void, Never>?
     private var cancellables = Set<AnyCancellable>()
@@ -166,6 +184,12 @@ final class NotchWindowController: NSObject {
     private var verticalScrollTotal: CGFloat = 0
     private var didCommitCurrentVerticalScroll = false
     private var lastDiscreteVerticalSwitch: TimeInterval = 0
+    /// Ids of permission/question/plan requests already surfaced via a
+    /// fallback native notification (fullscreen suppression), so the same
+    /// event never notifies twice as visibility toggles.
+    private var notifiedPermissionIDs: Set<UUID> = []
+    private var notifiedQuestionIDs: Set<UUID> = []
+    private var notifiedPlanIDs: Set<UUID> = []
 
     /// Whether the pointer is currently inside the notch. Consulted by
     /// AppDelegate before auto-collapsing after the permission queue drains.
@@ -180,27 +204,85 @@ final class NotchWindowController: NSObject {
     }
     var debugVisible: Bool { uiState.isVisible }
     var debugPersists: Bool { shouldPersistVisible }
+    let debugScreenInfo: [String: Any]
 
-    init(store: SessionStore, permissions: PermissionCenter, questions: QuestionCenter, plans: PlanCenter) {
+    /// True if the given screen's backing display is the Mac's built-in
+    /// panel (as opposed to an external monitor). Uses the live `CGDirectDisplayID`
+    /// rather than any hardcoded model table, so it holds across all Mac models.
+    private static func isBuiltInDisplay(_ screen: NSScreen) -> Bool {
+        guard let screenNumber = screen.deviceDescription[NSDeviceDescriptionKey("NSScreenNumber")] as? NSNumber else {
+            return false
+        }
+        let displayID = CGDirectDisplayID(screenNumber.uint32Value)
+        return CGDisplayIsBuiltin(displayID) != 0
+    }
+
+    /// Picks the screen to anchor the notch window to. Preference order:
+    /// built-in display with a notch, then built-in display (no notch),
+    /// then any screen reporting a notch-like safe area, then the system
+    /// default, then simply the first available screen.
+    private static func selectScreen() -> NSScreen? {
+        if let builtinWithNotch = NSScreen.screens.first(where: { isBuiltInDisplay($0) && $0.safeAreaInsets.top > 0 }) {
+            return builtinWithNotch
+        }
+        if let builtin = NSScreen.screens.first(where: { isBuiltInDisplay($0) }) {
+            return builtin
+        }
+        if let anyNotch = NSScreen.screens.first(where: { $0.safeAreaInsets.top > 0 }) {
+            return anyNotch
+        }
+        return NSScreen.main ?? NSScreen.screens.first
+    }
+
+    /// Derives the visible `.closed`-mode shape size from the physically
+    /// measured notch width/height. Pulled out as a pure function so the
+    /// margin/floor logic can be exercised without constructing a window.
+    static func computeClosedSize(notchWidth: CGFloat, notchHeight: CGFloat) -> CGSize {
+        CGSize(
+            width: max(notchWidth + DesignTokens.notchSafeMargin, DesignTokens.compactMinContentWidth, 220),
+            height: max(notchHeight, 34)
+        )
+    }
+
+    init(store: SessionStore, permissions: PermissionCenter, questions: QuestionCenter, plans: PlanCenter, nativeNotifier: NativeNotifier? = nil) {
         self.store = store
         self.permissions = permissions
         self.questions = questions
         self.plans = plans
+        self.nativeNotifier = nativeNotifier
 
-        let chosenScreen = NSScreen.screens.first(where: { $0.safeAreaInsets.top > 0 }) ?? NSScreen.main
-        let resolvedScreen = chosenScreen ?? NSScreen.screens.first ?? NSScreen()
+        let resolvedScreen = NotchWindowController.selectScreen() ?? NSScreen()
         self.screen = resolvedScreen
 
         let notchHeight: CGFloat = resolvedScreen.safeAreaInsets.top > 0 ? resolvedScreen.safeAreaInsets.top : 32
 
+        // auxiliaryTop{Left,Right}Area の測定値には稀に負値や画面幅の大半を占める
+        // ような異常値が返るケースがあるため、妥当な範囲外ならフォールバックする。
         var notchWidth: CGFloat = 200
+        let hasAuxiliaryAreas = resolvedScreen.auxiliaryTopLeftArea != nil && resolvedScreen.auxiliaryTopRightArea != nil
         if let leftArea = resolvedScreen.auxiliaryTopLeftArea, let rightArea = resolvedScreen.auxiliaryTopRightArea {
-            notchWidth = resolvedScreen.frame.width - leftArea.width - rightArea.width
+            let measured = resolvedScreen.frame.width - leftArea.width - rightArea.width
+            if measured > 0 && measured <= resolvedScreen.frame.width * 0.5 {
+                notchWidth = measured
+            }
         }
 
         // 見た目のノッチサイズ（NotchViewが.closedモード時に固定描画するサイズ）
-        let visualClosedSize = CGSize(width: max(notchWidth + 20, 220), height: max(notchHeight, 34))
+        let visualClosedSize = NotchWindowController.computeClosedSize(notchWidth: notchWidth, notchHeight: notchHeight)
         self.mediaPreviewSize = CGSize(width: max(notchWidth + 116, 316), height: max(notchHeight, 34))
+        let isBuiltIn = NotchWindowController.isBuiltInDisplay(resolvedScreen)
+        self.debugScreenInfo = [
+            "safeAreaInsetsTop": resolvedScreen.safeAreaInsets.top,
+            "hasAuxiliaryAreas": hasAuxiliaryAreas,
+            "auxiliaryTopLeftWidth": resolvedScreen.auxiliaryTopLeftArea?.width ?? 0,
+            "auxiliaryTopRightWidth": resolvedScreen.auxiliaryTopRightArea?.width ?? 0,
+            "screenFrameWidth": resolvedScreen.frame.width,
+            "notchWidth": notchWidth,
+            "notchHeight": notchHeight,
+            "visualClosedWidth": visualClosedSize.width,
+            "visualClosedHeight": visualClosedSize.height,
+            "isBuiltInDisplay": isBuiltIn,
+        ]
         // closedSize は実際のウィンドウフレーム（ファイルドロップの当たり判定を兼ねる）。
         // 見た目より一回り大きくして常時ドロップを受け付けやすくする。控えめな増分に留め、
         // 他アプリのツールバー等をブロックしすぎないようにする（幅+40, 高さ+70）。
@@ -272,6 +354,32 @@ final class NotchWindowController: NSObject {
             .dropFirst()
             .sink { [weak self] _ in
                 guard let self, self.uiState.mode == .open else { return }
+                self.resizeForCurrentState()
+            }
+            .store(in: &cancellables)
+
+        // Switching into/out of the Agents Nook page changes which sizing
+        // branch `resizeForCurrentState` takes (fixed `openSize` vs. the
+        // session-count-driven `agentsOpenSize`).
+        uiState.$activeView
+            .dropFirst()
+            .sink { [weak self] _ in
+                guard let self, self.uiState.mode == .open else { return }
+                self.resizeForCurrentState()
+            }
+            .store(in: &cancellables)
+
+        // The Agents tab's height tracks how many sessions are tracked, so
+        // sessions appearing/disappearing while the tab is open must resize
+        // the panel live (this is what lets the notch "grow" instead of
+        // clipping/overlapping content, per the user's request).
+        store.$sessions
+            .dropFirst()
+            .sink { [weak self] _ in
+                guard let self,
+                      self.uiState.mode == .open,
+                      self.uiState.activeTab == .nook,
+                      self.uiState.activeView == .agents else { return }
                 self.resizeForCurrentState()
             }
             .store(in: &cancellables)
@@ -497,6 +605,8 @@ final class NotchWindowController: NSObject {
             } else {
                 if uiState.activeTab == .tray {
                     targetSize = trayOpenSize
+                } else if uiState.activeView == .agents {
+                    targetSize = agentsOpenSize(sessionCount: store.sessions.count, detailExpanded: uiState.isDetailExpanded)
                 } else {
                     targetSize = uiState.isDetailExpanded ? openDetailSize : openSize
                 }
@@ -510,6 +620,23 @@ final class NotchWindowController: NSObject {
             context.timingFunction = CAMediaTimingFunction(controlPoints: 0.20, 0.72, 0.24, 1)
             panel.animator().setFrame(targetFrame, display: true)
         }
+    }
+
+    /// Height budget for the Agents Nook page. Unlike the other pages
+    /// (fixed `openSize`), Agents shows a full vertical list of every
+    /// tracked session, so a fixed height either clips content or (as
+    /// reported) lets the footer action row visually float outside the
+    /// card once the list plus footer exceed it. Growing the panel to fit,
+    /// up to `agentsMaxVisibleRows`/`agentsMaxHeight`, is what fixes that;
+    /// beyond the cap `AgentsCell.sessionList`'s own `ScrollView` takes
+    /// over so the notch never grows large enough to run off-screen.
+    private func agentsOpenSize(sessionCount: Int, detailExpanded: Bool) -> CGSize {
+        let visibleRows = max(1, min(sessionCount, agentsMaxVisibleRows))
+        var height = agentsBaseHeight + agentsRowHeight * CGFloat(visibleRows - 1)
+        if detailExpanded {
+            height += openDetailSize.height - openSize.height
+        }
+        return CGSize(width: openSize.width, height: min(height, agentsMaxHeight))
     }
 
     func hoverChanged(_ inside: Bool) {
@@ -588,13 +715,40 @@ final class NotchWindowController: NSObject {
     /// Important events reveal the compact notch but never take over the
     /// current page. The user opens the actionable surface with a click.
     func showAttention() {
-        guard shouldPersistVisible else { return }
+        guard shouldPersistVisible else {
+            notifyFallbackIfNeeded()
+            return
+        }
         dwellTask?.cancel()
         hideTask?.cancel()
         isClickPinned = false
         uiState.isVisible = true
         syncOverlay()
         setMode(.open, forceResize: true)
+    }
+
+    /// Fullscreen suppression means the notch UI itself cannot appear, so
+    /// this is the only signal the user gets. Each queued request notifies
+    /// at most once, tracked by id, so repeated `showAttention()` calls
+    /// (e.g. from `refreshVisibilityForCurrentSpace`) don't re-fire it.
+    private func notifyFallbackIfNeeded() {
+        guard let nativeNotifier else { return }
+        for permission in permissions.queue where !notifiedPermissionIDs.contains(permission.id) {
+            notifiedPermissionIDs.insert(permission.id)
+            let title = String(localized: "notification.permission.title", defaultValue: "\(permission.agent.displayName) needs approval")
+            let body = String(localized: "notification.permission.body", defaultValue: "\(permission.toolName): \(permission.summary)")
+            nativeNotifier.notify(title: title, body: body, agentGlyph: permission.agent)
+        }
+        for plan in plans.queue where !notifiedPlanIDs.contains(plan.id) {
+            notifiedPlanIDs.insert(plan.id)
+            let title = String(localized: "notification.plan.title", defaultValue: "\(plan.agent.displayName) plan ready for review")
+            nativeNotifier.notify(title: title, body: plan.title, agentGlyph: plan.agent)
+        }
+        for question in questions.queue where !notifiedQuestionIDs.contains(question.id) {
+            notifiedQuestionIDs.insert(question.id)
+            let title = String(localized: "notification.question.title", defaultValue: "\(question.agent.displayName) has a question")
+            nativeNotifier.notify(title: title, body: question.prompt, agentGlyph: question.agent)
+        }
     }
 
     func showAgentActivity(urgent: Bool) {

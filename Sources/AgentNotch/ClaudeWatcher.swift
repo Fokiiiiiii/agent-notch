@@ -156,7 +156,7 @@ final class ClaudeWatcher {
         let id = sessionId.isEmpty ? fileStem : sessionId
 
         let title: String
-        if let slug, !slug.isEmpty {
+        if let slug, !slug.isEmpty, !looksLikeURLDerivedSlug(slug) {
             let spaced = slug.replacingOccurrences(of: "-", with: " ")
             title = String(spaced.prefix(40))
         } else {
@@ -174,6 +174,20 @@ final class ClaudeWatcher {
             state: state,
             lastMessage: lastMessage ?? "…"
         )
+    }
+
+    /// Heuristically detects slugs that were derived from a URL (e.g. pasted link
+    /// content) rather than a real session/topic name, so callers can fall back to
+    /// the working directory for the title instead of showing an unreadable slug.
+    private func looksLikeURLDerivedSlug(_ slug: String) -> Bool {
+        if slug.hasPrefix("http-") || slug.hasPrefix("https-") {
+            return true
+        }
+        let components = slug.split(separator: "-")
+        if components.count >= 8 {
+            return true
+        }
+        return false
     }
 
     private func summarize(text: String) -> String {

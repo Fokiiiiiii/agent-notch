@@ -1,6 +1,14 @@
 #!/bin/bash
 set -euo pipefail
 
+BACKUP_KEEP="${AGENT_NOTCH_BACKUP_KEEP:-5}"
+
+prune_backups() {
+  local target="$1" keep="${2:-5}"
+  ls -1t "${target}".backup.agent-notch.* 2>/dev/null | tail -n +"$((keep + 1))" | xargs rm -- 2>/dev/null
+  return 0
+}
+
 ALL=0
 DRY_RUN=0
 for arg in "$@"; do
@@ -29,6 +37,7 @@ detected() {
 backup() {
   [[ -f "$1" ]] || return 0
   cp "$1" "$1.backup.agent-notch.$STAMP"
+  prune_backups "$1" "$BACKUP_KEEP"
 }
 
 write_wrapper() {
@@ -53,6 +62,8 @@ with open(path) as f:
     settings = json.load(f)
 hooks = settings.setdefault("hooks", {})
 cmd = f'"{bridge}" --agent-hook gemini'
+# NOTE: イベント名（特に "AfterAgent"）はGemini CLI公式ドキュメントで未検証。
+# Claude Code由来の命名を流用した可能性がある。
 for event in ("SessionStart", "AfterAgent", "Notification", "SessionEnd"):
     groups = hooks.setdefault(event, [])
     for group in groups:
@@ -77,6 +88,8 @@ import json, sys
 path, bridge = sys.argv[1:]
 cmd = f'"{bridge}" --agent-hook copilot'
 item = {"type": "command", "bash": cmd, "timeoutSec": 5}
+# NOTE: イベント名（sessionStart / agentStop / errorOccurred / notification）は
+# GitHub Copilot CLI公式ドキュメントで未検証。Claude Code由来の命名を流用した可能性がある。
 data = {"version": 1, "hooks": {
     "sessionStart": [item],
     "agentStop": [item],

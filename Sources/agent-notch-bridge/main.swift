@@ -1,5 +1,6 @@
 import Foundation
 import Darwin
+import AgentNotchCore
 
 // Hooks bridge CLI: forwards a single hook stdin JSON event to the AgentNotch
 // app over a Unix domain socket. For PermissionRequest and AskUserQuestion
@@ -131,7 +132,7 @@ private func repeatedOptions(_ name: String, in arguments: [String]) -> [String]
     }
 }
 
-private let supportedAgents = ["claude", "codex", "antigravity", "gemini", "copilot", "cursor", "opencode", "aider", "goose"]
+private let supportedAgents = AgentIdentifiers.all
 
 private func sendCLIEvent(_ payload: [String: Any]) -> Bool {
     let fd = connectSocket()

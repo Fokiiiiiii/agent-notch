@@ -5506,7 +5506,7 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "idle"
+            "value": "No active session"
           }
         },
         "zh-Hans": {

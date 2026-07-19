@@ -272,7 +272,7 @@ struct NotchView: View {
                         .foregroundColor(.white)
                         .layoutPriority(0)
                     Spacer(minLength: 4)
-                    Text(String(localized: "compact.idle", defaultValue: "idle"))
+                    Text(String(localized: "compact.idle", defaultValue: "No active session"))
                         .font(.system(size: 9))
                         .foregroundColor(DesignTokens.muted)
                         .layoutPriority(1)
@@ -297,7 +297,7 @@ struct NotchView: View {
         .padding(.horizontal, 6)
         .frame(height: 20)
         .background(Capsule().fill(Color.white.opacity(0.08)))
-        .accessibilityLabel(String(localized: "tray.badgeAccessibilityLabel", defaultValue: "Tray, \(uiState.trayItemCount) items"))
+        .accessibilityLabel(String(localized: "tray.badgeAccessibilityLabel", defaultValue: "Tray, \(String(uiState.trayItemCount)) items"))
     }
 
     // MARK: - Compact outcome notice
@@ -603,11 +603,25 @@ struct NotchView: View {
     private var expandedDetail: some View {
         switch uiState.activeView {
         case .agents:
-            DetailStrip(items: [
-                (String(localized: "detail.agents.repository", defaultValue: "Repository"), selectedSession.map { URL(fileURLWithPath: $0.cwd).lastPathComponent } ?? "—"),
-                (String(localized: "detail.agents.activity", defaultValue: "Activity"), selectedSession?.lastMessage ?? String(localized: "detail.agents.noActiveSession", defaultValue: "No active session")),
-                (String(localized: "detail.agents.usage", defaultValue: "Usage"), selectedSession.flatMap { usageStore.snapshots[$0.agent]?.compactLabel } ?? String(localized: "detail.agents.unavailable", defaultValue: "Unavailable"))
-            ])
+            HStack(spacing: 6) {
+                DetailBox(label: String(localized: "detail.agents.repository", defaultValue: "Repository")) {
+                    Text(selectedSession.map { URL(fileURLWithPath: $0.cwd).lastPathComponent } ?? "—")
+                        .font(.system(size: 8.5, weight: .medium))
+                        .foregroundColor(.white.opacity(0.82))
+                        .lineLimit(2)
+                        .truncationMode(.tail)
+                }
+                DetailBox(label: String(localized: "detail.agents.activity", defaultValue: "Activity")) {
+                    Text(selectedSession?.lastMessage ?? String(localized: "detail.agents.noActiveSession", defaultValue: "No active session"))
+                        .font(.system(size: 8.5, weight: .medium))
+                        .foregroundColor(.white.opacity(0.82))
+                        .lineLimit(2)
+                        .truncationMode(.tail)
+                }
+                DetailBox(label: String(localized: "detail.agents.usage", defaultValue: "Usage")) {
+                    UsageBarStack(snapshot: selectedSession.flatMap { usageStore.snapshots[$0.agent] })
+                }
+            }
         case .media:
             DetailStrip(items: [
                 (String(localized: "detail.media.sources", defaultValue: "Sources"), String(localized: "detail.media.sourcesValue", defaultValue: "System Now Playing")),
@@ -659,7 +673,7 @@ struct NotchView: View {
                 selectedTrayItemID = nil
                 syncTrayState()
                 controller.releaseTrayHold()
-                trayFeedback = String(localized: "tray.feedback.clearedItems", defaultValue: "Cleared \(clearedCount) item\(clearedCount == 1 ? "" : "s")")
+                trayFeedback = String(localized: "tray.feedback.clearedItems", defaultValue: "Cleared \(String(clearedCount)) item\(clearedCount == 1 ? "" : "s")")
                 scheduleTrayUndoExpiry()
             case .removeSelected:
                 guard let selectedTrayItemID,
@@ -879,10 +893,7 @@ private struct DetailStrip: View {
     var body: some View {
         HStack(spacing: 6) {
             ForEach(Array(items.enumerated()), id: \.offset) { _, item in
-                VStack(alignment: .leading, spacing: 2) {
-                    Text(item.0)
-                        .font(.system(size: 6.5, weight: .medium))
-                        .foregroundColor(DesignTokens.muted)
+                DetailBox(label: item.0) {
                     Text(item.1)
                         .font(.system(size: 8.5, weight: .medium))
                         .foregroundColor(.white.opacity(0.82))
@@ -890,11 +901,183 @@ private struct DetailStrip: View {
                         .truncationMode(.tail)
                         .help(item.1)
                 }
-                .frame(maxWidth: .infinity, minHeight: 42, alignment: .leading)
-                .padding(.horizontal, 8)
-                .background(RoundedRectangle(cornerRadius: 9).fill(Color.white.opacity(0.055)))
             }
         }
+    }
+}
+
+/// A single labeled box used inside the expanded detail strip. Extracted so
+/// callers (e.g. the Agents tab's usage row) can swap in richer content than
+/// a plain text value while keeping the same box chrome/sizing.
+private struct DetailBox<Content: View>: View {
+    let label: String
+    @ViewBuilder var content: () -> Content
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 2) {
+            Text(label)
+                .font(.system(size: 6.5, weight: .medium))
+                .foregroundColor(DesignTokens.muted)
+            content()
+        }
+        .frame(maxWidth: .infinity, minHeight: 42, alignment: .leading)
+        .padding(.horizontal, 8)
+        .background(RoundedRectangle(cornerRadius: 9).fill(Color.white.opacity(0.055)))
+    }
+}
+
+/// Shared label for a usage window ("5h"/"Day"/"Week"), used by both the
+/// detailed `UsageBarStack` (inside the expanded detail strip) and the
+/// always-visible compact `UsageSummaryBar` (pinned atop the Agents cell).
+private func usageWindowLabel(_ window: UsageWindow) -> String {
+    switch window.windowMinutes ?? 0 {
+    case 0..<360: return String(localized: "usage.window.fiveHour", defaultValue: "5h")
+    case 360..<10_000: return String(localized: "usage.window.day", defaultValue: "Day")
+    default: return String(localized: "usage.window.week", defaultValue: "Week")
+    }
+}
+
+/// Renders an agent's usage windows (e.g. "5h"/"Day") as compact mini
+/// progress bars instead of a dense text string, so remaining quota reads at
+/// a glance. Falls back to a short status text when no usage data exists.
+private struct UsageBarStack: View {
+    let snapshot: AgentUsageSnapshot?
+
+    private var windows: [(String, UsageWindow)] {
+        guard let snapshot else { return [] }
+        return [snapshot.primary, snapshot.secondary]
+            .compactMap { $0 }
+            .map { (usageWindowLabel($0), $0) }
+    }
+
+    var body: some View {
+        if windows.isEmpty {
+            Text(snapshot?.error == nil
+                 ? String(localized: "detail.agents.noUsageWindow", defaultValue: "No usage window")
+                 : String(localized: "detail.agents.unavailable", defaultValue: "Unavailable"))
+                .font(.system(size: 8.5, weight: .medium))
+                .foregroundColor(.white.opacity(0.82))
+        } else {
+            VStack(alignment: .leading, spacing: 3) {
+                ForEach(windows, id: \.0) { label, window in
+                    UsageBar(label: label, usedPercent: window.usedPercent)
+                }
+            }
+        }
+    }
+}
+
+private struct UsageBar: View {
+    let label: String
+    let usedPercent: Double
+
+    private var clampedPercent: Double {
+        min(max(usedPercent, 0), 100)
+    }
+
+    /// Warns as remaining quota shrinks: green under 80% used, orange from
+    /// 80%, red from 95%.
+    private var barColor: Color {
+        if clampedPercent >= 95 { return DesignTokens.red }
+        if clampedPercent >= 80 { return DesignTokens.orange }
+        return DesignTokens.green
+    }
+
+    var body: some View {
+        HStack(spacing: 4) {
+            Text(label)
+                .font(.system(size: 7, weight: .medium))
+                .foregroundColor(.white.opacity(0.6))
+                .frame(width: 20, alignment: .leading)
+            GeometryReader { geometry in
+                ZStack(alignment: .leading) {
+                    RoundedRectangle(cornerRadius: 2)
+                        .fill(Color.white.opacity(0.12))
+                    RoundedRectangle(cornerRadius: 2)
+                        .fill(barColor)
+                        .frame(width: geometry.size.width * clampedPercent / 100)
+                }
+            }
+            .frame(height: 4)
+            Text("\(Int(clampedPercent.rounded()))%")
+                .font(.system(size: 7.5, weight: .semibold))
+                .foregroundColor(clampedPercent >= 80 ? barColor : .white.opacity(0.72))
+                .frame(width: 24, alignment: .trailing)
+                .accessibilityLabel(String(localized: "usage.percentUsedAccessibility", defaultValue: "\(Int(clampedPercent.rounded())) percent used"))
+        }
+    }
+}
+
+/// Always-visible, single-line usage summary pinned to the very top of the
+/// Agents cell (above the session list), styled after the reference
+/// design's "✦ 5h 11% 4h1m | 7d 2% 6h1m" bar: a sparkle glyph, then each
+/// usage window as "label percent% resetIn", separated by "|". Colors each
+/// window's percentage using the same green/orange/red thresholds as the
+/// detailed `UsageBarStack`.
+private struct UsageSummaryBar: View {
+    let agent: AgentKind
+    let snapshot: AgentUsageSnapshot?
+
+    private var windows: [(String, UsageWindow)] {
+        guard let snapshot else { return [] }
+        return [snapshot.primary, snapshot.secondary]
+            .compactMap { $0 }
+            .map { (usageWindowLabel($0), $0) }
+    }
+
+    var body: some View {
+        HStack(spacing: 6) {
+            glyphContent(agent, size: 9)
+                .foregroundColor(.white.opacity(0.55))
+                .frame(width: 12, height: 12)
+            if windows.isEmpty {
+                Text(snapshot?.error == nil
+                     ? String(localized: "detail.agents.noUsageWindow", defaultValue: "No usage window")
+                     : String(localized: "detail.agents.unavailable", defaultValue: "Unavailable"))
+                    .font(.system(size: 8.5, weight: .medium))
+                    .foregroundColor(.white.opacity(0.4))
+            } else {
+                ForEach(Array(windows.enumerated()), id: \.offset) { index, pair in
+                    if index > 0 {
+                        Rectangle()
+                            .fill(Color.white.opacity(0.14))
+                            .frame(width: 1, height: 20)
+                    }
+                    usagePiece(label: pair.0, window: pair.1)
+                }
+            }
+            Spacer(minLength: 0)
+        }
+        .padding(.horizontal, 8)
+        .padding(.vertical, 3)
+        .accessibilityElement(children: .combine)
+    }
+
+    /// Percentage is the primary signal, so it's rendered large and bold;
+    /// the reset time is secondary and rendered small underneath as a short
+    /// relative countdown ("resets in 3h") rather than CodexBar's longer
+    /// absolute-datetime string, which didn't fit the compact bar.
+    private func usagePiece(label: String, window: UsageWindow) -> some View {
+        let clamped = min(max(window.usedPercent, 0), 100)
+        let color: Color = clamped >= 95 ? DesignTokens.red : (clamped >= 80 ? DesignTokens.orange : DesignTokens.green)
+        return VStack(alignment: .leading, spacing: 1) {
+            HStack(spacing: 4) {
+                Text(label)
+                    .font(.system(size: 8.5, weight: .semibold))
+                    .foregroundColor(.white.opacity(0.65))
+                Text("\(Int(clamped.rounded()))%")
+                    .font(.system(size: 12, weight: .bold, design: .rounded))
+                    .foregroundColor(color)
+            }
+            if let reset = window.relativeResetDescription() {
+                Text(reset)
+                    .font(.system(size: 7.5, weight: .medium))
+                    .foregroundColor(.white.opacity(0.38))
+                    .lineLimit(1)
+            }
+        }
+        .accessibilityElement(children: .combine)
+        .accessibilityLabel(String(localized: "usage.windowPercentAccessibility", defaultValue: "\(label) \(Int(clamped.rounded())) percent used"))
     }
 }
 
@@ -918,7 +1101,7 @@ func elapsedString(_ session: AgentSession) -> String {
 
 // MARK: - Glyph
 
-private struct ClaudeBloomGlyph: View {
+struct ClaudeBloomGlyph: View {
     var size: CGFloat
     var color: Color = .orange
 
@@ -947,7 +1130,7 @@ private struct ClaudeBloomGlyph: View {
     }
 }
 
-private struct CodexBlobGlyph: View {
+struct CodexBlobGlyph: View {
     var size: CGFloat
     var color: Color = .white
 
@@ -972,7 +1155,7 @@ private struct CodexBlobGlyph: View {
     }
 }
 
-private struct AntigravityGlyph: View {
+struct AntigravityGlyph: View {
     var size: CGFloat
 
     var body: some View {
@@ -999,7 +1182,7 @@ private struct AntigravityGlyph: View {
     }
 }
 
-private struct GeminiGlyph: View {
+struct GeminiGlyph: View {
     var size: CGFloat
 
     var body: some View {
@@ -1031,7 +1214,7 @@ private struct GeminiGlyph: View {
     }
 }
 
-private struct CopilotGlyph: View {
+struct CopilotGlyph: View {
     var size: CGFloat
 
     var body: some View {
@@ -1072,7 +1255,7 @@ private struct CopilotGlyph: View {
     }
 }
 
-private struct CursorGlyph: View {
+struct CursorGlyph: View {
     var size: CGFloat
 
     var body: some View {
@@ -1101,7 +1284,7 @@ private struct CursorGlyph: View {
     }
 }
 
-private struct OpenCodeGlyph: View {
+struct OpenCodeGlyph: View {
     var size: CGFloat
 
     var body: some View {
@@ -1119,7 +1302,7 @@ private struct OpenCodeGlyph: View {
     }
 }
 
-private struct AiderGlyph: View {
+struct AiderGlyph: View {
     var size: CGFloat
 
     var body: some View {
@@ -1149,7 +1332,7 @@ private struct AiderGlyph: View {
     }
 }
 
-private struct GooseGlyph: View {
+struct GooseGlyph: View {
     var size: CGFloat
 
     var body: some View {
@@ -1185,7 +1368,7 @@ private struct GooseGlyph: View {
     }
 }
 
-private struct LocalIconView: View {
+struct LocalIconView: View {
     let agent: AgentKind
     let size: CGFloat
     let fallback: () -> AnyView
@@ -1209,7 +1392,7 @@ private struct LocalIconView: View {
 }
 
 @ViewBuilder
-private func glyphContent(_ agent: AgentKind?, size: CGFloat) -> some View {
+func glyphContent(_ agent: AgentKind?, size: CGFloat) -> some View {
     if let agent = agent {
         LocalIconView(agent: agent, size: size) {
             AnyView(fallbackGlyphContent(agent, size: size))
@@ -1220,7 +1403,7 @@ private func glyphContent(_ agent: AgentKind?, size: CGFloat) -> some View {
 }
 
 @ViewBuilder
-private func fallbackGlyphContent(_ agent: AgentKind, size: CGFloat) -> some View {
+func fallbackGlyphContent(_ agent: AgentKind, size: CGFloat) -> some View {
     switch agent {
     case .claude:
         ClaudeBloomGlyph(size: size, color: .orange)
@@ -1240,10 +1423,16 @@ private func fallbackGlyphContent(_ agent: AgentKind, size: CGFloat) -> some Vie
         AiderGlyph(size: size)
     case .goose:
         GooseGlyph(size: size)
+    case .mistral, .deepseek, .kimi, .zcode, .trae, .mimocode, .droid, .qoder, .qwen, .codebuddy, .workbuddy, .kiro, .hermes, .amp, .pi, .ohmypi, .gajae:
+        // Bespoke fallback: SF Symbol + brand accent color.
+        Image(systemName: agent.symbolName)
+            .font(.system(size: size * 0.7, weight: .semibold))
+            .foregroundStyle(agent.accentColor)
+            .frame(width: size, height: size)
     }
 }
 
-private struct GlyphBox: View {
+struct GlyphBox: View {
     let agent: AgentKind?
 
     var body: some View {
@@ -1309,6 +1498,7 @@ private extension View {
 private struct AgentsCell: View {
     @ObservedObject var store: SessionStore
     @ObservedObject var uiState: NotchUIState
+    @ObservedObject private var usageStore = AgentUsageStore.shared
     @State private var actionFeedback: String?
 
     private var selected: AgentSession? {
@@ -1318,19 +1508,14 @@ private struct AgentsCell: View {
         return store.sessions.first
     }
 
-    private var others: [AgentSession] {
-        guard let selected else { return [] }
-        return store.sessions.filter { $0.id != selected.id }
-    }
-
     var body: some View {
         cellShape
             .overlay(
                 VStack(alignment: .leading, spacing: 6) {
                     if let selected {
-                        heroRow(selected)
-                        activityRow(selected)
-                        Spacer(minLength: 0)
+                        UsageSummaryBar(agent: selected.agent, snapshot: usageStore.snapshots[selected.agent])
+                        sessionList
+                            .frame(maxHeight: .infinity)
                         footerRow
                     } else {
                         emptyState
@@ -1338,7 +1523,30 @@ private struct AgentsCell: View {
                 }
                 .padding(.horizontal, 11)
                 .padding(.vertical, 10)
+                .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
             )
+            // `NotchWindowController` grows the panel to fit the session
+            // list (see `agentsOpenSize`), but this clip is kept as a
+            // defensive backstop: without it, content taller than the
+            // panel's animated-in-progress frame (or an unexpectedly long
+            // row) overflows the card's rounded-rect visually instead of
+            // being contained/scrolled, which is what produced the
+            // "floating Terminal button" bug report.
+            .clipShape(RoundedRectangle(cornerRadius: 14))
+    }
+
+    /// Full vertical list of every tracked session, most-recent/selected
+    /// first. Only the selected row expands to show the last user message
+    /// and current activity; the rest stay single-line so several sessions
+    /// fit without crowding the notch. Scrolls when they don't all fit.
+    private var sessionList: some View {
+        ScrollView(.vertical, showsIndicators: false) {
+            VStack(alignment: .leading, spacing: 4) {
+                ForEach(store.sessions) { session in
+                    sessionRow(session, isSelected: session.id == selected?.id)
+                }
+            }
+        }
     }
 
     private var emptyState: some View {
@@ -1380,45 +1588,64 @@ private struct AgentsCell: View {
             )
     }
 
-    private func heroRow(_ session: AgentSession) -> some View {
-        HStack(spacing: 9) {
-            RoundedRectangle(cornerRadius: 9)
-                .fill(Color.white.opacity(0.09))
-                .frame(width: 34, height: 34)
-                .overlay(
-                    glyphContent(session.agent, size: 11)
-                        .foregroundColor(.white)
-                )
-            VStack(alignment: .leading, spacing: 2) {
+    /// One row per tracked session. Selected/first row expands to show the
+    /// last user activity (`agents.lastMessage`); the rest stay compact,
+    /// title-only rows with an agent badge and elapsed time — mirrors the
+    /// competitor reference layout of a single always-visible session list.
+    private func sessionRow(_ session: AgentSession, isSelected: Bool) -> some View {
+        VStack(alignment: .leading, spacing: 3) {
+            HStack(spacing: 8) {
+                RoundedRectangle(cornerRadius: 7)
+                    .fill(Color.white.opacity(0.09))
+                    .frame(width: isSelected ? 26 : 22, height: isSelected ? 26 : 22)
+                    .overlay(
+                        glyphContent(session.agent, size: isSelected ? 10 : 9)
+                            .foregroundColor(.white)
+                    )
+                Circle().fill(statusColor(session.state)).frame(width: 6, height: 6)
                 Text(session.title)
-                    .font(.system(size: 11.5, weight: .semibold))
+                    .font(.system(size: isSelected ? 11.5 : 11, weight: .semibold))
                     .foregroundColor(.white)
                     .lineLimit(1)
                     .truncationMode(.tail)
-                Text(String(localized: "agents.agentAndCwd", defaultValue: "\(session.agent.displayName) · \(cwdTail(session.cwd))"))
-                    .font(.system(size: 9))
-                    .foregroundColor(DesignTokens.muted)
-                    .lineLimit(1)
-                    .truncationMode(.tail)
-            }
-            Spacer(minLength: 4)
-            VStack(alignment: .trailing, spacing: 3) {
+                Spacer(minLength: 4)
+                agentBadge(session.agent)
                 Text(elapsedString(session))
                     .font(.system(size: 9, design: .rounded))
                     .foregroundColor(.white.opacity(0.5))
-                HStack(spacing: 4) {
-                    Circle().fill(statusColor(session.state)).frame(width: 5, height: 5)
-                    Text(sessionStateLabel(session.state))
-                        .font(.system(size: 8.5, weight: .medium))
+                    .frame(minWidth: 22, alignment: .trailing)
+            }
+            if isSelected {
+                HStack(spacing: 6) {
+                    Text(String(localized: "agents.agentAndCwd", defaultValue: "\(session.agent.displayName) · \(cwdTail(session.cwd))"))
+                        .font(.system(size: 9))
+                        .foregroundColor(DesignTokens.muted)
+                        .lineLimit(1)
+                        .truncationMode(.tail)
                 }
-                .foregroundColor(.white.opacity(0.66))
+                .padding(.leading, 34)
+                HStack(spacing: 6) {
+                    Text(session.lastMessage)
+                        .font(.system(size: 10))
+                        .foregroundColor(.white.opacity(0.68))
+                        .lineLimit(1)
+                        .truncationMode(.tail)
+                    Spacer(minLength: 0)
+                    if let actionFeedback {
+                        Text(actionFeedback)
+                            .font(.system(size: 8.5))
+                            .foregroundColor(DesignTokens.muted)
+                            .lineLimit(1)
+                    }
+                }
+                .padding(.leading, 34)
             }
         }
         .padding(.horizontal, 8)
-        .padding(.vertical, 6)
+        .padding(.vertical, isSelected ? 6 : 5)
         .background(
             RoundedRectangle(cornerRadius: 10)
-                .fill(Color.white.opacity(0.065))
+                .fill(Color.white.opacity(isSelected ? 0.065 : 0.03))
         )
         .contentShape(Rectangle())
         .hoverLift(cornerRadius: 10, strength: 0.04)
@@ -1426,56 +1653,32 @@ private struct AgentsCell: View {
             SoundPlayer.shared.play(.navigation)
             Jumper.jump(to: session)
         }
+        .onTapGesture(count: 1) {
+            guard !isSelected else { return }
+            SoundPlayer.shared.play(.navigation)
+            withAnimation(DesignTokens.contentTransition) {
+                uiState.selectedSessionId = session.id
+            }
+        }
         .help(String(localized: "agents.doubleClickToReturn", defaultValue: "Double-click to return to \(session.agent.displayName)"))
     }
 
-    private func activityRow(_ session: AgentSession) -> some View {
-        HStack(spacing: 6) {
-            Circle()
-                .fill(statusColor(session.state))
-                .frame(width: 6, height: 6)
-            Text(session.lastMessage)
-                .font(.system(size: 10))
-                .foregroundColor(.white.opacity(0.68))
-                .lineLimit(1)
-                .truncationMode(.tail)
-            Spacer(minLength: 0)
-            if let actionFeedback {
-                Text(actionFeedback)
-                    .font(.system(size: 8.5))
-                    .foregroundColor(DesignTokens.muted)
-                    .lineLimit(1)
-            }
-        }
-        .padding(.horizontal, 8)
-        .frame(height: 23)
+    /// Rounded-pill agent-name badge, matching the reference design's
+    /// per-row "Claude"/"Codex"/"Gemini" pill. Terminal-app badges are
+    /// omitted: `AgentSession` doesn't currently carry which terminal a
+    /// session is running in, so adding that pairing is left for later.
+    private func agentBadge(_ agent: AgentKind) -> some View {
+        Text(agent.displayName)
+            .font(.system(size: 8.5, weight: .semibold))
+            .foregroundColor(agent.accentColor)
+            .padding(.horizontal, 6)
+            .frame(height: 16)
+            .background(Capsule().fill(agent.accentColor.opacity(0.16)))
+            .lineLimit(1)
     }
 
     private var footerRow: some View {
         HStack(spacing: 4) {
-            if store.sessions.count > 1 {
-                Menu {
-                    ForEach(store.sessions) { session in
-                        Button {
-                            SoundPlayer.shared.play(.navigation)
-                            withAnimation(DesignTokens.contentTransition) {
-                                uiState.selectedSessionId = session.id
-                            }
-                        } label: {
-                            Label(String(localized: "agents.sessionMenuItem", defaultValue: "\(session.agent.displayName) · \(session.title)"), systemImage: session.id == selected?.id ? "checkmark" : "circle.fill")
-                        }
-                    }
-                } label: {
-                    Label(String(localized: "agents.sessionsCount", defaultValue: "Sessions \(store.sessions.count)"), systemImage: "rectangle.stack")
-                        .font(.system(size: 10, weight: .medium))
-                        .padding(.horizontal, 9)
-                        .frame(height: 30)
-                        .background(RoundedRectangle(cornerRadius: 8).fill(Color.white.opacity(0.075)))
-                }
-                .menuStyle(.borderlessButton)
-                .menuIndicator(.hidden)
-                .help(String(localized: "agents.switchSession", defaultValue: "Switch coding-agent session"))
-            }
             Spacer(minLength: 4)
             if let selected, selected.isManagedProcess {
                 MiniButton(
@@ -1928,7 +2131,7 @@ private struct SystemCell: View {
                                 .font(.system(size: 9.5, weight: .medium))
                                 .foregroundColor(.white.opacity(0.58))
                             if background.activities.count > 1 {
-                                Text(String(localized: "system.moreActivities", defaultValue: "+\(background.activities.count - 1) more"))
+                                Text(String(localized: "system.moreActivities", defaultValue: "+\(String(background.activities.count - 1)) more"))
                                     .font(.system(size: 9.5, weight: .medium))
                                     .foregroundColor(DesignTokens.muted)
                             }
@@ -2138,9 +2341,9 @@ private struct TrayCell: View {
         guard !items.isEmpty else { return String(localized: "tray.isEmpty", defaultValue: "Tray is empty") }
         guard let selectedItemID,
               let selected = items.first(where: { $0.id == selectedItemID }) else {
-            return String(localized: "tray.itemCount", defaultValue: "\(items.count) item\(items.count == 1 ? "" : "s")")
+            return String(localized: "tray.itemCount", defaultValue: "\(String(items.count)) item\(items.count == 1 ? "" : "s")")
         }
-        return String(localized: "tray.selectedItemCount", defaultValue: "\(selected.url.lastPathComponent) · \(items.count) item\(items.count == 1 ? "" : "s")")
+        return String(localized: "tray.selectedItemCount", defaultValue: "\(selected.url.lastPathComponent) · \(String(items.count)) item\(items.count == 1 ? "" : "s")")
     }
 
     @ViewBuilder
@@ -2502,7 +2705,7 @@ private struct ApprovalOverlayView: View {
                                 .foregroundColor(DesignTokens.muted)
                             Spacer()
                             if extraCount > 0 {
-                                Text(String(localized: "approval.extraCount", defaultValue: "+\(extraCount)"))
+                                Text(String(localized: "approval.extraCount", defaultValue: "+\(String(extraCount))"))
                                 .font(.system(size: 10.5, weight: .semibold))
                                     .padding(.horizontal, 6)
                                     .frame(height: 18)

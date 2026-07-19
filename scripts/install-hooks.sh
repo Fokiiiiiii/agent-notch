@@ -7,6 +7,14 @@
 set -euo pipefail
 cd "$(dirname "$0")/.."
 
+BACKUP_KEEP="${AGENT_NOTCH_BACKUP_KEEP:-5}"
+
+prune_backups() {
+  local target="$1" keep="${2:-5}"
+  ls -1t "${target}".backup.agent-notch.* 2>/dev/null | tail -n +"$((keep + 1))" | xargs rm -- 2>/dev/null
+  return 0
+}
+
 BIN_DIR="$HOME/.agent-notch/bin"
 mkdir -p "$BIN_DIR"
 cp build/AgentNotch.app/Contents/MacOS/agent-notch-bridge "$BIN_DIR/agent-notch-bridge"
@@ -21,6 +29,7 @@ SETTINGS="$HOME/.claude/settings.json"
 BACKUP="$SETTINGS.backup.agent-notch.$(date +%Y%m%dT%H%M%S)"
 cp "$SETTINGS" "$BACKUP"
 echo "backup: $BACKUP"
+prune_backups "$SETTINGS" "$BACKUP_KEEP"
 
 python3 - "$SETTINGS" <<'EOF'
 import json, sys
@@ -80,6 +89,7 @@ mkdir -p "$(dirname "$CODEX_HOOKS")"
 CODEX_BACKUP="$CODEX_HOOKS.backup.agent-notch.$(date +%Y%m%dT%H%M%S)"
 cp "$CODEX_HOOKS" "$CODEX_BACKUP"
 echo "backup: $CODEX_BACKUP"
+prune_backups "$CODEX_HOOKS" "$BACKUP_KEEP"
 
 python3 - "$CODEX_HOOKS" <<'EOF'
 import json, sys

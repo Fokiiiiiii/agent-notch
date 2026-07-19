@@ -21,14 +21,14 @@ bash scripts/install-hooks.sh
 
 - bridge を `~/.agent-notch/bin/agent-notch-bridge` にコピーし、Claude Codeの`AskUserQuestion`／承認hookと、Codexの`request_user_input`／承認hookを登録する。設定ファイルは実行前に自動バックアップ。
 - 共通CLIを `~/.local/bin/agent-notch` に配置する（PATHに`~/.local/bin`が必要）。
-- Codex は `~/.codex/config.toml` の `notify` → `~/.agent-notch/bin/codex-notify`（既存 Computer Use クライアントと多重配送するラッパー）。
+- Codex は `~/.codex/hooks.json` の `PreToolUse`(`request_user_input`) / `PermissionRequest` フックを通じて bridge に接続する（`install-hooks.sh` が自動登録）。
 
 ## アーキテクチャ
 
 ```
 Claude Code CLI ─ hooks ──▶ agent-notch-bridge ─┐ UNIX socket
                 └ ~/.claude/projects/*.jsonl ───┤ (~/.agent-notch/run/agent-notch.sock)
-Codex ─ hooks + notify (codex-notify) ──────────┼──▶ AgentNotch.app
+Codex ─ hooks ───────────────────────────────────┼──▶ AgentNotch.app
                 └ ~/.codex/sessions rollout ────┤
 Antigravity ──── conversations/ mtime ──────────┘
 ```
@@ -37,6 +37,8 @@ Antigravity ──── conversations/ mtime ──────────┘
 - デバッグ: 受信イベントは `~/.agent-notch/events.log` に追記される。
 
 ## 共通CLI
+
+ノッチ搭載Macをお持ちの方は`agent-notch ping`を実行し、`screenInfo`フィールドの値を報告してください。
 
 ```bash
 agent-notch ping
@@ -76,9 +78,9 @@ CLIは`~/.agent-notch/run/agent-notch.sock`だけを使用し、外部通信や�
 | Agent | 接続方法 |
 | --- | --- |
 | Claude Code | native hooks + transcript |
-| Codex | native hooks (`request_user_input` / `PermissionRequest`) + notify + rollout logs |
-| Gemini CLI | native hooks (`~/.gemini/settings.json`) |
-| GitHub Copilot CLI | native user hooks (`~/.copilot/hooks/agent-notch.json`) |
+| Codex | native hooks (`request_user_input` / `PermissionRequest`) + rollout logs |
+| Gemini CLI ※ | native hooks (`~/.gemini/settings.json`) |
+| GitHub Copilot CLI ※ | native user hooks (`~/.copilot/hooks/agent-notch.json`) |
 | OpenCode | native global plugin (`~/.config/opencode/plugins/agent-notch.js`) |
 | Aider | native notifications command |
 | Cursor Agent | `cursor-notch` / `agent-notch run` |
@@ -86,6 +88,8 @@ CLIは`~/.agent-notch/run/agent-notch.sock`だけを使用し、外部通信や�
 | Antigravity | conversation watcher |
 
 自動設定は管理対象の設定だけを置換し、既存ファイルには`backup.agent-notch.<timestamp>`を作る。`gemini-notch`、`copilot-notch`、`cursor-notch`、`opencode-notch`、`aider-notch`、`goose-notch`は常に生成される。
+
+※ フックイベント名は現時点で公式ドキュメントに基づく検証が未完了です。動作しない場合は Issue で報告してください。
 
 ## 表示挙動
 

@@ -22,6 +22,16 @@ enum DesignTokens {
     static let closedRadius: CGFloat = 15
     static let openRadius: CGFloat = 24
 
+    /// Safe margin added to the physically-measured notch width when deriving
+    /// the visible `.closed`-mode shape. Wider than the old fixed `+20pt` to
+    /// leave more headroom for content around the physical notch cutout.
+    static let notchSafeMargin: CGFloat = 32
+
+    /// Minimum width `compactAgentContent` (see `NotchView.swift`) needs to
+    /// avoid clipping: 22pt icon + spacing + status text + horizontal padding
+    /// (12pt each side), estimated conservatively.
+    static let compactMinContentWidth: CGFloat = 160
+
     /// Hover-driven panels should settle without overshoot. A critically
     /// damped response also remains interruptible when the pointer reverses.
     static let spring = Animation.spring(response: 0.42, dampingFraction: 0.92)

@@ -24,7 +24,11 @@ APP=build/AgentNotch.app
 rm -rf "$APP"; mkdir -p "$APP/Contents/MacOS" "$APP/Contents/Resources"
 cp "$SCRATCH/release/AgentNotch" "$APP/Contents/MacOS/AgentNotch"
 cp "$SCRATCH/release/agent-notch-bridge" "$APP/Contents/MacOS/agent-notch-bridge"
-cp -R "$SCRATCH/release/agent-notch_AgentNotch.bundle" "$APP/agent-notch_AgentNotch.bundle"
+# Placed under Contents/Resources (not the bundle root) so `codesign --deep`
+# can seal it; unused at runtime (String(localized:) reads Bundle.main's own
+# .lproj files generated below), kept only so the raw SwiftPM resource isn't
+# silently dropped.
+cp -R "$SCRATCH/release/agent-notch_AgentNotch.bundle" "$APP/Contents/Resources/agent-notch_AgentNotch.bundle"
 # swift build (CLT only, no Xcode/actool) just copies Localizable.xcstrings as raw JSON
 # instead of compiling it, and String(localized:) in the app looks up Bundle.main's own
 # Contents/Resources/<lang>.lproj -- not the nested SwiftPM resource bundle. Bridge the
@@ -85,4 +89,18 @@ cat > "$APP/Contents/Info.plist" <<'EOF'
 </dict>
 </plist>
 EOF
+# Sign the whole bundle (ad-hoc) so Info.plist is bound into the code
+# signature. Without this, UNUserNotificationCenter.requestAuthorization
+# fails to register the app with usernoted and native notifications never
+# fire — the raw linker-signed executable + hand-assembled bundle structure
+# isn't a valid signed bundle on its own.
+codesign --force --deep --sign - "$APP"
+# Verify by re-signing check rather than re-reading the signature immediately:
+# build/ lives under the iCloud-synced ~/Documents tree, and an immediate
+# `codesign -dv` re-read can observe a stale/incomplete view of what was just
+# written, producing a false "not bound" warning even though signing (whose
+# own exit code above already succeeded) was fine.
+if ! codesign --verify --deep "$APP" 2>/dev/null; then
+    echo "warning: codesign --verify failed after signing" >&2
+fi
 echo "Built: $APP"

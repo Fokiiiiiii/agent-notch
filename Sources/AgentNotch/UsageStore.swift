@@ -3,6 +3,12 @@ import Foundation
 struct UsageWindow: Sendable {
     let usedPercent: Double
     let resetDescription: String?
+    /// Absolute reset time, when CodexBar provides one (it does for every
+    /// window observed so far). Preferred over `resetDescription` for
+    /// display: CodexBar's own string is a long absolute datetime (e.g.
+    /// "Jul 20 at 5:20AM") that doesn't fit the compact usage bar, whereas
+    /// this lets us render a short, always-fresh relative countdown instead.
+    let resetsAt: Date?
     let windowMinutes: Int?
 
     var label: String {
@@ -13,6 +19,28 @@ struct UsageWindow: Sendable {
         default: window = "Week"
         }
         return "\(window) \(Int(usedPercent.rounded()))%"
+    }
+
+    /// Compact "resets in Xh"/"resets in Xm" style description, computed
+    /// from `resetsAt` at call time so it stays accurate without needing a
+    /// fresh network fetch. Falls back to the raw `resetDescription` string
+    /// only when `resetsAt` is unavailable.
+    func relativeResetDescription(now: Date = Date()) -> String? {
+        guard let resetsAt else { return resetDescription }
+        let interval = resetsAt.timeIntervalSince(now)
+        guard interval > 0 else {
+            return String(localized: "usage.reset.now", defaultValue: "resets now")
+        }
+        let totalMinutes = max(1, Int(interval / 60))
+        if totalMinutes < 60 {
+            return String(localized: "usage.reset.minutes", defaultValue: "resets in \(totalMinutes)m")
+        }
+        let hours = totalMinutes / 60
+        if hours < 24 {
+            return String(localized: "usage.reset.hours", defaultValue: "resets in \(hours)h")
+        }
+        let days = hours / 24
+        return String(localized: "usage.reset.days", defaultValue: "resets in \(days)d")
     }
 }
 
@@ -109,13 +137,17 @@ final class AgentUsageStore: ObservableObject {
         return result
     }
 
+    private nonisolated(unsafe) static let resetsAtFormatter = ISO8601DateFormatter()
+
     private nonisolated static func usageWindow(_ raw: Any?) -> UsageWindow? {
         guard let object = raw as? [String: Any], let used = object["usedPercent"] as? NSNumber else {
             return nil
         }
+        let resetsAt = (object["resetsAt"] as? String).flatMap { resetsAtFormatter.date(from: $0) }
         return UsageWindow(
             usedPercent: used.doubleValue,
             resetDescription: object["resetDescription"] as? String,
+            resetsAt: resetsAt,
             windowMinutes: (object["windowMinutes"] as? NSNumber)?.intValue
         )
     }
@@ -129,6 +161,9 @@ final class AgentUsageStore: ObservableObject {
         case "copilot": return .copilot
         case "cursor": return .cursor
         case "opencode": return .opencode
+        case "mistral": return .mistral
+        case "deepseek": return .deepseek
+        case "kimi", "moonshot": return .kimi
         default: return nil
         }
     }

@@ -304,8 +304,8 @@ final class SystemMonitor: ObservableObject {
         let days = Int(seconds / 86_400)
         let hours = Int(seconds.truncatingRemainder(dividingBy: 86_400) / 3_600)
         uptime = days > 0
-            ? String(localized: "system.uptimeDaysHours", defaultValue: "\(days)d \(hours)h")
-            : String(localized: "system.uptimeHours", defaultValue: "\(hours)h")
+            ? String(localized: "system.uptimeDaysHours", defaultValue: "\(String(days))d \(String(hours))h")
+            : String(localized: "system.uptimeHours", defaultValue: "\(String(hours))h")
     }
 
     private func refreshBattery() {

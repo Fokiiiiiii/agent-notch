@@ -15,13 +15,22 @@ import AppKit
 /// specific target, so existing behavior is never regressed.
 @MainActor
 enum Jumper {
-    /// Preference order: iTerm2, WezTerm, Ghostty, Warp, Terminal.app.
+    /// Preference order: iTerm2, WezTerm, Ghostty, Warp, Terminal.app, Kitty,
+    /// VS Code (integrated terminal).
+    ///
+    /// Kitty and VS Code are Tier 1 only (activate-the-app precision): Kitty
+    /// has no AppleScript dictionary to select a specific tab, and VS Code's
+    /// AppleScript surface can only activate the whole editor window, so
+    /// tab-level precision (Tier 2) is meaningless for either — see
+    /// `jumpToTab` below, which intentionally does not branch on these IDs.
     private static let terminalBundleIDs = [
         "com.googlecode.iterm2",
         "com.github.wez.wezterm",
         "com.mitchellh.ghostty",
         "dev.warp.Warp-Stable",
         "com.apple.Terminal",
+        "net.kovidgoyal.kitty",
+        "com.microsoft.VSCode",
     ]
 
     static func jump(to session: AgentSession) {
