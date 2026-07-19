@@ -34,7 +34,8 @@ final class QuestionCenter: ObservableObject {
             )
         }
         let request = Request(
-            agent: event.toolName == "request_user_input" ? .codex : .claude,
+            agent: (event.toolInput["agent"] as? String).flatMap(AgentKind.init(rawValue:))
+                ?? (event.toolName == "request_user_input" ? .codex : .claude),
             sessionID: event.sessionId,
             prompt: prompt,
             header: header,

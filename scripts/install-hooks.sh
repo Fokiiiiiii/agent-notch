@@ -29,7 +29,7 @@ path = sys.argv[1]
 with open(path) as f:
     settings = json.load(f)
 
-CMD = '/bin/sh -c \'[ -x "$HOME/.agent-notch/bin/agent-notch-bridge" ] && exec "$HOME/.agent-notch/bin/agent-notch-bridge"; exit 0\''
+CMD = '/bin/sh -c \'[ -x "$HOME/.agent-notch/bin/agent-notch-bridge" ] && AGENT_NOTCH_AGENT=claude exec "$HOME/.agent-notch/bin/agent-notch-bridge"; exit 0\''
 
 def entry(timeout=None):
     hook = {"type": "command", "command": CMD}
@@ -88,7 +88,7 @@ path = sys.argv[1]
 with open(path) as f:
     settings = json.load(f)
 
-cmd = '/bin/sh -c \'[ -x "$HOME/.agent-notch/bin/agent-notch-bridge" ] && exec "$HOME/.agent-notch/bin/agent-notch-bridge"; exit 0\''
+cmd = '/bin/sh -c \'[ -x "$HOME/.agent-notch/bin/agent-notch-bridge" ] && AGENT_NOTCH_AGENT=codex exec "$HOME/.agent-notch/bin/agent-notch-bridge"; exit 0\''
 hooks = settings.setdefault("hooks", {})
 
 for event in list(hooks):

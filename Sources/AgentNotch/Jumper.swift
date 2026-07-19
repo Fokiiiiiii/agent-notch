@@ -1,8 +1,18 @@
 import AppKit
 
 /// Activates the running terminal app (if any) so the user can jump to it
-/// from a notch session row. Best-effort: does nothing if no known terminal
-/// app is currently running.
+/// from a notch session row. Best-effort, two-tier strategy:
+///
+/// Tier 1: identify the agent process backing this session (by matching its
+/// cwd against `session.cwd`), walk up its process ancestry to find the
+/// terminal app that actually hosts it, and activate that specific instance.
+/// Tier 2: if the resolved terminal is iTerm2 or Terminal.app, additionally
+/// select the exact tab/session whose tty matches the agent process via
+/// AppleScript.
+///
+/// Falls back to the previous fixed-priority "activate the first known
+/// terminal app that's running" behavior whenever Tier 1 can't resolve a
+/// specific target, so existing behavior is never regressed.
 @MainActor
 enum Jumper {
     /// Preference order: iTerm2, WezTerm, Ghostty, Warp, Terminal.app.
@@ -15,12 +25,161 @@ enum Jumper {
     ]
 
     static func jump(to session: AgentSession) {
+        if let processName = processName(for: session.agent),
+           let agentPID = findAgentPID(processName: processName, cwd: session.cwd),
+           let targetApp = findTerminalAncestor(startingAt: agentPID) {
+            targetApp.activate()
+            // Tier 2: best-effort tab-level precision for iTerm2/Terminal.app.
+            jumpToTab(bundleID: targetApp.bundleIdentifier, agentPID: agentPID)
+            return
+        }
+
+        fallbackActivateFirstKnownTerminal()
+    }
+
+    // MARK: - Tier 1: locate the agent process and its hosting terminal
+
+    private static func processName(for agent: AgentKind) -> String? {
+        switch agent {
+        case .claude, .codex:
+            return agent.rawValue
+        default:
+            return nil
+        }
+    }
+
+    /// Runs `pgrep -x <processName>` and returns the PID whose cwd (via
+    /// `lsof -a -p <pid> -d cwd -Fn`) matches `cwd`.
+    private static func findAgentPID(processName: String, cwd: String) -> pid_t? {
+        guard let pgrepOutput = run(executable: "/usr/bin/pgrep", arguments: ["-x", processName]) else {
+            return nil
+        }
+        let candidatePIDs = pgrepOutput
+            .split(separator: "\n")
+            .compactMap { pid_t($0.trimmingCharacters(in: .whitespaces)) }
+
+        for pid in candidatePIDs {
+            guard let lsofOutput = run(
+                executable: "/usr/sbin/lsof",
+                arguments: ["-a", "-p", String(pid), "-d", "cwd", "-Fn"]
+            ) else { continue }
+
+            for line in lsofOutput.split(separator: "\n") where line.hasPrefix("n") {
+                let path = String(line.dropFirst())
+                if path == cwd {
+                    return pid
+                }
+            }
+        }
+        return nil
+    }
+
+    /// Walks up the process ancestry (max 15 hops) looking for a running
+    /// terminal app among the ancestors.
+    private static func findTerminalAncestor(startingAt pid: pid_t) -> NSRunningApplication? {
+        var currentPID = pid
+        for _ in 0..<15 {
+            guard let ppidOutput = run(executable: "/bin/ps", arguments: ["-o", "ppid=", "-p", String(currentPID)]),
+                  let ppid = pid_t(ppidOutput.trimmingCharacters(in: .whitespacesAndNewlines)),
+                  ppid > 1 else {
+                return nil
+            }
+            if let app = NSRunningApplication(processIdentifier: ppid),
+               let bundleID = app.bundleIdentifier,
+               terminalBundleIDs.contains(bundleID) {
+                return app
+            }
+            currentPID = ppid
+        }
+        return nil
+    }
+
+    // MARK: - Tier 2: tab-level precision via AppleScript (best-effort)
+
+    private static func jumpToTab(bundleID: String?, agentPID: pid_t) {
+        guard bundleID == "com.googlecode.iterm2" || bundleID == "com.apple.Terminal" else { return }
+        guard let ttyOutput = run(executable: "/bin/ps", arguments: ["-o", "tty=", "-p", String(agentPID)]) else {
+            return
+        }
+        let tty = ttyOutput.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard tty.range(of: #"^ttys\d+$"#, options: .regularExpression) != nil else { return }
+        let ttyPath = "/dev/" + tty
+
+        let script: String
+        switch bundleID {
+        case "com.googlecode.iterm2":
+            script = """
+            tell application "iTerm2"
+                repeat with w in windows
+                    repeat with t in tabs of w
+                        repeat with s in sessions of t
+                            if (tty of s) is "\(ttyPath)" then
+                                select t
+                                select s
+                                set index of w to 1
+                                activate
+                                return
+                            end if
+                        end repeat
+                    end repeat
+                end repeat
+            end tell
+            """
+        case "com.apple.Terminal":
+            script = """
+            tell application "Terminal"
+                repeat with w in windows
+                    repeat with t in tabs of w
+                        if tty of t is "\(ttyPath)" then
+                            set selected of t to true
+                            set frontmost of w to true
+                            activate
+                            return
+                        end if
+                    end repeat
+                end repeat
+            end tell
+            """
+        default:
+            return
+        }
+
+        guard let appleScript = NSAppleScript(source: script) else { return }
+        var errorInfo: NSDictionary?
+        appleScript.executeAndReturnError(&errorInfo)
+        // Failures (including "no matching tab") are ignored: Tier 1 already
+        // activated the app, so that's an acceptable outcome on its own.
+    }
+
+    // MARK: - Fallback: fixed-priority "first known terminal running"
+
+    private static func fallbackActivateFirstKnownTerminal() {
         let running = NSWorkspace.shared.runningApplications
         for bundleID in terminalBundleIDs {
             if let app = running.first(where: { $0.bundleIdentifier == bundleID }) {
                 app.activate()
                 return
             }
+        }
+    }
+
+    // MARK: - Shell helper
+
+    private static func run(executable: String, arguments: [String]) -> String? {
+        let process = Process()
+        let output = Pipe()
+        process.executableURL = URL(fileURLWithPath: executable)
+        process.arguments = arguments
+        process.standardOutput = output
+        process.standardError = FileHandle.nullDevice
+        do {
+            try process.run()
+            let data = output.fileHandleForReading.readDataToEndOfFile()
+            process.waitUntilExit()
+            guard process.terminationStatus == 0 else { return nil }
+            return String(data: data, encoding: .utf8)
+        } catch {
+            return nil
         }
     }
 }

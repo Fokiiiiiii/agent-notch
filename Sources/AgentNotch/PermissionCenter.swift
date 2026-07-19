@@ -7,6 +7,7 @@ import Foundation
 final class PermissionCenter: ObservableObject {
     struct PendingPermission: Identifiable {
         let id: UUID
+        let agent: AgentKind
         let sessionId: String
         let cwd: String
         let toolName: String
@@ -21,6 +22,7 @@ final class PermissionCenter: ObservableObject {
         let toolName = event.toolName ?? "Unknown"
         let pending = PendingPermission(
             id: UUID(),
+            agent: (event.toolInput["agent"] as? String).flatMap(AgentKind.init(rawValue:)) ?? .claude,
             sessionId: event.sessionId,
             cwd: event.cwd,
             toolName: toolName,
@@ -44,6 +46,9 @@ final class PermissionCenter: ObservableObject {
     }
 
     private static func summarize(toolName: String, toolInput: [String: Any]) -> String {
+        if let summary = toolInput["summary"] as? String {
+            return truncate(summary)
+        }
         switch toolName {
         case "Bash":
             if let command = toolInput["command"] as? String {

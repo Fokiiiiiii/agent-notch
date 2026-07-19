@@ -274,6 +274,7 @@ private enum SystemMediaBridge {
 final class SystemMonitor: ObservableObject {
     @Published private(set) var batteryLevel: Int?
     @Published private(set) var isCharging = false
+    @Published private(set) var timeRemainingLabel: String?
     @Published private(set) var memoryUsed = "—"
     @Published private(set) var memoryDetail = ""
     @Published private(set) var storageAvailable = "—"
@@ -312,11 +313,27 @@ final class SystemMonitor: ObservableObject {
               let description = IOPSGetPowerSourceDescription(snapshot, source)?.takeUnretainedValue() as? [String: Any] else {
             batteryLevel = nil
             isCharging = false
+            timeRemainingLabel = nil
             return
         }
         batteryLevel = description[kIOPSCurrentCapacityKey] as? Int
         let state = description[kIOPSPowerSourceStateKey] as? String
         isCharging = state == kIOPSACPowerValue
+
+        let minutesKey = isCharging ? kIOPSTimeToFullChargeKey : kIOPSTimeToEmptyKey
+        if let minutes = description[minutesKey] as? Int {
+            if minutes == -1 {
+                timeRemainingLabel = "Calculating…"
+            } else if minutes > 0 {
+                let hours = minutes / 60
+                let mins = minutes % 60
+                timeRemainingLabel = hours > 0 ? "\(hours)h \(mins)m" : "\(mins)m"
+            } else {
+                timeRemainingLabel = nil
+            }
+        } else {
+            timeRemainingLabel = nil
+        }
     }
 
     private func refreshMemory() {
@@ -331,10 +348,17 @@ final class SystemMonitor: ObservableObject {
             }
         }
         guard result == KERN_SUCCESS else { return }
-        let usedPages = UInt64(statistics.active_count + statistics.inactive_count + statistics.wire_count + statistics.compressor_page_count)
-        let used = min(Int64(usedPages * UInt64(pageSize)), total)
-        memoryUsed = formatter.string(fromByteCount: used)
-        memoryDetail = "of \(formatter.string(fromByteCount: total))"
+        let totalPages = max(Double(total) / Double(pageSize), 1)
+        let reclaimablePages = Double(statistics.free_count + statistics.inactive_count + statistics.speculative_count)
+        let availablePercent = min(max(Int((reclaimablePages / totalPages * 100).rounded()), 0), 100)
+        if availablePercent >= 25 {
+            memoryUsed = "Available"
+        } else if availablePercent >= 12 {
+            memoryUsed = "Low"
+        } else {
+            memoryUsed = "Very low"
+        }
+        memoryDetail = "\(availablePercent)% memory available"
     }
 
     private func refreshStorage() {
@@ -344,6 +368,118 @@ final class SystemMonitor: ObservableObject {
         }
         if let total = values.volumeTotalCapacity {
             storageDetail = "of \(formatter.string(fromByteCount: Int64(total)))"
+        }
+    }
+}
+
+struct BackgroundActivity: Identifiable, Sendable {
+    let id: String
+    let symbol: String
+    let title: String
+    let detail: String
+    let elapsedLabel: String
+}
+
+/// Lightweight, read-only activity detection. Unlike the former progress
+/// placeholders it only shows work that exists in the live process list.
+@MainActor
+final class BackgroundActivityMonitor: ObservableObject {
+    @Published private(set) var activities: [BackgroundActivity] = []
+    private var timer: AnyCancellable?
+    private var refreshInFlight = false
+
+    init() {
+        refresh()
+        timer = Timer.publish(every: 3, on: .main, in: .common)
+            .autoconnect()
+            .sink { [weak self] _ in self?.refresh() }
+    }
+
+    private func refresh() {
+        guard !refreshInFlight else { return }
+        refreshInFlight = true
+        Task {
+            let next = await Task.detached(priority: .utility) { Self.readActivities() }.value
+            activities = next
+            refreshInFlight = false
+        }
+    }
+
+    private nonisolated static func readActivities() -> [BackgroundActivity] {
+        let process = Process()
+        let output = Pipe()
+        process.executableURL = URL(fileURLWithPath: "/bin/ps")
+        process.arguments = ["-axo", "pid=,etime=,command="]
+        process.standardOutput = output
+        process.standardError = FileHandle.nullDevice
+        do { try process.run() } catch { return [] }
+        let data = output.fileHandleForReading.readDataToEndOfFile()
+        process.waitUntilExit()
+        guard let raw = String(data: data, encoding: .utf8) else { return [] }
+
+        struct ProcessLine { let etime: String; let command: String }
+        var lines: [ProcessLine] = []
+        for rawLine in raw.split(separator: "\n", omittingEmptySubsequences: true) {
+            let fields = rawLine.split(separator: " ", omittingEmptySubsequences: true)
+            guard fields.count >= 3 else { continue }
+            let etime = String(fields[1])
+            let command = fields[2...].joined(separator: " ")
+            lines.append(ProcessLine(etime: etime, command: command))
+        }
+
+        let detectors: [(needle: String, tokenCount: Int, symbol: String, title: String, detail: String)] = [
+            ("xcodebuild", 1, "hammer.fill", "Xcode Build", "xcodebuild is running"),
+            ("docker build", 2, "shippingbox.fill", "Docker Build", "Docker is building an image"),
+            ("docker pull", 2, "shippingbox.and.arrow.backward.fill", "Docker Pull", "Docker is downloading an image"),
+            ("git clone", 2, "arrow.triangle.branch", "Git Clone", "Repository transfer in progress"),
+            ("git fetch", 2, "arrow.triangle.branch", "Git Fetch", "Remote refs are updating"),
+            ("curl", 1, "arrow.down.circle.fill", "Download", "curl transfer in progress"),
+            ("aria2c", 1, "arrow.down.circle.fill", "Download", "aria2 transfer in progress"),
+        ]
+
+        return detectors.compactMap { detector in
+            for line in lines {
+                let tokens = line.command.lowercased().split(separator: " ", omittingEmptySubsequences: true).map(String.init)
+                guard !tokens.isEmpty else { continue }
+                let matchKey = detector.tokenCount == 1 ? tokens[0] : tokens.prefix(2).joined(separator: " ")
+                guard matchKey == detector.needle else { continue }
+                let elapsed = elapsedLabel(fromEtime: line.etime)
+                return BackgroundActivity(
+                    id: detector.needle,
+                    symbol: detector.symbol,
+                    title: detector.title,
+                    detail: "\(detector.detail) · \(elapsed)",
+                    elapsedLabel: elapsed
+                )
+            }
+            return nil
+        }
+    }
+
+    /// Parses `ps`'s `etime` column ("12:34", "01:23:45", "3-01:23:45") into a
+    /// concise elapsed-time string such as "12m", "1h 23m", or "3d".
+    private nonisolated static func elapsedLabel(fromEtime etime: String) -> String {
+        var days = 0
+        var timePart = Substring(etime)
+        if let dashIndex = etime.firstIndex(of: "-") {
+            days = Int(etime[etime.startIndex..<dashIndex]) ?? 0
+            timePart = etime[etime.index(after: dashIndex)...]
+        }
+        let components = timePart.split(separator: ":").compactMap { Int($0) }
+        var hours = 0
+        var minutes = 0
+        if components.count == 3 {
+            hours = components[0]
+            minutes = components[1]
+        } else if components.count == 2 {
+            minutes = components[0]
+        }
+        if days > 0 {
+            return "\(days)d"
+        } else if hours > 0 {
+            return "\(hours)h \(minutes)m"
+        } else {
+            return "\(minutes)m"
         }
     }
 }

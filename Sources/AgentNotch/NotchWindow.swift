@@ -6,6 +6,50 @@ private final class KeyableNotchPanel: NSPanel {
     override var canBecomeKey: Bool { true }
 }
 
+private final class FileDropContainerView: NSView {
+    var fileDropHandler: (([URL]) -> Void)?
+    var fileDragStateHandler: ((Bool) -> Void)?
+
+    override init(frame frameRect: NSRect) {
+        super.init(frame: frameRect)
+        registerForDraggedTypes([.fileURL])
+    }
+
+    required init?(coder: NSCoder) {
+        super.init(coder: coder)
+        registerForDraggedTypes([.fileURL])
+    }
+
+    override func draggingEntered(_ sender: NSDraggingInfo) -> NSDragOperation {
+        let urls = fileURLs(from: sender)
+        guard !urls.isEmpty else { return [] }
+        fileDragStateHandler?(true)
+        return .copy
+    }
+
+    override func draggingExited(_ sender: NSDraggingInfo?) {
+        fileDragStateHandler?(false)
+    }
+
+    override func draggingEnded(_ sender: NSDraggingInfo) {
+        fileDragStateHandler?(false)
+    }
+
+    override func performDragOperation(_ sender: NSDraggingInfo) -> Bool {
+        let urls = fileURLs(from: sender)
+        fileDragStateHandler?(false)
+        guard !urls.isEmpty else { return false }
+        fileDropHandler?(urls)
+        return true
+    }
+
+    private func fileURLs(from draggingInfo: NSDraggingInfo) -> [URL] {
+        let options: [NSPasteboard.ReadingOptionKey: Any] = [.urlReadingFileURLsOnly: true]
+        let values = draggingInfo.draggingPasteboard.readObjects(forClasses: [NSURL.self], options: options) ?? []
+        return values.compactMap { ($0 as? NSURL) as URL? }
+    }
+}
+
 /// The three sizes the notch window/panel can take.
 enum IslandMode {
     case closed, notice, open
@@ -32,7 +76,7 @@ enum NotchTab {
 
 /// Inline approval, plan, and agent-question surfaces displayed in the Nook.
 enum IslandOverlay: Equatable {
-    case approval(toolName: String, summary: String, extraCount: Int)
+    case approval(agent: AgentKind, toolName: String, summary: String, extraCount: Int)
     case plan
     case question
 }
@@ -48,8 +92,20 @@ final class NotchUIState: ObservableObject {
     @Published var activeView: NookView = .agents
     @Published var overlay: IslandOverlay? = nil
     @Published var approvalOutcome: ApprovalOutcome? = nil
+    @Published var noticeTitle: String? = nil
+    @Published var noticeMessage: String? = nil
     @Published var selectedSessionId: String? = nil
     @Published var isDetailExpanded = false
+    @Published var isMediaPreviewVisible = false
+    @Published var trayHasItems = false
+    @Published var trayItemCount = 0
+    @Published var reopenTrayOnNextOpen = false
+    @Published var focusEndsAt: Date?
+    /// The fixed on-screen size of the `.closed`-mode notch shape. Shared
+    /// with `NotchWindowController` so the panel's real frame can grow
+    /// (invisibly, for file-drag hit-testing) without the visible shape
+    /// growing along with it.
+    @Published var closedContentSize: CGSize = CGSize(width: 220, height: 34)
     /// Whether the notch is visible at all (fully independent of `mode`,
     /// which only tracks compact/notice/open *sizing* once visible). See
     /// `NotchWindowController`'s visibility state machine.
@@ -61,18 +117,27 @@ final class NotchUIState: ObservableObject {
 @MainActor
 final class NotchWindowController: NSObject {
     private let panel: NSPanel
+    private let fileDropView: FileDropContainerView
     private let uiState = NotchUIState()
     private let store: SessionStore
     private let permissions: PermissionCenter
     private let questions: QuestionCenter
+    private let plans: PlanCenter
     private let screen: NSScreen
     private var closedSize: CGSize
+    /// Narrower than `closedSize`: used only while fullscreen-suppressed, so the
+    /// long-hover peek doesn't collide with a fullscreen app's own top-edge
+    /// chrome-reveal gesture (which typically spans the full screen width).
+    private let fullscreenHoverSize: CGSize
+    private var mediaPreviewSize: CGSize
     private let noticeSize = CGSize(width: 320, height: 50)
-    private let openSize = CGSize(width: 484, height: 168)
-    private let openDetailSize = CGSize(width: 484, height: 244)
-    private let openOverlaySize = CGSize(width: 484, height: 196)
-    private let openQuestionSize = CGSize(width: 484, height: 216)
+    private let openSize = CGSize(width: 540, height: 206)
+    private let trayOpenSize = CGSize(width: 560, height: 222)
+    private let openDetailSize = CGSize(width: 540, height: 264)
+    private let openOverlaySize = CGSize(width: 540, height: 246)
+    private let openQuestionSize = CGSize(width: 540, height: 316)
     private var hoverTask: Task<Void, Never>?
+    private var noticeAutoDismissTask: Task<Void, Never>?
     private var cancellables = Set<AnyCancellable>()
 
     // MARK: - Visibility state machine
@@ -116,10 +181,11 @@ final class NotchWindowController: NSObject {
     var debugVisible: Bool { uiState.isVisible }
     var debugPersists: Bool { shouldPersistVisible }
 
-    init(store: SessionStore, permissions: PermissionCenter, questions: QuestionCenter) {
+    init(store: SessionStore, permissions: PermissionCenter, questions: QuestionCenter, plans: PlanCenter) {
         self.store = store
         self.permissions = permissions
         self.questions = questions
+        self.plans = plans
 
         let chosenScreen = NSScreen.screens.first(where: { $0.safeAreaInsets.top > 0 }) ?? NSScreen.main
         let resolvedScreen = chosenScreen ?? NSScreen.screens.first ?? NSScreen()
@@ -132,7 +198,15 @@ final class NotchWindowController: NSObject {
             notchWidth = resolvedScreen.frame.width - leftArea.width - rightArea.width
         }
 
-        self.closedSize = CGSize(width: max(notchWidth + 20, 220), height: max(notchHeight, 34))
+        // 見た目のノッチサイズ（NotchViewが.closedモード時に固定描画するサイズ）
+        let visualClosedSize = CGSize(width: max(notchWidth + 20, 220), height: max(notchHeight, 34))
+        self.mediaPreviewSize = CGSize(width: max(notchWidth + 116, 316), height: max(notchHeight, 34))
+        // closedSize は実際のウィンドウフレーム（ファイルドロップの当たり判定を兼ねる）。
+        // 見た目より一回り大きくして常時ドロップを受け付けやすくする。控えめな増分に留め、
+        // 他アプリのツールバー等をブロックしすぎないようにする（幅+40, 高さ+70）。
+        self.closedSize = CGSize(width: visualClosedSize.width + 40, height: visualClosedSize.height + 70)
+        self.fullscreenHoverSize = CGSize(width: min(closedSize.width, 140), height: closedSize.height)
+        self.uiState.closedContentSize = visualClosedSize
 
         let initialFrame = NotchWindowController.frame(
             for: closedSize,
@@ -149,25 +223,48 @@ final class NotchWindowController: NSObject {
         panel.backgroundColor = .clear
         panel.hasShadow = false
         panel.level = .statusBar
-        // Do not opt into `.fullScreenAuxiliary`: AgentNotch intentionally
-        // stays out of another app's fullscreen Space.
-        panel.collectionBehavior = [.canJoinAllSpaces, .stationary]
+        // `.fullScreenAuxiliary` lets a long-enough hover at the top edge
+        // temporarily surface the notch even over another app's fullscreen
+        // Space.
+        panel.collectionBehavior = [.canJoinAllSpaces, .stationary, .fullScreenAuxiliary]
         panel.isMovable = false
+        panel.becomesKeyOnlyIfNeeded = true
         panel.hidesOnDeactivate = false
         panel.setFrame(initialFrame, display: false)
+        let fileDropView = FileDropContainerView(frame: NSRect(origin: .zero, size: initialFrame.size))
 
         self.panel = panel
+        self.fileDropView = fileDropView
 
         super.init()
 
-        let notchView = NotchView(store: store, controller: self, permissions: permissions, questions: questions)
+        let notchView = NotchView(store: store, controller: self, permissions: permissions, questions: questions, plans: plans)
             .environmentObject(uiState)
         let hostingView = NSHostingView(rootView: notchView)
-        panel.contentView = hostingView
+        hostingView.frame = fileDropView.bounds
+        hostingView.autoresizingMask = [.width, .height]
+        fileDropView.addSubview(hostingView)
+        panel.contentView = fileDropView
 
         // Overlay presence changes the target height while already `.open`
         // (e.g. an approval overlay appearing/disappearing).
         uiState.$overlay
+            .dropFirst()
+            .sink { [weak self] _ in
+                guard let self, self.uiState.mode == .open else { return }
+                self.resizeForCurrentState()
+            }
+            .store(in: &cancellables)
+
+        uiState.$isMediaPreviewVisible
+            .dropFirst()
+            .sink { [weak self] _ in
+                guard let self, self.uiState.mode == .closed else { return }
+                self.resizeForCurrentState()
+            }
+            .store(in: &cancellables)
+
+        uiState.$activeTab
             .dropFirst()
             .sink { [weak self] _ in
                 guard let self, self.uiState.mode == .open else { return }
@@ -191,7 +288,17 @@ final class NotchWindowController: NSObject {
                 if self.uiState.mode != .open || !self.isClickPinned {
                     self.syncOverlay()
                 }
-                if queue.isEmpty, self.permissions.queue.isEmpty, !self.isClickPinned {
+                if queue.isEmpty, self.permissions.queue.isEmpty, self.plans.queue.isEmpty, !self.isClickPinned {
+                    self.setMode(.closed)
+                }
+            }
+            .store(in: &cancellables)
+
+        plans.$queue
+            .sink { [weak self] queue in
+                guard let self else { return }
+                if self.uiState.mode != .open || !self.isClickPinned { self.syncOverlay() }
+                if queue.isEmpty, self.permissions.queue.isEmpty, self.questions.queue.isEmpty, !self.isClickPinned {
                     self.setMode(.closed)
                 }
             }
@@ -251,10 +358,13 @@ final class NotchWindowController: NSObject {
         uiState.activeTab = .nook
         if let first = permissions.queue.first {
             uiState.overlay = .approval(
+                agent: first.agent,
                 toolName: first.toolName,
                 summary: first.summary,
                 extraCount: permissions.queue.count - 1
             )
+        } else if !plans.queue.isEmpty {
+            uiState.overlay = .plan
         } else if !questions.queue.isEmpty {
             uiState.overlay = .question
         } else {
@@ -264,6 +374,7 @@ final class NotchWindowController: NSObject {
 
     deinit {
         visibilityRefreshTask?.cancel()
+        noticeAutoDismissTask?.cancel()
         if let workspaceObserver {
             NSWorkspace.shared.notificationCenter.removeObserver(workspaceObserver)
         }
@@ -307,11 +418,35 @@ final class NotchWindowController: NSObject {
         panel.orderFrontRegardless()
     }
 
+    func installFileDropHandlers(
+        targeted: @escaping (Bool) -> Void,
+        dropped: @escaping ([URL]) -> Void
+    ) {
+        fileDropView.fileDragStateHandler = { [weak self] active in
+            guard let self else { return }
+            targeted(active)
+            if active {
+                self.uiState.isVisible = true
+                self.uiState.activeTab = .tray
+                self.setMode(.open)
+            }
+        }
+        fileDropView.fileDropHandler = dropped
+    }
+
+    func removeFileDropHandlers() {
+        fileDropView.fileDragStateHandler = nil
+        fileDropView.fileDropHandler = nil
+    }
+
     /// Replaces the old `setExpanded(_:)`. Animates the panel frame to the
     /// size for `mode` (and, for `.open`, to the taller overlay size when
     /// `uiState.hasOverlay` is true).
-    func setMode(_ mode: IslandMode) {
-        guard uiState.mode != mode else { return }
+    func setMode(_ mode: IslandMode, forceResize: Bool = false) {
+        guard uiState.mode != mode || forceResize else { return }
+        if mode != .closed {
+            uiState.isMediaPreviewVisible = false
+        }
         uiState.mode = mode
         resizeForCurrentState()
         if mode == .closed {
@@ -325,7 +460,11 @@ final class NotchWindowController: NSObject {
         let targetSize: CGSize
         switch uiState.mode {
         case .closed:
-            targetSize = closedSize
+            if !shouldPersistVisible {
+                targetSize = fullscreenHoverSize
+            } else {
+                targetSize = uiState.isMediaPreviewVisible ? mediaPreviewSize : closedSize
+            }
         case .notice:
             targetSize = noticeSize
         case .open:
@@ -334,7 +473,11 @@ final class NotchWindowController: NSObject {
             } else if uiState.hasOverlay {
                 targetSize = openOverlaySize
             } else {
-                targetSize = uiState.isDetailExpanded ? openDetailSize : openSize
+                if uiState.activeTab == .tray {
+                    targetSize = trayOpenSize
+                } else {
+                    targetSize = uiState.isDetailExpanded ? openDetailSize : openSize
+                }
             }
         }
 
@@ -355,10 +498,11 @@ final class NotchWindowController: NSObject {
         if inside {
             hideTask?.cancel()
             if !uiState.isVisible {
+                let dwellNanoseconds: UInt64 = shouldPersistVisible ? 300_000_000 : 900_000_000
                 dwellTask = Task { [weak self] in
-                    try? await Task.sleep(nanoseconds: 300_000_000)
+                    try? await Task.sleep(nanoseconds: dwellNanoseconds)
                     guard !Task.isCancelled, self?.isHovering == true else { return }
-                    self?.showMinimal()
+                    self?.showMinimal(bypassFullscreenSuppression: true)
                 }
                 return
             }
@@ -367,12 +511,20 @@ final class NotchWindowController: NSObject {
             // action always has the same result.
             return
         }
-        guard permissions.queue.isEmpty, questions.queue.isEmpty else { return }
+        if !shouldPersistVisible, uiState.isVisible, uiState.mode == .closed {
+            scheduleHideIfIdle()
+        }
+        guard permissions.queue.isEmpty, questions.queue.isEmpty, plans.queue.isEmpty else { return }
+        // Tray contents keep the compact badge visible, but must not trap the
+        // expanded panel on screen. Explicit outside/Escape dismissal remains
+        // available even while the temporary shelf contains files.
+        if uiState.mode == .closed, uiState.trayHasItems { return }
         guard !isClickPinned else { return }
         hoverTask = Task { [weak self] in
             try? await Task.sleep(nanoseconds: 140_000_000)
             guard !Task.isCancelled, let self, !self.isHovering else { return }
-            guard self.permissions.queue.isEmpty, self.questions.queue.isEmpty else { return }
+            guard self.permissions.queue.isEmpty, self.questions.queue.isEmpty, self.plans.queue.isEmpty else { return }
+            if self.uiState.mode == .closed, self.uiState.trayHasItems { return }
             guard !self.isClickPinned else { return }
             self.setMode(.closed)
         }
@@ -387,8 +539,8 @@ final class NotchWindowController: NSObject {
 
     /// Makes the minimal notch visible without changing `mode` (it is
     /// always `.closed` while hidden, so this is a no-op on sizing).
-    private func showMinimal() {
-        guard shouldPersistVisible else { return }
+    private func showMinimal(bypassFullscreenSuppression: Bool = false) {
+        guard shouldPersistVisible || bypassFullscreenSuppression else { return }
         hideTask?.cancel()
         uiState.isVisible = true
     }
@@ -412,11 +564,10 @@ final class NotchWindowController: NSObject {
         guard shouldPersistVisible else { return }
         dwellTask?.cancel()
         hideTask?.cancel()
+        isClickPinned = false
         uiState.isVisible = true
-        if uiState.mode != .open {
-            syncOverlay()
-            setMode(.closed)
-        }
+        syncOverlay()
+        setMode(.open, forceResize: true)
     }
 
     func showAgentActivity(urgent: Bool) {
@@ -453,7 +604,7 @@ final class NotchWindowController: NSObject {
     }
 
     func toggleOpen() {
-        guard shouldPersistVisible else { return }
+        guard shouldPersistVisible || uiState.isVisible else { return }
         hideTask?.cancel()
         uiState.isVisible = true
         if uiState.mode == .open {
@@ -463,8 +614,29 @@ final class NotchWindowController: NSObject {
         } else {
             isClickPinned = true
             syncOverlay()
-            setMode(.open)
+            if uiState.reopenTrayOnNextOpen, uiState.trayHasItems, uiState.overlay == nil {
+                uiState.activeTab = .tray
+            }
+            setMode(.open, forceResize: true)
         }
+    }
+
+    func keepTrayOpen() {
+        dwellTask?.cancel()
+        hideTask?.cancel()
+        isClickPinned = true
+        uiState.isVisible = true
+        uiState.activeTab = .tray
+        uiState.reopenTrayOnNextOpen = true
+        if uiState.mode != .open {
+            setMode(.open)
+        } else {
+            resizeForCurrentState()
+        }
+    }
+
+    func releaseTrayHold() {
+        isClickPinned = false
     }
 
     func closeExplicitly() {
@@ -495,6 +667,33 @@ final class NotchWindowController: NSObject {
         setDetailExpanded(!uiState.isDetailExpanded)
     }
 
+    /// Shows a lightweight, transient "notice" surface for background
+    /// Notification hook events that don't require a response (e.g. Claude
+    /// idle nudges). Auto-dismisses after 2.5s. Never interrupts an
+    /// in-progress approval outcome or an open, pinned/overlay session.
+    func showNotification(title: String, message: String) {
+        guard shouldPersistVisible else { return }
+        guard uiState.approvalOutcome == nil else { return }
+        if uiState.mode == .open, (uiState.overlay != nil || isClickPinned) { return }
+        noticeAutoDismissTask?.cancel()
+        uiState.noticeTitle = title
+        uiState.noticeMessage = message
+        uiState.isVisible = true
+        setMode(.notice)
+        noticeAutoDismissTask = Task { [weak self] in
+            try? await Task.sleep(nanoseconds: 2_500_000_000)
+            guard !Task.isCancelled, let self else { return }
+            self.dismissNotice()
+        }
+    }
+
+    private func dismissNotice() {
+        guard uiState.mode == .notice, uiState.approvalOutcome == nil else { return }
+        uiState.noticeTitle = nil
+        uiState.noticeMessage = nil
+        setMode(.closed)
+    }
+
     func showApprovalOutcome(allowed: Bool) {
         isClickPinned = false
         uiState.approvalOutcome = ApprovalOutcome(allowed: allowed)
@@ -512,11 +711,21 @@ final class NotchWindowController: NSObject {
 
     func finishQuestionResponse() {
         syncOverlay()
-        if permissions.queue.isEmpty, questions.queue.isEmpty {
+        if permissions.queue.isEmpty, questions.queue.isEmpty, plans.queue.isEmpty {
             isClickPinned = false
             setMode(.closed)
         } else {
-            setMode(.open)
+            setMode(.open, forceResize: true)
+        }
+    }
+
+    func finishPlanResponse() {
+        syncOverlay()
+        if permissions.queue.isEmpty, questions.queue.isEmpty, plans.queue.isEmpty {
+            isClickPinned = false
+            setMode(.closed)
+        } else {
+            setMode(.open, forceResize: true)
         }
     }
 
@@ -540,9 +749,15 @@ final class NotchWindowController: NSObject {
     }
 
     private func refreshVisibilityForCurrentSpace() {
+        let wasPersisting = shouldPersistVisible
         shouldPersistVisible = !Self.isNonFinderFullscreen(on: screen)
         if shouldPersistVisible {
-            showMinimal()
+            if !wasPersisting, !permissions.queue.isEmpty || !questions.queue.isEmpty || !plans.queue.isEmpty {
+                // Surface anything that arrived while fullscreen suppressed the notch.
+                showAttention()
+            } else {
+                showMinimal()
+            }
         } else {
             hoverTask?.cancel()
             dwellTask?.cancel()
@@ -565,7 +780,8 @@ final class NotchWindowController: NSObject {
             guard !Task.isCancelled else { return }
             guard let self else { return }
             guard !self.isHovering else { return }
-            guard self.permissions.queue.isEmpty, self.questions.queue.isEmpty else { return }
+            guard self.permissions.queue.isEmpty, self.questions.queue.isEmpty, self.plans.queue.isEmpty else { return }
+            guard !self.uiState.trayHasItems else { return }
             guard !self.shouldPersistVisible else { return }
             self.uiState.isVisible = false
         }

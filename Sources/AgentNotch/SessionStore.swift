@@ -1,4 +1,5 @@
 import Foundation
+import Darwin
 
 @MainActor
 final class SessionStore: ObservableObject {
@@ -24,6 +25,37 @@ final class SessionStore: ObservableObject {
 
     var isEmpty: Bool {
         sessions.isEmpty
+    }
+
+    /// Controls only processes launched through `agent-notch run`. Transcript-
+    /// discovered sessions deliberately remain read-only because guessing a PID
+    /// could signal an unrelated terminal process.
+    func controlManagedSession(id: String, action: ManagedSessionAction) -> Bool {
+        guard var session = cliSessions[id], session.isManagedProcess,
+              let pid = session.processID, pid > 1 else { return false }
+        let signal: Int32
+        switch action {
+        case .pause: signal = SIGSTOP
+        case .resume: signal = SIGCONT
+        case .stop: signal = SIGTERM
+        }
+        guard Darwin.kill(pid, signal) == 0 else { return false }
+        switch action {
+        case .pause:
+            session.state = .idle
+            session.lastMessage = "Paused"
+        case .resume:
+            session.state = .running
+            session.lastMessage = "Resumed"
+        case .stop:
+            session.lastMessage = "Stopping…"
+        }
+        session.lastActivity = Date()
+        cliSessions[id] = session
+        if let index = sessions.firstIndex(where: { $0.id == id }) {
+            sessions[index] = session
+        }
+        return true
     }
 
     /// Applies a hook event's effect on session state overrides. Agent-
@@ -125,11 +157,17 @@ final class SessionStore: ObservableObject {
             cwd: cwd,
             lastActivity: Date(),
             state: state,
-            lastMessage: (input["message"] as? String) ?? existing?.lastMessage ?? action.capitalized
+            lastMessage: (input["message"] as? String) ?? existing?.lastMessage ?? action.capitalized,
+            processID: (input["pid"] as? NSNumber)?.int32Value ?? existing?.processID,
+            isManagedProcess: (input["managed"] as? Bool) ?? existing?.isManagedProcess ?? false
         )
         cliSessions[id] = session
         sessions.removeAll { $0.id == id }
         sessions.append(session)
         sessions.sort { $0.lastActivity > $1.lastActivity }
     }
+}
+
+enum ManagedSessionAction {
+    case pause, resume, stop
 }

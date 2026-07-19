@@ -61,6 +61,12 @@ agent-notch setup --all          # 未インストールCLI用の設定経路も
 # native hookがない／不安定なCLIは共通ラッパーで追跡
 agent-notch run --agent cursor -- cursor-agent
 cursor-notch                     # 上記の短縮ラッパー
+
+# native hookや独自プラグインからブロッキング操作を取り込む共通口
+agent-notch question --agent gemini --prompt "Deploy target?" \
+  --option Production --option Staging --option "Local only"
+agent-notch permission --agent opencode --tool Bash --summary "npm run deploy"
+agent-notch plan --agent codex --title "Auth refactor" --summary "Extract validation; add tests"
 ```
 
 CLIは`~/.agent-notch/run/agent-notch.sock`だけを使用し、外部通信やテレメトリは行わない。`--id`を省略した場合はagentとcwdから安定したIDを生成する。
@@ -91,17 +97,12 @@ CLIは`~/.agent-notch/run/agent-notch.sock`だけを使用し、外部通信や�
 ## UI
 
 - Nook: Agents / Media / Today / Systemを1ページ1主要機能で切り替え。
-- Media: macOSの現在の再生セッションを自動検出。再生中はジャケット色に連動するCompact波形を表示し、250msホバーで曲名をプレビュー、クリック後に進捗と再生操作を表示する。
-- Tray: ローカルファイルの一時ShelfとAirDrop / Compress / Copy Path / AI Attach操作。
-- Agent: 複数セッション、状態、現在の処理、Pause / Resume / Stop / Terminal。
-- Approval / Plan Review / Agent QuestionはNook内のインライン操作面として表示。
-
-## 今後の接続作業
-
-- Pause / Resume / Stopの実エージェント制御チャネル
-- Claude / Codexのusage実値
-- Plan Reviewの実イベント配送
-- OSのカレンダー・バックグラウンドタスク実データ
+- Media: macOSの現在の再生セッションを自動検出。再生中はジャケット色に連動するCompact波形を表示し、250msホバーでノッチを横へ広げて曲名をプレビュー、クリック後に進捗と再生操作を表示する。
+- Tray: NSPanelネイティブのファイルDropとファイルピッカーを備えた一時Shelf。ファイル追加時はTrayを自動表示し、空にするまでポインタ移動や外側操作では閉じない。選択ファイルを開く / Finder表示 / AirDrop / Compress / Copy Path / AI用コピーを実行できる。
+- Agent: 複数セッション、状態、現在の処理、Terminal復帰を表示。`agent-notch run`管理下のプロセスだけPause / Resume / Stopを実行できる。
+- Usage: [CodexBar](https://github.com/steipete/CodexBar)のprovider正規化JSONを利用し、Codex / Claude等の実測値または取得エラーを表示する（CodexBar未導入時は`Unavailable`）。
+- Approval / Plan Review / Agent QuestionはNook内のブロッキング操作面として表示し、回答を呼び出し元へ返す。
+- System: バッテリー・メモリ・ストレージに加え、Xcode / Git / Docker / Downloadの実行中プロセスだけをBackground Activityとして表示する。
 
 ## Third-party components
 

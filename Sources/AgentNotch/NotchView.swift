@@ -6,13 +6,17 @@ struct NotchView: View {
     let controller: NotchWindowController
     @ObservedObject var permissions: PermissionCenter
     @ObservedObject var questions: QuestionCenter
+    @ObservedObject var plans: PlanCenter
     @EnvironmentObject var uiState: NotchUIState
     @StateObject private var media = MediaController.shared
+    @StateObject private var usageStore = AgentUsageStore.shared
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @State private var trayItems: [TrayItem] = []
+    @State private var selectedTrayItemID: UUID?
     @State private var isDropTargeted = false
     @State private var trayFeedback: String?
-    @State private var compactMediaPreviewVisible = false
+    @State private var pendingTrayUndo: [TrayItem] = []
+    @State private var trayUndoTask: Task<Void, Never>?
     @State private var compactMediaHoverTask: Task<Void, Never>?
     @GestureState private var horizontalDrag: CGFloat = 0
     @GestureState private var verticalDrag: CGFloat = 0
@@ -24,6 +28,10 @@ struct NotchView: View {
                 shapeBackground
                 content
             }
+            .frame(
+                width: uiState.mode == .closed ? uiState.closedContentSize.width : nil,
+                height: uiState.mode == .closed ? uiState.closedContentSize.height : nil
+            )
             .clipShape(shellShape)
             .compositingGroup()
             .opacity(uiState.isVisible ? 1 : 0)
@@ -38,8 +46,17 @@ struct NotchView: View {
         .onChange(of: uiState.mode) { _, mode in
             if mode != .closed { hideCompactMediaPreview() }
         }
+        .onAppear {
+            controller.installFileDropHandlers(
+                targeted: { isDropTargeted = $0 },
+                dropped: { urls in addTrayItems(urls) }
+            )
+        }
         .onDisappear {
             compactMediaHoverTask?.cancel()
+            trayUndoTask?.cancel()
+            isDropTargeted = false
+            controller.removeFileDropHandlers()
             controller.cancelInteractionTimers()
         }
         .animation(.easeOut(duration: 0.24), value: uiState.isVisible)
@@ -115,6 +132,7 @@ struct NotchView: View {
         media.isPlaying
             && permissions.queue.isEmpty
             && questions.queue.isEmpty
+            && plans.queue.isEmpty
             && selectedSession?.state != .waitingApproval
     }
 
@@ -133,7 +151,7 @@ struct NotchView: View {
             }
             .frame(width: 22, height: 22)
             .clipShape(RoundedRectangle(cornerRadius: 6, style: .continuous))
-            if compactMediaPreviewVisible {
+            if uiState.isMediaPreviewVisible {
                 VStack(alignment: .leading, spacing: 0) {
                     MarqueeText(text: media.title, size: 9.5, weight: .semibold, speed: 18)
                         .frame(height: 12)
@@ -149,6 +167,9 @@ struct NotchView: View {
             } else {
                 Spacer(minLength: 0)
             }
+            if uiState.trayItemCount > 0 {
+                compactTrayBadge
+            }
             CompactMediaWaveform(isPlaying: media.isPlaying, color: Color(nsColor: media.accentColor))
         }
     }
@@ -163,16 +184,16 @@ struct NotchView: View {
             try? await Task.sleep(nanoseconds: 250_000_000)
             guard !Task.isCancelled, uiState.mode == .closed, shouldShowCompactMedia else { return }
             withAnimation(.easeOut(duration: reduceMotion ? 0.12 : 0.22)) {
-                compactMediaPreviewVisible = true
+                uiState.isMediaPreviewVisible = true
             }
         }
     }
 
     private func hideCompactMediaPreview() {
         compactMediaHoverTask?.cancel()
-        guard compactMediaPreviewVisible else { return }
+        guard uiState.isMediaPreviewVisible else { return }
         withAnimation(.easeOut(duration: reduceMotion ? 0.1 : 0.18)) {
-            compactMediaPreviewVisible = false
+            uiState.isMediaPreviewVisible = false
         }
     }
 
@@ -184,6 +205,18 @@ struct NotchView: View {
                     .foregroundColor(DesignTokens.orange)
                     .frame(width: 22, height: 22)
                 Text("Approval required")
+                    .font(.system(size: 10.5, weight: .semibold))
+                    .foregroundColor(.white)
+                Spacer(minLength: 4)
+                Text("Click to review")
+                    .font(.system(size: 8))
+                    .foregroundColor(DesignTokens.muted)
+            } else if !plans.queue.isEmpty {
+                Image(systemName: "list.bullet.clipboard.fill")
+                    .font(.system(size: 12, weight: .medium))
+                    .foregroundColor(.white.opacity(0.88))
+                    .frame(width: 22, height: 22)
+                Text("Plan ready for review")
                     .font(.system(size: 10.5, weight: .semibold))
                     .foregroundColor(.white)
                 Spacer(minLength: 4)
@@ -229,10 +262,29 @@ struct NotchView: View {
                         .foregroundColor(DesignTokens.muted)
                 }
             }
+            if uiState.trayItemCount > 0,
+               permissions.queue.isEmpty,
+               questions.queue.isEmpty,
+               plans.queue.isEmpty {
+                compactTrayBadge
+            }
         }
     }
 
-    // MARK: - Notice (structure only; nothing triggers this mode yet)
+    private var compactTrayBadge: some View {
+        HStack(spacing: 3) {
+            Image(systemName: "tray.full.fill")
+            Text("\(uiState.trayItemCount)")
+        }
+        .font(.system(size: 8.5, weight: .semibold, design: .rounded))
+        .foregroundColor(.white.opacity(0.72))
+        .padding(.horizontal, 6)
+        .frame(height: 20)
+        .background(Capsule().fill(Color.white.opacity(0.08)))
+        .accessibilityLabel("Tray, \(uiState.trayItemCount) items")
+    }
+
+    // MARK: - Compact outcome notice
 
     private var noticeContent: some View {
         HStack(spacing: 9) {
@@ -248,6 +300,17 @@ struct NotchView: View {
                     Text(outcome.allowed ? "Claude is continuing" : "Returned to Claude")
                         .font(.system(size: 7.5))
                         .foregroundColor(DesignTokens.muted)
+                }
+            } else if let message = uiState.noticeMessage {
+                GlyphBox(agent: nil)
+                VStack(alignment: .leading, spacing: 1) {
+                    Text(uiState.noticeTitle ?? "Notification")
+                        .font(.system(size: 10.5, weight: .semibold))
+                        .foregroundColor(.white)
+                    Text(message)
+                        .font(.system(size: 7.5))
+                        .foregroundColor(DesignTokens.muted)
+                        .lineLimit(1)
                 }
             } else {
                 GlyphBox(agent: nil)
@@ -272,10 +335,9 @@ struct NotchView: View {
                 case .nook:
                     nookContentView
                 case .tray:
-                    trayPlaceholder
+                    trayContent
                 }
             }
-            .id(contentIdentity)
             .transition(.asymmetric(
                 insertion: .opacity.combined(with: .offset(y: reduceMotion ? 0 : 3)),
                 removal: .opacity.combined(with: .offset(y: reduceMotion ? 0 : -2))
@@ -295,8 +357,8 @@ struct NotchView: View {
         .focusable()
         .focusEffectDisabled()
         .onMoveCommand { direction in
-            if direction == .left { navigateForward() }
-            if direction == .right { navigateBackward() }
+            if direction == .left { navigateBackward() }
+            if direction == .right { navigateForward() }
         }
         .onExitCommand { controller.closeExplicitly() }
     }
@@ -309,10 +371,10 @@ struct NotchView: View {
     private var nookbar: some View {
         HStack(spacing: 6) {
             HStack(spacing: 4) {
-                tabButton(title: "Nook", icon: "sparkles", isActive: uiState.activeTab == .nook) {
+                tabButton(title: "Nook", icon: "sparkles", count: 0, isActive: uiState.activeTab == .nook) {
                     selectTab(.nook)
                 }
-                tabButton(title: "Tray", icon: "tray.full", isActive: uiState.activeTab == .tray) {
+                tabButton(title: "Tray", icon: "tray.full", count: uiState.trayItemCount, isActive: uiState.activeTab == .tray) {
                     selectTab(.tray)
                 }
             }
@@ -329,28 +391,39 @@ struct NotchView: View {
                 Image(systemName: "xmark")
                     .font(.system(size: 13))
                     .foregroundColor(.white.opacity(0.62))
-                    .frame(width: 24, height: 24)
+                    .frame(width: 28, height: 28)
             }
             .buttonStyle(NotchPressStyle())
             .hoverLift(cornerRadius: 8)
+            .accessibilityIdentifier("notch.close")
             .help("Close  Esc")
         }
-        .frame(height: 26)
+        .frame(height: 30)
     }
 
-    private func tabButton(title: String, icon: String, isActive: Bool, action: @escaping () -> Void) -> some View {
+    private func tabButton(title: String, icon: String, count: Int, isActive: Bool, action: @escaping () -> Void) -> some View {
         Button(action: action) {
-            Label(title, systemImage: icon)
-                .font(.system(size: 10.5, weight: .semibold))
+            HStack(spacing: 5) {
+                Label(title, systemImage: icon)
+                if count > 0 {
+                    Text("\(count)")
+                        .font(.system(size: 9, weight: .bold, design: .rounded))
+                        .padding(.horizontal, 5)
+                        .frame(minHeight: 17)
+                        .background(Capsule().fill(Color.white.opacity(isActive ? 0.18 : 0.10)))
+                }
+            }
+                .font(.system(size: 11, weight: .semibold))
                 .foregroundColor(isActive ? .white : .white.opacity(0.72))
-                .padding(.horizontal, 9)
-                .frame(height: 24)
+                .padding(.horizontal, 10)
+                .frame(height: 28)
                 .background(
                     Capsule().fill(isActive ? Color.white.opacity(0.13) : Color.clear)
                 )
         }
         .buttonStyle(NotchPressStyle())
         .hoverLift(cornerRadius: 14)
+        .accessibilityIdentifier("notch.tab.\(title.lowercased())")
         .help(isActive ? "Current tab" : "Show \(title)")
     }
 
@@ -366,7 +439,7 @@ struct NotchView: View {
                     case .media:
                         MediaCell(media: media)
                     case .today:
-                        TodayCell()
+                        TodayCell(focusEndsAt: $uiState.focusEndsAt)
                     case .system:
                         SystemCell()
                     }
@@ -386,36 +459,66 @@ struct NotchView: View {
     @ViewBuilder
     private func overlayCell(_ overlay: IslandOverlay) -> some View {
         switch overlay {
-        case .approval(let toolName, let summary, let extraCount):
-            ApprovalOverlayView(
-                toolName: toolName,
-                summary: summary,
-                extraCount: extraCount,
-                onAllowOnce: {
-                    if let id = permissions.queue.first?.id {
-                        permissions.resolve(id, behavior: "allow")
+        case .approval(let agent, let toolName, let summary, let extraCount):
+            if toolName == "ExitPlanMode" {
+                PlanApprovalOverlayView(
+                    agent: agent,
+                    onAllowOnce: {
+                        if let id = permissions.queue.first?.id {
+                            permissions.resolve(id, behavior: "allow")
+                        }
+                    },
+                    onDeny: {
+                        if let id = permissions.queue.first?.id {
+                            permissions.resolve(id, behavior: "deny")
+                        }
+                    },
+                    onCompactOutcome: { allowed in
+                        controller.showApprovalOutcome(allowed: allowed)
+                    },
+                    onFinishOutcome: {
+                        controller.finishApprovalOutcome(hasPendingApproval: !permissions.queue.isEmpty)
                     }
-                },
-                onDeny: {
-                    if let id = permissions.queue.first?.id {
-                        permissions.resolve(id, behavior: "deny")
+                )
+            } else {
+                ApprovalOverlayView(
+                    agent: agent,
+                    toolName: toolName,
+                    summary: summary,
+                    extraCount: extraCount,
+                    onAllowOnce: {
+                        if let id = permissions.queue.first?.id {
+                            permissions.resolve(id, behavior: "allow")
+                        }
+                    },
+                    onDeny: {
+                        if let id = permissions.queue.first?.id {
+                            permissions.resolve(id, behavior: "deny")
+                        }
+                    },
+                    onCompactOutcome: { allowed in
+                        controller.showApprovalOutcome(allowed: allowed)
+                    },
+                    onFinishOutcome: {
+                        controller.finishApprovalOutcome(hasPendingApproval: !permissions.queue.isEmpty)
                     }
-                },
-                onCompactOutcome: { allowed in
-                    controller.showApprovalOutcome(allowed: allowed)
-                },
-                onFinishOutcome: {
-                    controller.finishApprovalOutcome(hasPendingApproval: !permissions.queue.isEmpty)
-                }
-            )
+                )
+            }
         case .plan:
-            PlanReviewView { uiState.overlay = nil }
+            if let request = plans.queue.first {
+                PlanReviewView(request: request) { decision, comment in
+                    plans.resolve(request.id, decision: decision, comment: comment)
+                    controller.finishPlanResponse()
+                }
+                .id(request.id)
+            }
         case .question:
             if let request = questions.queue.first {
                 AgentQuestionView(request: request) { answer in
                     questions.resolve(request.id, answer: answer)
                     controller.finishQuestionResponse()
                 }
+                .id(request.id)
             }
         }
     }
@@ -427,10 +530,10 @@ struct NotchView: View {
                     selectView(view)
                 } label: {
                     Label(view.title, systemImage: viewIcon(view))
-                        .font(.system(size: 7.5, weight: .medium))
+                        .font(.system(size: 10, weight: .medium))
                         .foregroundColor(uiState.activeView == view ? .white : .white.opacity(0.48))
-                        .padding(.horizontal, 7)
-                        .frame(height: 18)
+                        .padding(.horizontal, 8)
+                        .frame(height: 28)
                         .background(
                             Capsule().fill(uiState.activeView == view ? Color.white.opacity(0.11) : Color.clear)
                         )
@@ -438,21 +541,24 @@ struct NotchView: View {
                 .buttonStyle(NotchPressStyle(pressedScale: 0.9))
                 .hoverLift(cornerRadius: 9, strength: 0.08)
                 .accessibilityLabel(view.title)
-                .help(uiState.activeView == view ? "Show or hide details" : "Show \(view.title)")
+                .accessibilityIdentifier("notch.view.\(view.title.lowercased())")
+                .help(uiState.activeView == view ? "Current view" : "Show \(view.title)")
             }
             Spacer(minLength: 2)
             Button { controller.toggleDetailExpansion() } label: {
-                Image(systemName: uiState.isDetailExpanded ? "chevron.up" : "chevron.down")
-                    .font(.system(size: 8, weight: .semibold))
-                    .foregroundColor(.white.opacity(0.48))
-                    .frame(width: 22, height: 18)
+                Label("Details", systemImage: uiState.isDetailExpanded ? "chevron.up" : "chevron.down")
+                    .font(.system(size: 9.5, weight: .medium))
+                    .foregroundColor(.white.opacity(0.60))
+                    .padding(.horizontal, 9)
+                    .frame(height: 28)
                     .background(Capsule().fill(Color.white.opacity(0.055)))
             }
             .buttonStyle(NotchPressStyle(pressedScale: 0.9))
             .hoverLift(cornerRadius: 9)
+            .accessibilityIdentifier("notch.details")
             .help(uiState.isDetailExpanded ? "Collapse details" : "Expand details")
         }
-        .frame(height: 20)
+        .frame(height: 30)
     }
 
     private func viewIcon(_ view: NookView) -> String {
@@ -471,7 +577,7 @@ struct NotchView: View {
             DetailStrip(items: [
                 ("Repository", selectedSession.map { URL(fileURLWithPath: $0.cwd).lastPathComponent } ?? "—"),
                 ("Activity", selectedSession?.lastMessage ?? "No active session"),
-                ("Usage", "5h 11% · 7d 2%")
+                ("Usage", selectedSession.flatMap { usageStore.snapshots[$0.agent]?.compactLabel } ?? "Unavailable")
             ])
         case .media:
             DetailStrip(items: [("Sources", "System Now Playing"), ("Control", "Current media session"), ("Privacy", "Local only")])
@@ -482,52 +588,139 @@ struct NotchView: View {
         }
     }
 
-    private var trayPlaceholder: some View {
-        TrayCell(items: $trayItems, isTargeted: isDropTargeted, feedback: trayFeedback) { action in
+    private var trayContent: some View {
+        TrayCell(
+            items: $trayItems,
+            selectedItemID: $selectedTrayItemID,
+            isTargeted: isDropTargeted,
+            feedback: trayFeedback,
+            canUndo: !pendingTrayUndo.isEmpty
+        ) { action in
+            let selectedItems = selectedTrayItemID.flatMap { id in trayItems.first(where: { $0.id == id }) }.map { [$0] } ?? trayItems
+            let selectedURLs = selectedItems.map(\.url)
             switch action {
+            case .choose:
+                chooseTrayFiles()
+            case .open:
+                selectedURLs.forEach { NSWorkspace.shared.open($0) }
+                trayFeedback = selectedURLs.isEmpty ? "Select a file" : "Opened"
+            case .reveal:
+                guard !selectedURLs.isEmpty else {
+                    trayFeedback = "Select a file"
+                    return
+                }
+                NSWorkspace.shared.activateFileViewerSelecting(selectedURLs)
+                trayFeedback = "Shown in Finder"
             case .clear:
+                let clearedCount = trayItems.count
+                pendingTrayUndo = trayItems
                 trayItems.removeAll()
-                trayFeedback = nil
+                selectedTrayItemID = nil
+                syncTrayState()
+                controller.releaseTrayHold()
+                trayFeedback = "Cleared \(clearedCount) item\(clearedCount == 1 ? "" : "s")"
+                scheduleTrayUndoExpiry()
+            case .removeSelected:
+                guard let selectedTrayItemID,
+                      let index = trayItems.firstIndex(where: { $0.id == selectedTrayItemID }) else {
+                    trayFeedback = "Select a file"
+                    return
+                }
+                pendingTrayUndo = [trayItems.remove(at: index)]
+                self.selectedTrayItemID = trayItems.indices.contains(index) ? trayItems[index].id : trayItems.last?.id
+                syncTrayState()
+                trayFeedback = "Removed from Tray"
+                scheduleTrayUndoExpiry()
+            case .removeItem(let itemID):
+                guard let index = trayItems.firstIndex(where: { $0.id == itemID }) else {
+                    trayFeedback = "Select a file"
+                    return
+                }
+                pendingTrayUndo = [trayItems.remove(at: index)]
+                if selectedTrayItemID == itemID {
+                    selectedTrayItemID = trayItems.indices.contains(index) ? trayItems[index].id : trayItems.last?.id
+                }
+                syncTrayState()
+                trayFeedback = "Removed from Tray"
+                scheduleTrayUndoExpiry()
+            case .undo:
+                guard !pendingTrayUndo.isEmpty else { return }
+                let restored = pendingTrayUndo
+                pendingTrayUndo.removeAll()
+                trayUndoTask?.cancel()
+                for item in restored where !trayItems.contains(where: { $0.url.standardizedFileURL == item.url.standardizedFileURL }) {
+                    trayItems.append(item)
+                }
+                selectedTrayItemID = restored.last?.id
+                syncTrayState()
+                controller.keepTrayOpen()
+                trayFeedback = "Restored"
             case .copyPath:
                 NSPasteboard.general.clearContents()
-                NSPasteboard.general.setString(trayItems.map(\.url.path).joined(separator: "\n"), forType: .string)
+                NSPasteboard.general.setString(selectedURLs.map(\.path).joined(separator: "\n"), forType: .string)
                 trayFeedback = "Paths copied"
             case .airDrop:
-                let urls = trayItems.map(\.url)
-                if let service = NSSharingService(named: .sendViaAirDrop), service.canPerform(withItems: urls) {
-                    service.perform(withItems: urls)
+                if let service = NSSharingService(named: .sendViaAirDrop), service.canPerform(withItems: selectedURLs) {
+                    service.perform(withItems: selectedURLs)
                     trayFeedback = "AirDrop opened"
                 } else {
                     trayFeedback = "AirDrop unavailable"
                 }
             case .compress:
-                let urls = trayItems.map(\.url)
                 trayFeedback = "Compressing…"
                 Task {
-                    trayFeedback = await compressTrayItems(urls)
+                    trayFeedback = await compressTrayItems(selectedURLs)
                 }
             case .attach:
                 NSPasteboard.general.clearContents()
-                NSPasteboard.general.writeObjects(trayItems.map { $0.url as NSURL })
-                trayFeedback = "Copied for agent"
+                NSPasteboard.general.writeObjects(selectedURLs.map { $0 as NSURL })
+                trayFeedback = "Ready to paste into agent"
             }
         }
-        .onDrop(of: [UTType.fileURL], isTargeted: $isDropTargeted) { providers in
-            var accepted = false
-            for provider in providers where provider.hasItemConformingToTypeIdentifier(UTType.fileURL.identifier) {
-                accepted = true
-                provider.loadDataRepresentation(forTypeIdentifier: UTType.fileURL.identifier) { data, _ in
-                    guard let data,
-                          let string = String(data: data, encoding: .utf8),
-                          let url = URL(string: string) else { return }
-                    Task { @MainActor in
-                        guard !trayItems.contains(where: { $0.url == url }) else { return }
-                        trayItems.append(TrayItem(url: url))
-                        trayFeedback = "Saved temporarily"
-                    }
-                }
+    }
+
+    private func addTrayItems(_ urls: [URL]) {
+        trayUndoTask?.cancel()
+        pendingTrayUndo.removeAll()
+        for url in urls where !trayItems.contains(where: { $0.url.standardizedFileURL == url.standardizedFileURL }) {
+            trayItems.append(TrayItem(url: url))
+        }
+        selectedTrayItemID = trayItems.last?.id
+        isDropTargeted = false
+        trayFeedback = urls.isEmpty ? "Drop failed" : "Saved temporarily"
+        syncTrayState()
+        if !trayItems.isEmpty { controller.keepTrayOpen() }
+        SoundPlayer.shared.play(.action)
+    }
+
+    private func syncTrayState() {
+        uiState.trayHasItems = !trayItems.isEmpty
+        uiState.trayItemCount = trayItems.count
+        uiState.reopenTrayOnNextOpen = !trayItems.isEmpty
+    }
+
+    private func scheduleTrayUndoExpiry() {
+        trayUndoTask?.cancel()
+        trayUndoTask = Task { @MainActor in
+            try? await Task.sleep(nanoseconds: 5_000_000_000)
+            guard !Task.isCancelled else { return }
+            pendingTrayUndo.removeAll()
+            if trayFeedback?.hasPrefix("Cleared ") == true || trayFeedback == "Removed from Tray" {
+                trayFeedback = nil
             }
-            return accepted
+        }
+    }
+
+    private func chooseTrayFiles() {
+        let picker = NSOpenPanel()
+        picker.allowsMultipleSelection = true
+        picker.canChooseFiles = true
+        picker.canChooseDirectories = true
+        picker.prompt = "Add to Tray"
+        NSApp.activate(ignoringOtherApps: true)
+        picker.begin { response in
+            guard response == .OK else { return }
+            addTrayItems(picker.urls)
         }
     }
 
@@ -598,10 +791,7 @@ struct NotchView: View {
     }
 
     private func selectTab(_ tab: NotchTab) {
-        if uiState.activeTab == tab {
-            controller.toggleDetailExpansion()
-            return
-        }
+        guard uiState.activeTab != tab else { return }
         SoundPlayer.shared.play(.navigation)
         withAnimation(reduceMotion ? .easeOut(duration: 0.12) : DesignTokens.spring) {
             uiState.activeTab = tab
@@ -609,10 +799,7 @@ struct NotchView: View {
     }
 
     private func selectView(_ view: NookView) {
-        if uiState.activeView == view {
-            controller.toggleDetailExpansion()
-            return
-        }
+        guard uiState.activeView != view else { return }
         SoundPlayer.shared.play(.navigation)
         withAnimation(reduceMotion ? .easeOut(duration: 0.12) : DesignTokens.contentTransition) {
             uiState.activeView = view
@@ -778,7 +965,6 @@ private extension View {
 private struct AgentsCell: View {
     @ObservedObject var store: SessionStore
     @ObservedObject var uiState: NotchUIState
-    @State private var pausedSessionIDs: Set<String> = []
     @State private var actionFeedback: String?
 
     private var selected: AgentSession? {
@@ -796,24 +982,48 @@ private struct AgentsCell: View {
     var body: some View {
         cellShape
             .overlay(
-                VStack(alignment: .leading, spacing: 5) {
+                VStack(alignment: .leading, spacing: 6) {
                     if let selected {
                         heroRow(selected)
                         activityRow(selected)
                         Spacer(minLength: 0)
                         footerRow
                     } else {
-                        Spacer(minLength: 0)
-                        Text("No active sessions")
-                            .font(.system(size: 10))
-                            .foregroundColor(DesignTokens.muted)
-                            .frame(maxWidth: .infinity, alignment: .center)
-                        Spacer(minLength: 0)
+                        emptyState
                     }
                 }
-                .padding(.horizontal, 10)
-                .padding(.vertical, 9)
+                .padding(.horizontal, 11)
+                .padding(.vertical, 10)
             )
+    }
+
+    private var emptyState: some View {
+        VStack(spacing: 7) {
+            Label("Watching for agent activity", systemImage: "antenna.radiowaves.left.and.right")
+                .font(.system(size: 12, weight: .semibold))
+                .foregroundColor(.white.opacity(0.88))
+            Text("Claude Code, Codex and compatible CLIs appear here automatically.")
+                .font(.system(size: 10))
+                .foregroundColor(DesignTokens.muted)
+                .multilineTextAlignment(.center)
+                .lineLimit(2)
+            HStack(spacing: 6) {
+                agentChip("Claude Code", symbol: "sparkle")
+                agentChip("Codex", symbol: "chevron.left.forwardslash.chevron.right")
+                agentChip("Terminal", symbol: "terminal")
+            }
+        }
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
+        .accessibilityElement(children: .combine)
+    }
+
+    private func agentChip(_ title: String, symbol: String) -> some View {
+        Label(title, systemImage: symbol)
+            .font(.system(size: 9.5, weight: .medium))
+            .foregroundColor(.white.opacity(0.62))
+            .padding(.horizontal, 8)
+            .frame(height: 24)
+            .background(Capsule().fill(Color.white.opacity(0.055)))
     }
 
     private var cellShape: some View {
@@ -827,38 +1037,41 @@ private struct AgentsCell: View {
     }
 
     private func heroRow(_ session: AgentSession) -> some View {
-        HStack(spacing: 7) {
+        HStack(spacing: 9) {
             RoundedRectangle(cornerRadius: 9)
                 .fill(Color.white.opacity(0.09))
-                .frame(width: 28, height: 28)
+                .frame(width: 34, height: 34)
                 .overlay(
-                    glyphContent(session.agent, size: 9)
+                    glyphContent(session.agent, size: 11)
                         .foregroundColor(.white)
                 )
             VStack(alignment: .leading, spacing: 2) {
                 Text(session.title)
-                    .font(.system(size: 10, weight: .semibold))
+                    .font(.system(size: 11.5, weight: .semibold))
                     .foregroundColor(.white)
                     .lineLimit(1)
                     .truncationMode(.tail)
                 Text("\(session.agent.displayName) · \(cwdTail(session.cwd))")
-                    .font(.system(size: 8))
+                    .font(.system(size: 9))
                     .foregroundColor(DesignTokens.muted)
                     .lineLimit(1)
                     .truncationMode(.tail)
             }
             Spacer(minLength: 4)
-            VStack(alignment: .trailing, spacing: 2) {
+            VStack(alignment: .trailing, spacing: 3) {
                 Text(elapsedString(session))
-                    .font(.system(size: 8))
-                    .foregroundColor(.white.opacity(0.42))
-                Text("5h 11% · 7d 2%")
-                    .font(.system(size: 7, design: .monospaced))
-                    .foregroundColor(.white.opacity(0.34))
+                    .font(.system(size: 9, design: .rounded))
+                    .foregroundColor(.white.opacity(0.5))
+                HStack(spacing: 4) {
+                    Circle().fill(statusColor(session.state)).frame(width: 5, height: 5)
+                    Text(sessionStateLabel(session.state))
+                        .font(.system(size: 8.5, weight: .medium))
+                }
+                .foregroundColor(.white.opacity(0.66))
             }
         }
-        .padding(.horizontal, 6)
-        .padding(.vertical, 5)
+        .padding(.horizontal, 8)
+        .padding(.vertical, 6)
         .background(
             RoundedRectangle(cornerRadius: 10)
                 .fill(Color.white.opacity(0.065))
@@ -878,63 +1091,60 @@ private struct AgentsCell: View {
                 .fill(statusColor(session.state))
                 .frame(width: 6, height: 6)
             Text(session.lastMessage)
-                .font(.system(size: 8.5))
-                .foregroundColor(.white.opacity(0.58))
+                .font(.system(size: 10))
+                .foregroundColor(.white.opacity(0.68))
                 .lineLimit(1)
                 .truncationMode(.tail)
             Spacer(minLength: 0)
             if let actionFeedback {
                 Text(actionFeedback)
-                    .font(.system(size: 7))
+                    .font(.system(size: 8.5))
                     .foregroundColor(DesignTokens.muted)
                     .lineLimit(1)
             }
         }
-        .padding(.horizontal, 6)
-        .frame(height: 20)
+        .padding(.horizontal, 8)
+        .frame(height: 23)
     }
 
     private var footerRow: some View {
         HStack(spacing: 4) {
-            ForEach(others.prefix(2)) { session in
-                Button {
-                    SoundPlayer.shared.play(.navigation)
-                    withAnimation(DesignTokens.contentTransition) {
-                        uiState.selectedSessionId = session.id
+            if store.sessions.count > 1 {
+                Menu {
+                    ForEach(store.sessions) { session in
+                        Button {
+                            SoundPlayer.shared.play(.navigation)
+                            withAnimation(DesignTokens.contentTransition) {
+                                uiState.selectedSessionId = session.id
+                            }
+                        } label: {
+                            Label("\(session.agent.displayName) · \(session.title)", systemImage: session.id == selected?.id ? "checkmark" : "circle.fill")
+                        }
                     }
                 } label: {
-                    HStack(spacing: 4) {
-                        Circle().fill(statusColor(session.state)).frame(width: 5, height: 5)
-                        Text(session.agent.displayName)
-                            .font(.system(size: 7.5, weight: .medium))
-                            .lineLimit(1)
-                    }
-                    .foregroundColor(.white.opacity(0.62))
-                    .padding(.horizontal, 7)
-                    .frame(height: 24)
-                    .background(RoundedRectangle(cornerRadius: 8).fill(Color.white.opacity(0.055)))
+                    Label("Sessions \(store.sessions.count)", systemImage: "rectangle.stack")
+                        .font(.system(size: 10, weight: .medium))
+                        .padding(.horizontal, 9)
+                        .frame(height: 30)
+                        .background(RoundedRectangle(cornerRadius: 8).fill(Color.white.opacity(0.075)))
                 }
-                .buttonStyle(NotchPressStyle())
-                .hoverLift(cornerRadius: 8)
-                .help("Show \(session.title)")
+                .menuStyle(.borderlessButton)
+                .menuIndicator(.hidden)
+                .help("Switch coding-agent session")
             }
             Spacer(minLength: 4)
-            MiniButton(
-                title: selected.map { pausedSessionIDs.contains($0.id) ? "Resume" : "Pause" } ?? "Pause",
-                icon: selected.map { pausedSessionIDs.contains($0.id) ? "play.fill" : "pause.fill" } ?? "pause.fill",
-                helpText: "Pause or resume this agent"
-            ) {
-                guard let selected else { return }
-                if pausedSessionIDs.contains(selected.id) {
-                    pausedSessionIDs.remove(selected.id)
-                    actionFeedback = "Resume requested"
-                } else {
-                    pausedSessionIDs.insert(selected.id)
-                    actionFeedback = "Pause requested"
+            if let selected, selected.isManagedProcess {
+                MiniButton(
+                    title: selected.state == .idle ? "Resume" : "Pause",
+                    icon: selected.state == .idle ? "play.fill" : "pause.fill",
+                    helpText: selected.state == .idle ? "Resume the managed process" : "Pause the managed process"
+                ) {
+                    let action: ManagedSessionAction = selected.state == .idle ? .resume : .pause
+                    actionFeedback = store.controlManagedSession(id: selected.id, action: action) ? nil : "Could not control process"
                 }
-            }
-            MiniButton(title: "Stop", icon: "stop.fill", isDanger: true, helpText: "Stop this agent") {
-                actionFeedback = "Stop requested"
+                MiniButton(title: "Stop", icon: "stop.fill", isDanger: true, helpText: "Stop the managed process") {
+                    actionFeedback = store.controlManagedSession(id: selected.id, action: .stop) ? "Stopping…" : "Could not stop process"
+                }
             }
             MiniButton(title: "Terminal", icon: "terminal", helpText: "Return to Terminal") {
                 if let selected {
@@ -946,6 +1156,16 @@ private struct AgentsCell: View {
 
     private func cwdTail(_ cwd: String) -> String {
         URL(fileURLWithPath: cwd).lastPathComponent
+    }
+
+    private func sessionStateLabel(_ state: SessionState) -> String {
+        switch state {
+        case .running: return "Running"
+        case .waitingApproval: return "Needs attention"
+        case .done: return "Done"
+        case .idle: return "Paused"
+        case .failed: return "Failed"
+        }
     }
 }
 
@@ -971,10 +1191,10 @@ private struct MiniButton: View {
                     Text(shortcut).foregroundColor(textColor.opacity(0.55))
                 }
             }
-            .font(.system(size: 8.5, weight: isPrimary ? .semibold : .regular))
+            .font(.system(size: 10.5, weight: isPrimary ? .semibold : .regular))
             .foregroundColor(textColor)
             .padding(.horizontal, 8)
-            .frame(height: 24)
+            .frame(height: 30)
             .background(
                 RoundedRectangle(cornerRadius: 8)
                     .fill(backgroundColor)
@@ -1045,10 +1265,16 @@ private struct MediaCell: View {
                     MarqueeText(text: media.title, size: 12, weight: .semibold, speed: 24)
                         .frame(height: 16)
                         .help(media.title)
-                    Text("\(media.artist) · \(media.source)").font(.system(size: 9)).foregroundColor(DesignTokens.muted).lineLimit(1)
+                    Text(media.artist)
+                        .font(.system(size: 10))
+                        .foregroundColor(DesignTokens.muted)
+                        .lineLimit(1)
+                        .help(media.artist)
                     ProgressView(value: media.progress)
                         .progressViewStyle(.linear)
                         .tint(Color(nsColor: media.accentColor))
+                        .accessibilityLabel("Playback progress")
+                        .accessibilityValue(timeLabel)
                     HStack {
                         if media.hasMedia {
                             MediaControlButton(icon: "backward.fill", help: "Previous", action: media.previous)
@@ -1070,9 +1296,16 @@ private struct MediaCell: View {
                             .help("Check the current macOS media session")
                         }
                         Spacer()
-                        Text(media.isConnected ? media.source : "Unavailable")
-                            .font(.system(size: 7.5))
+                        Text(media.hasMedia ? timeLabel : (media.isConnected ? media.source : "Unavailable"))
+                            .font(.system(size: 9, design: .rounded))
                             .foregroundColor(DesignTokens.muted)
+                        if media.hasMedia {
+                            Text(media.source)
+                                .font(.system(size: 9))
+                                .foregroundColor(DesignTokens.muted)
+                                .lineLimit(1)
+                                .help(media.source)
+                        }
                     }
                     .font(.system(size: 11))
                 }
@@ -1081,6 +1314,15 @@ private struct MediaCell: View {
             .foregroundColor(.white)
             .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .center)
         }
+    }
+
+    private var timeLabel: String {
+        guard media.hasMedia, media.duration > 1 else { return "Position unavailable" }
+        func format(_ seconds: Double) -> String {
+            let value = max(Int(seconds.rounded()), 0)
+            return String(format: "%d:%02d", value / 60, value % 60)
+        }
+        return "\(format(media.position)) / \(format(media.duration))"
     }
 }
 
@@ -1182,7 +1424,7 @@ private struct MediaControlButton: View {
             action()
         } label: {
             Image(systemName: icon)
-                .frame(width: prominent ? 26 : 20, height: 22)
+                .frame(width: prominent ? 32 : 28, height: 30)
                 .background(Circle().fill(Color.white.opacity(prominent ? 0.11 : 0)))
         }
         .buttonStyle(NotchPressStyle())
@@ -1193,64 +1435,109 @@ private struct MediaControlButton: View {
 
 private struct TodayCell: View {
     @StateObject private var model = TodayModel()
-    @State private var focusRunning = false
+    @Binding var focusEndsAt: Date?
 
     var body: some View {
         CellSurface {
-            HStack(spacing: 14) {
-                VStack(spacing: 1) {
-                    Text(Date.now.formatted(.dateTime.day())).font(.system(size: 34, weight: .light, design: .rounded))
-                    Text(Date.now.formatted(.dateTime.month(.abbreviated).weekday(.abbreviated)).uppercased())
-                        .font(.system(size: 8, weight: .semibold)).tracking(0.7).foregroundColor(DesignTokens.muted)
+            TimelineView(.periodic(from: .now, by: 1)) { context in
+                let remaining = focusEndsAt.map { max(Int($0.timeIntervalSince(context.date)), 0) }
+                if model.canReadCalendar {
+                    calendarContent(remaining: remaining)
+                } else {
+                    calendarPermissionContent(remaining: remaining)
                 }
-                .frame(width: 76)
-                Divider().overlay(DesignTokens.line)
-                VStack(alignment: .leading, spacing: 8) {
-                    if model.canReadCalendar {
-                        if model.events.isEmpty {
-                            Label("No more events today", systemImage: "calendar.badge.checkmark")
-                                .font(.system(size: 9, weight: .medium))
-                                .foregroundColor(.white.opacity(0.72))
-                        } else {
-                            ForEach(model.events.prefix(2)) { event in
-                                ScheduleRow(
-                                    time: event.startDate.formatted(date: .omitted, time: .shortened),
-                                    title: event.title,
-                                    detail: event.calendar
-                                )
-                            }
-                        }
-                    } else {
-                        Button {
-                            SoundPlayer.shared.play(.action)
-                            model.requestAccess()
-                        } label: {
-                            Label("Enable Calendar", systemImage: "calendar.badge.plus")
-                                .font(.system(size: 9, weight: .medium))
-                                .padding(.horizontal, 9)
-                                .frame(height: 24)
-                                .background(RoundedRectangle(cornerRadius: 8).fill(Color.white.opacity(0.09)))
-                        }
-                        .buttonStyle(NotchPressStyle())
-                        .hoverLift(cornerRadius: 8)
-                        .help("Allow access to today's events")
-                    }
-                    Spacer(minLength: 0)
-                    Button {
-                        SoundPlayer.shared.play(.action)
-                        focusRunning.toggle()
-                    } label: {
-                        Label(focusRunning ? "End Focus · 21:42" : "Start Focus", systemImage: focusRunning ? "timer" : "moon.fill")
-                            .font(.system(size: 9, weight: .medium)).frame(height: 24).padding(.horizontal, 9)
-                            .background(RoundedRectangle(cornerRadius: 8).fill(Color.white.opacity(0.09)))
-                    }
-                    .buttonStyle(NotchPressStyle())
-                    .hoverLift(cornerRadius: 8)
-                    .help(focusRunning ? "End Focus" : "Start Focus")
-                }
-            }.foregroundColor(.white)
+            }
+            .foregroundColor(.white)
         }
         .onAppear { model.refresh() }
+    }
+
+    private func calendarContent(remaining: Int?) -> some View {
+        HStack(spacing: 14) {
+            VStack(spacing: 1) {
+                Text(Date.now.formatted(.dateTime.day()))
+                    .font(.system(size: 34, weight: .light, design: .rounded))
+                Text(Date.now.formatted(.dateTime.month(.abbreviated).weekday(.abbreviated)).uppercased())
+                    .font(.system(size: 9.5, weight: .semibold))
+                    .tracking(0.5)
+                    .foregroundColor(DesignTokens.muted)
+            }
+            .frame(width: 76)
+            Divider().overlay(DesignTokens.line)
+            VStack(alignment: .leading, spacing: 7) {
+                if model.events.isEmpty {
+                    Label("No more events today", systemImage: "calendar.badge.checkmark")
+                        .font(.system(size: 10.5, weight: .medium))
+                        .foregroundColor(.white.opacity(0.72))
+                } else {
+                    ForEach(model.events.prefix(2)) { event in
+                        ScheduleRow(
+                            time: event.startDate.formatted(date: .omitted, time: .shortened),
+                            title: event.title,
+                            detail: event.calendar
+                        )
+                    }
+                }
+                Spacer(minLength: 0)
+                focusButton(remaining: remaining, prominent: false)
+            }
+        }
+    }
+
+    private func calendarPermissionContent(remaining: Int?) -> some View {
+        VStack(spacing: 8) {
+            Label(remaining == nil || remaining == 0 ? "Focus for 25 minutes" : "Focus is active", systemImage: remaining == nil || remaining == 0 ? "moon.stars.fill" : "timer")
+                .font(.system(size: 12, weight: .semibold))
+            Text(remaining == nil || remaining == 0 ? "A local timer keeps the current task in view." : "The timer continues when you switch views or close the Nook.")
+                .font(.system(size: 10))
+                .foregroundColor(DesignTokens.muted)
+                .multilineTextAlignment(.center)
+            focusButton(remaining: remaining, prominent: true)
+            Button {
+                SoundPlayer.shared.play(.action)
+                model.requestAccess()
+            } label: {
+                Label("Show today's Calendar events", systemImage: "calendar.badge.plus")
+                    .font(.system(size: 10, weight: .medium))
+                    .padding(.horizontal, 10)
+                    .frame(height: 28)
+                    .background(RoundedRectangle(cornerRadius: 8).fill(Color.white.opacity(0.06)))
+            }
+            .buttonStyle(NotchPressStyle())
+            .hoverLift(cornerRadius: 8)
+            .accessibilityIdentifier("today.enable-calendar")
+            .help("Allow access to today's events")
+            if let error = model.errorMessage {
+                Text(error)
+                    .font(.system(size: 9.5))
+                    .foregroundColor(DesignTokens.red)
+                    .lineLimit(1)
+                    .help(error)
+            }
+        }
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
+    }
+
+    private func focusButton(remaining: Int?, prominent: Bool) -> some View {
+        Button {
+            SoundPlayer.shared.play(.action)
+            focusEndsAt = remaining == nil || remaining == 0 ? Date().addingTimeInterval(25 * 60) : nil
+        } label: {
+            Label(focusLabel(remaining), systemImage: remaining == nil || remaining == 0 ? "moon.fill" : "stop.fill")
+                .font(.system(size: 10.5, weight: .semibold))
+                .padding(.horizontal, 12)
+                .frame(height: prominent ? 32 : 30)
+                .background(RoundedRectangle(cornerRadius: 9).fill(Color.white.opacity(prominent ? 0.14 : 0.09)))
+        }
+        .buttonStyle(NotchPressStyle())
+        .hoverLift(cornerRadius: 9)
+        .accessibilityIdentifier("today.focus")
+        .help(remaining == nil || remaining == 0 ? "Start a 25 minute local focus timer" : "End Focus")
+    }
+
+    private func focusLabel(_ remaining: Int?) -> String {
+        guard let remaining, remaining > 0 else { return "Start Focus" }
+        return String(format: "End Focus · %02d:%02d", remaining / 60, remaining % 60)
     }
 }
 
@@ -1260,10 +1547,10 @@ private struct ScheduleRow: View {
     let detail: String
     var body: some View {
         HStack(alignment: .top, spacing: 8) {
-            Text(time).font(.system(size: 8, design: .monospaced)).foregroundColor(DesignTokens.muted).frame(width: 34, alignment: .leading)
+            Text(time).font(.system(size: 9.5, design: .monospaced)).foregroundColor(DesignTokens.muted).frame(width: 38, alignment: .leading)
             VStack(alignment: .leading, spacing: 1) {
-                Text(title).font(.system(size: 10, weight: .semibold)).lineLimit(1)
-                Text(detail).font(.system(size: 8)).foregroundColor(DesignTokens.muted).lineLimit(1)
+                Text(title).font(.system(size: 10.5, weight: .semibold)).lineLimit(1)
+                Text(detail).font(.system(size: 9.5)).foregroundColor(DesignTokens.muted).lineLimit(1)
             }
         }
     }
@@ -1271,26 +1558,106 @@ private struct ScheduleRow: View {
 
 private struct SystemCell: View {
     @StateObject private var monitor = SystemMonitor()
+    @StateObject private var background = BackgroundActivityMonitor()
 
     var body: some View {
         CellSurface {
             VStack(spacing: 5) {
-                HStack(spacing: 6) {
-                    SystemMetric(
-                        icon: monitor.isCharging ? "battery.100percent.bolt" : "battery.75percent",
-                        title: "Battery",
-                        value: monitor.batteryLevel.map { "\($0)%" } ?? "Desktop",
-                        detail: monitor.isCharging ? "Power adapter" : "Battery"
-                    )
-                    SystemMetric(icon: "memorychip", title: "Memory", value: monitor.memoryUsed, detail: monitor.memoryDetail)
-                    SystemMetric(icon: "externaldrive", title: "Storage", value: monitor.storageAvailable, detail: monitor.storageDetail)
-                }
-                HStack(spacing: 6) {
-                    SystemStatus(icon: "clock.arrow.circlepath", title: "Uptime", value: monitor.uptime)
-                    SystemStatus(icon: "desktopcomputer", title: "Host", value: Host.current().localizedName ?? "Mac")
+                if let activity = background.activities.first {
+                    VStack(alignment: .leading, spacing: 8) {
+                        HStack(spacing: 10) {
+                            Image(systemName: activity.symbol)
+                                .font(.system(size: 20, weight: .medium))
+                                .foregroundColor(.white.opacity(0.82))
+                                .frame(width: 34, height: 34)
+                                .background(RoundedRectangle(cornerRadius: 9).fill(Color.white.opacity(0.07)))
+                            VStack(alignment: .leading, spacing: 3) {
+                                Text(activity.title).font(.system(size: 12, weight: .semibold))
+                                Text(activity.detail).font(.system(size: 10)).foregroundColor(DesignTokens.muted).lineLimit(1)
+                            }
+                            Spacer()
+                            ProgressView().controlSize(.small).tint(.white.opacity(0.8))
+                        }
+                        HStack {
+                            Label("Running in background", systemImage: "clock.arrow.circlepath")
+                                .font(.system(size: 9.5, weight: .medium))
+                                .foregroundColor(.white.opacity(0.58))
+                            if background.activities.count > 1 {
+                                Text("+\(background.activities.count - 1) more")
+                                    .font(.system(size: 9.5, weight: .medium))
+                                    .foregroundColor(DesignTokens.muted)
+                            }
+                            Spacer()
+                            activityMonitorButton
+                        }
+                    }
+                    .padding(.horizontal, 12)
+                    .padding(.vertical, 10)
+                    .frame(maxWidth: .infinity, maxHeight: .infinity)
+                    .background(RoundedRectangle(cornerRadius: 11).fill(Color.white.opacity(0.055)))
+                    .help(activity.detail)
+                } else {
+                    HStack(spacing: 6) {
+                        SystemActionCard(
+                            icon: monitor.isCharging ? "battery.100percent.bolt" : "battery.75percent",
+                            title: monitor.batteryLevel == nil ? "Power" : "Battery",
+                            value: monitor.batteryLevel.map { "\($0)%" } ?? "AC power",
+                            detail: monitor.batteryLevel == nil ? "No battery detected" : batteryDetail
+                        ) { openSystemSettings("x-apple.systempreferences:com.apple.Battery-Settings.extension") }
+                        SystemActionCard(icon: "memorychip", title: "Memory", value: monitor.memoryUsed, detail: monitor.memoryDetail) {
+                            NSWorkspace.shared.open(URL(fileURLWithPath: "/System/Applications/Utilities/Activity Monitor.app"))
+                        }
+                        SystemActionCard(icon: "externaldrive", title: "Free storage", value: monitor.storageAvailable, detail: monitor.storageDetail) {
+                            openSystemSettings("x-apple.systempreferences:com.apple.settings.Storage")
+                        }
+                    }
+                    HStack(spacing: 7) {
+                        Image(systemName: "checkmark.circle")
+                            .font(.system(size: 11, weight: .medium))
+                            .foregroundColor(.white.opacity(0.55))
+                        VStack(alignment: .leading, spacing: 1) {
+                            Text("No active background work")
+                                .font(.system(size: 10.5, weight: .medium))
+                            Text("Builds, Git transfers and downloads appear here")
+                                .font(.system(size: 9.5))
+                                .foregroundColor(DesignTokens.muted)
+                        }
+                        Spacer()
+                        activityMonitorButton
+                    }
+                    .padding(.horizontal, 8)
+                    .frame(height: 36)
+                    .background(RoundedRectangle(cornerRadius: 9).fill(Color.white.opacity(0.045)))
                 }
             }.foregroundColor(.white)
         }
+    }
+
+    private var batteryDetail: String {
+        guard let remaining = monitor.timeRemainingLabel else {
+            return monitor.isCharging ? "Charging" : "Open settings"
+        }
+        return monitor.isCharging ? "Charging · \(remaining) remaining" : "\(remaining) remaining"
+    }
+
+    private var activityMonitorButton: some View {
+        Button {
+            NSWorkspace.shared.open(URL(fileURLWithPath: "/System/Applications/Utilities/Activity Monitor.app"))
+        } label: {
+            Label("Activity Monitor", systemImage: "gauge.with.dots.needle.50percent")
+                .font(.system(size: 9.5, weight: .medium))
+                .padding(.horizontal, 10)
+                .frame(height: 30)
+                .background(RoundedRectangle(cornerRadius: 8).fill(Color.white.opacity(0.075)))
+        }
+        .buttonStyle(NotchPressStyle())
+        .hoverLift(cornerRadius: 8)
+        .accessibilityIdentifier("system.activity-monitor")
+    }
+
+    private func openSystemSettings(_ rawURL: String) {
+        guard let url = URL(string: rawURL) else { return }
+        NSWorkspace.shared.open(url)
     }
 }
 
@@ -1309,20 +1676,33 @@ private struct SystemStatus: View {
     }
 }
 
-private struct SystemMetric: View {
+private struct SystemActionCard: View {
     let icon: String, title: String, value: String, detail: String
+    let action: () -> Void
     var body: some View {
-        HStack(spacing: 5) {
-            Image(systemName: icon).font(.system(size: 9.5)).foregroundColor(.white.opacity(0.72))
-            VStack(alignment: .leading, spacing: 1) {
-                Text(title).font(.system(size: 6.5)).foregroundColor(DesignTokens.muted)
-                Text(value).font(.system(size: 8.5, weight: .semibold)).lineLimit(1)
+        Button {
+            SoundPlayer.shared.play(.action)
+            action()
+        } label: {
+            HStack(spacing: 7) {
+                Image(systemName: icon).font(.system(size: 12)).foregroundColor(.white.opacity(0.76))
+                VStack(alignment: .leading, spacing: 2) {
+                    Text(title).font(.system(size: 9.5)).foregroundColor(DesignTokens.muted)
+                    Text(value).font(.system(size: 11, weight: .semibold)).lineLimit(1)
+                    Text(detail).font(.system(size: 9)).foregroundColor(.white.opacity(0.46)).lineLimit(1)
+                }
+                Spacer(minLength: 0)
+                Image(systemName: "chevron.right")
+                    .font(.system(size: 8, weight: .semibold))
+                    .foregroundColor(.white.opacity(0.24))
             }
-            Spacer(minLength: 0)
+            .padding(.horizontal, 9)
+            .frame(maxWidth: .infinity, minHeight: 48)
+            .background(RoundedRectangle(cornerRadius: 10).fill(Color.white.opacity(0.055)))
         }
-        .padding(.horizontal, 6)
-        .frame(height: 28)
-        .background(RoundedRectangle(cornerRadius: 8).fill(Color.white.opacity(0.055)))
+        .buttonStyle(NotchPressStyle())
+        .hoverLift(cornerRadius: 10)
+        .help("Open \(title) details")
     }
 }
 
@@ -1345,58 +1725,165 @@ private struct TrayItem: Identifiable {
     let url: URL
 }
 
-private enum TrayAction { case airDrop, compress, copyPath, attach, clear }
+private enum TrayAction { case choose, open, reveal, airDrop, compress, copyPath, attach, removeSelected, removeItem(UUID), clear, undo }
 
 private struct TrayCell: View {
     @Binding var items: [TrayItem]
+    @Binding var selectedItemID: UUID?
     let isTargeted: Bool
     let feedback: String?
+    let canUndo: Bool
     let action: (TrayAction) -> Void
 
     var body: some View {
         CellSurface {
             VStack(spacing: 8) {
-                if items.isEmpty {
-                    RoundedRectangle(cornerRadius: 11)
-                        .strokeBorder(Color.white.opacity(isTargeted ? 0.55 : 0.16), style: StrokeStyle(lineWidth: 1, dash: [4, 4]))
-                        .overlay(VStack(spacing: 4) { Image(systemName: "arrow.down.doc"); Text("Drop files into the notch").font(.system(size: 9, weight: .medium)); Text("Temporary shelf · nothing leaves this Mac").font(.system(size: 7)).foregroundColor(DesignTokens.muted) })
-                } else {
-                    HStack(spacing: 8) {
-                        ForEach(items.prefix(5)) { item in
-                            VStack(spacing: 4) {
+                trayShelf
+                HStack(spacing: 6) {
+                    Text(statusLabel)
+                        .font(.system(size: 10, weight: .medium))
+                        .foregroundColor(.white.opacity(0.68))
+                        .lineLimit(1)
+                        .truncationMode(.middle)
+                    if let feedback {
+                        Text(feedback)
+                            .font(.system(size: 9.5))
+                            .foregroundColor(DesignTokens.muted)
+                            .lineLimit(1)
+                    }
+                    if canUndo {
+                        Button("Undo") { action(.undo) }
+                            .buttonStyle(.plain)
+                            .font(.system(size: 10, weight: .semibold))
+                            .foregroundColor(.white.opacity(0.86))
+                            .accessibilityIdentifier("tray.undo")
+                    }
+                    Spacer(minLength: 4)
+                    if items.isEmpty {
+                        TrayButton("Choose Files", "plus", action: { action(.choose) })
+                    } else {
+                        TrayButton("Open", "arrow.up.forward.app", action: { action(.open) })
+                        TrayButton("Finder", "folder", action: { action(.reveal) })
+                        TrayButton("AirDrop", "airplayaudio", action: { action(.airDrop) })
+                        TrayButton("Copy for Agent", "paperclip", action: { action(.attach) })
+                        Menu {
+                            Button("Compress", systemImage: "archivebox") { action(.compress) }
+                            Button("Copy Path", systemImage: "doc.on.doc") { action(.copyPath) }
+                            Divider()
+                            Button("Remove Selected", systemImage: "minus.circle", role: .destructive) { action(.removeSelected) }
+                            Button("Clear All", systemImage: "trash", role: .destructive) {
+                                SoundPlayer.shared.play(.deny)
+                                action(.clear)
+                            }
+                        } label: {
+                            Image(systemName: "ellipsis")
+                                .frame(width: 30, height: 30)
+                                .background(RoundedRectangle(cornerRadius: 8).fill(Color.white.opacity(0.08)))
+                        }
+                        .menuStyle(.borderlessButton)
+                        .menuIndicator(.hidden)
+                        .help("More file actions")
+                    }
+                }
+            }.foregroundColor(.white)
+        }
+    }
+
+    private var statusLabel: String {
+        guard !items.isEmpty else { return "Tray is empty" }
+        guard let selectedItemID,
+              let selected = items.first(where: { $0.id == selectedItemID }) else {
+            return "\(items.count) item\(items.count == 1 ? "" : "s")"
+        }
+        return "\(selected.url.lastPathComponent) · \(items.count) item\(items.count == 1 ? "" : "s")"
+    }
+
+    @ViewBuilder
+    private var trayShelf: some View {
+        if items.isEmpty {
+            Button {
+                action(.choose)
+            } label: {
+                RoundedRectangle(cornerRadius: 13)
+                    .strokeBorder(Color.white.opacity(isTargeted ? 0.58 : 0.18), style: StrokeStyle(lineWidth: 1.2, dash: [5, 5]))
+                    .background(RoundedRectangle(cornerRadius: 13).fill(Color.white.opacity(isTargeted ? 0.08 : 0.025)))
+                    .overlay(
+                        HStack(spacing: 11) {
+                            Image(systemName: "tray.and.arrow.down.fill")
+                                .font(.system(size: 21, weight: .medium))
+                            VStack(alignment: .leading, spacing: 3) {
+                                Text("Drop files here")
+                                    .font(.system(size: 12, weight: .semibold))
+                                Text("or click to choose from Finder")
+                                    .font(.system(size: 8.5))
+                                    .foregroundColor(DesignTokens.muted)
+                            }
+                        }
+                    )
+            }
+            .buttonStyle(NotchPressStyle())
+            .help("Add files to the temporary Tray")
+        } else {
+            ScrollView(.horizontal, showsIndicators: false) {
+                HStack(spacing: 8) {
+                    ForEach(items) { item in
+                        Button {
+                            selectedItemID = item.id
+                        } label: {
+                            VStack(spacing: 5) {
                                 Image(nsImage: NSWorkspace.shared.icon(forFile: item.url.path))
                                     .resizable()
                                     .scaledToFit()
-                                    .frame(width: 38, height: 38)
-                                    .padding(6)
-                                    .background(RoundedRectangle(cornerRadius: 9).fill(Color.white.opacity(0.08)))
-                                Text(item.url.lastPathComponent).font(.system(size: 7)).lineLimit(1).frame(width: 58).help(item.url.path)
+                                    .frame(width: 42, height: 42)
+                                Text(item.url.lastPathComponent)
+                                    .font(.system(size: 9.5, weight: .medium))
+                                    .lineLimit(1)
+                                    .truncationMode(.middle)
+                                    .frame(width: 68)
                             }
+                            .padding(.horizontal, 7)
+                            .padding(.vertical, 8)
+                            .background(
+                                RoundedRectangle(cornerRadius: 11)
+                                    .fill(Color.white.opacity(selectedItemID == item.id ? 0.14 : 0.055))
+                            )
+                            .overlay(
+                                RoundedRectangle(cornerRadius: 11)
+                                    .stroke(Color.white.opacity(selectedItemID == item.id ? 0.20 : 0.04), lineWidth: 1)
+                            )
                         }
-                        Spacer(minLength: 0)
+                        .buttonStyle(NotchPressStyle())
+                        .help(item.url.path)
+                        .simultaneousGesture(TapGesture(count: 2).onEnded { NSWorkspace.shared.open(item.url) })
+                        .onDrag {
+                            selectedItemID = item.id
+                            return NSItemProvider(contentsOf: item.url) ?? NSItemProvider()
+                        }
+                        .overlay(alignment: .topTrailing) {
+                            Button {
+                                action(.removeItem(item.id))
+                            } label: {
+                                Image(systemName: "xmark.circle.fill")
+                                    .font(.system(size: 13, weight: .medium))
+                                    .foregroundColor(.white.opacity(0.85))
+                                    .background(Circle().fill(Color.black.opacity(0.35)))
+                            }
+                            .buttonStyle(.plain)
+                            .offset(x: 4, y: -4)
+                            .help("Remove \(item.url.lastPathComponent) from Tray")
+                        }
                     }
-                }
-                HStack(spacing: 5) {
-                    TrayButton("AirDrop", "airplayaudio", action: { action(.airDrop) })
-                    TrayButton("Compress", "archivebox", action: { action(.compress) })
-                    TrayButton("Copy Path", "doc.on.doc", action: { action(.copyPath) })
-                    TrayButton("AI Attach", "paperclip", action: { action(.attach) })
-                    Spacer()
-                    if let feedback { Text(feedback).font(.system(size: 7)).foregroundColor(DesignTokens.muted) }
-                    Button {
-                        SoundPlayer.shared.play(.deny)
-                        action(.clear)
-                    } label: {
-                        Image(systemName: "trash")
-                            .frame(width: 24, height: 22)
-                            .background(RoundedRectangle(cornerRadius: 8).fill(Color.white.opacity(0.055)))
+                    Button { action(.choose) } label: {
+                        Image(systemName: "plus")
+                            .font(.system(size: 15, weight: .medium))
+                            .frame(width: 42, height: 64)
+                            .background(RoundedRectangle(cornerRadius: 11).fill(Color.white.opacity(0.04)))
                     }
                     .buttonStyle(NotchPressStyle())
-                    .hoverLift(cornerRadius: 8)
-                    .help("Clear Tray")
-                    .disabled(items.isEmpty)
+                    .help("Add more files")
                 }
-            }.foregroundColor(.white)
+                .padding(.horizontal, 2)
+            }
         }
     }
 }
@@ -1410,31 +1897,44 @@ private struct TrayButton: View {
             action()
         } label: {
             Label(title, systemImage: icon)
-                .font(.system(size: 7.5))
-                .padding(.horizontal, 8)
-                .frame(height: 24)
+                .font(.system(size: 10, weight: .medium))
+                .padding(.horizontal, 10)
+                .frame(height: 30)
                 .background(RoundedRectangle(cornerRadius: 8).fill(Color.white.opacity(0.08)))
         }
         .buttonStyle(NotchPressStyle())
         .hoverLift(cornerRadius: 8)
+        .accessibilityIdentifier("tray.action.\(title.lowercased().replacingOccurrences(of: " ", with: "-"))")
         .help(title)
     }
 }
 
 private struct PlanReviewView: View {
+    let request: PlanCenter.Request
     @State private var comment = ""
-    let dismiss: () -> Void
+    @FocusState private var commentFocused: Bool
+    let resolve: (String, String) -> Void
     var body: some View {
         CellSurface {
             VStack(alignment: .leading, spacing: 7) {
-                Label("Plan Review", systemImage: "list.bullet.clipboard").font(.system(size: 10, weight: .semibold))
-                Text("Refactor authentication middleware").font(.system(size: 11, weight: .semibold))
-                Text("1. Extract token validation  2. Add refresh path  3. Run auth tests").font(.system(size: 8)).foregroundColor(DesignTokens.muted).lineLimit(2)
-                TextField("Add a comment…", text: $comment).textFieldStyle(.plain).font(.system(size: 9)).padding(7).background(RoundedRectangle(cornerRadius: 7).fill(Color.white.opacity(0.07)))
+                Label("\(request.agent.displayName) · Plan Review", systemImage: "list.bullet.clipboard").font(.system(size: 11, weight: .semibold))
+                Text(request.title).font(.system(size: 12, weight: .semibold)).lineLimit(1).help(request.title)
+                Text(request.summary).font(.system(size: 10)).foregroundColor(DesignTokens.muted).lineLimit(2).help(request.summary)
+                TextField("Add a comment…", text: $comment)
+                    .textFieldStyle(.plain)
+                    .font(.system(size: 10.5))
+                    .padding(.horizontal, 9)
+                    .frame(height: 30)
+                    .background(RoundedRectangle(cornerRadius: 8).fill(Color.white.opacity(0.07)))
+                    .overlay(RoundedRectangle(cornerRadius: 8).stroke(commentFocused ? Color.white.opacity(0.24) : .clear, lineWidth: 1))
+                    .focused($commentFocused)
+                    .onExitCommand { commentFocused = false }
                 HStack {
-                    MiniButton(title: "Changes", icon: "arrow.uturn.backward", isDanger: true, helpText: "Request changes", action: dismiss)
-                    MiniButton(title: "Approve", icon: "checkmark", isPrimary: true, helpText: "Approve plan", action: dismiss)
-                    MiniButton(title: "Terminal", icon: "terminal", helpText: "Open the full plan in Terminal", action: dismiss)
+                    MiniButton(title: "Changes", icon: "arrow.uturn.backward", isDanger: true, helpText: "Request changes") { resolve("request_changes", comment) }
+                    MiniButton(title: "Approve", icon: "checkmark", isPrimary: true, helpText: "Approve plan") { resolve("approve", comment) }
+                    MiniButton(title: "Terminal", icon: "terminal", helpText: "Open the working directory in Terminal") {
+                        NSWorkspace.shared.open(URL(fileURLWithPath: request.cwd))
+                    }
                 }
             }.foregroundColor(.white)
         }
@@ -1447,6 +1947,7 @@ private struct AgentQuestionView: View {
     @State private var customAnswer = ""
     @State private var customMode: Bool
     @FocusState private var customFieldFocused: Bool
+    @State private var isInteractive = false
 
     init(request: QuestionCenter.Request, answer: @escaping (String) -> Void) {
         self.request = request
@@ -1456,17 +1957,17 @@ private struct AgentQuestionView: View {
 
     var body: some View {
         CellSurface {
-            VStack(alignment: .leading, spacing: 5) {
+            VStack(alignment: .leading, spacing: 7) {
                 HStack(spacing: 6) {
                     Label("\(request.agent.displayName) asks", systemImage: request.agent.symbolName)
-                        .font(.system(size: 9, weight: .semibold))
+                        .font(.system(size: 12, weight: .semibold))
                         .foregroundColor(request.agent == .codex ? .white.opacity(0.9) : DesignTokens.cyan)
                     Text(request.header)
-                        .font(.system(size: 7.5, weight: .medium))
+                        .font(.system(size: 9.5, weight: .medium))
                         .foregroundColor(DesignTokens.muted)
                         .lineLimit(1)
                         .padding(.horizontal, 6)
-                        .frame(height: 18)
+                        .frame(height: 20)
                         .background(Capsule().fill(Color.white.opacity(0.07)))
                     Spacer(minLength: 4)
                     if !request.options.isEmpty {
@@ -1477,16 +1978,17 @@ private struct AgentQuestionView: View {
                             customFieldFocused = customMode
                         }
                         .buttonStyle(NotchPressStyle())
-                        .font(.system(size: 8, weight: .medium))
+                        .font(.system(size: 9.5, weight: .medium))
                         .foregroundColor(.white.opacity(0.66))
                         .padding(.horizontal, 7)
-                        .frame(height: 20)
+                        .frame(height: 24)
                         .background(Capsule().fill(Color.white.opacity(0.07)))
                         .help(customMode ? "Show choices" : "Type another answer")
                     }
                 }
                 Text(request.prompt)
-                    .font(.system(size: 11.5, weight: .medium))
+                    .font(.system(size: 14, weight: .medium))
+                    .tracking(-0.1)
                     .lineLimit(2)
                     .fixedSize(horizontal: false, vertical: true)
                     .help(request.prompt)
@@ -1495,7 +1997,7 @@ private struct AgentQuestionView: View {
                         customAnswerView
                             .transition(.opacity.combined(with: .offset(y: 2)))
                     } else {
-                        VStack(spacing: 4) {
+                        VStack(spacing: 5) {
                             ForEach(Array(request.options.enumerated()), id: \.element.id) { index, option in
                                 QuestionChoiceButton(
                                     shortcut: "⌘\(index + 1)",
@@ -1503,6 +2005,7 @@ private struct AgentQuestionView: View {
                                     title: option.label,
                                     detail: option.detail
                                 ) { answer(option.label) }
+                                .disabled(!isInteractive)
                             }
                         }
                         .transition(.opacity.combined(with: .offset(y: 2)))
@@ -1510,28 +2013,46 @@ private struct AgentQuestionView: View {
                 }
             }.foregroundColor(.white)
         }
+        .onAppear {
+            isInteractive = false
+            Task { @MainActor in
+                try? await Task.sleep(nanoseconds: 150_000_000)
+                isInteractive = true
+            }
+        }
     }
 
     private var customAnswerView: some View {
-        VStack(spacing: 6) {
-            TextField("Type your answer…", text: $customAnswer)
-                .textFieldStyle(.plain)
-                .font(.system(size: 10))
-                .padding(.horizontal, 9)
-                .frame(height: 30)
-                .background(RoundedRectangle(cornerRadius: 9).fill(Color.white.opacity(0.075)))
-                .overlay(RoundedRectangle(cornerRadius: 9).stroke(customFieldFocused ? Color.white.opacity(0.24) : .clear, lineWidth: 1))
-                .focused($customFieldFocused)
-                .onSubmit { submitCustomAnswer() }
+        VStack(alignment: .leading, spacing: 8) {
+            ZStack(alignment: .topLeading) {
+                if customAnswer.isEmpty {
+                    Text("Type your answer…")
+                        .font(.system(size: 12))
+                        .foregroundColor(DesignTokens.muted)
+                        .padding(.horizontal, 12)
+                        .padding(.top, 10)
+                        .allowsHitTesting(false)
+                }
+                TextEditor(text: $customAnswer)
+                    .font(.system(size: 12))
+                    .scrollContentBackground(.hidden)
+                    .padding(.horizontal, 8)
+                    .padding(.vertical, 6)
+                    .frame(height: 74)
+                    .focused($customFieldFocused)
+                    .onExitCommand { customFieldFocused = false }
+            }
+            .background(RoundedRectangle(cornerRadius: 11).fill(Color.white.opacity(0.06)))
+            .overlay(RoundedRectangle(cornerRadius: 11).stroke(customFieldFocused ? Color.white.opacity(0.28) : Color.white.opacity(0.05), lineWidth: 1))
             Button { submitCustomAnswer() } label: {
                 Label("Send answer", systemImage: "arrow.up")
-                    .font(.system(size: 9, weight: .semibold))
-                    .frame(maxWidth: .infinity, minHeight: 26)
+                    .font(.system(size: 10.5, weight: .semibold))
+                    .frame(maxWidth: .infinity, minHeight: 32)
                     .background(RoundedRectangle(cornerRadius: 8).fill(Color.white.opacity(0.92)))
                     .foregroundColor(.black)
             }
             .buttonStyle(NotchPressStyle())
-            .disabled(customAnswer.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
+            .disabled(!isInteractive || customAnswer.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
         }
     }
 
@@ -1556,23 +2077,32 @@ private struct QuestionChoiceButton: View {
             SoundPlayer.shared.play(.approve)
             action()
         } label: {
-            HStack(spacing: 8) {
+            HStack(spacing: 9) {
                 Text(shortcut)
-                    .font(.system(size: 8, weight: .semibold, design: .rounded))
+                    .font(.system(size: 9, weight: .semibold, design: .rounded))
                     .foregroundColor(.white.opacity(0.62))
-                    .frame(width: 26, height: 18)
+                    .frame(width: 28, height: 20)
                     .background(RoundedRectangle(cornerRadius: 5).fill(Color.white.opacity(0.09)))
-                Text(title)
-                    .font(.system(size: 10, weight: .medium))
-                    .lineLimit(1)
-                    .truncationMode(.tail)
+                VStack(alignment: .leading, spacing: 1) {
+                    Text(title)
+                        .font(.system(size: 12, weight: .medium))
+                        .lineLimit(1)
+                        .truncationMode(.tail)
+                    if !detail.isEmpty {
+                        Text(detail)
+                            .font(.system(size: 10))
+                            .foregroundColor(DesignTokens.muted)
+                            .lineLimit(1)
+                            .truncationMode(.tail)
+                    }
+                }
                 Spacer()
                 Image(systemName: "chevron.right")
-                    .font(.system(size: 8, weight: .semibold))
+                    .font(.system(size: 9, weight: .semibold))
                     .foregroundColor(.white.opacity(hovering ? 0.65 : 0.25))
             }
-            .padding(.horizontal, 8)
-            .frame(height: 28)
+            .padding(.horizontal, 10)
+            .frame(minHeight: detail.isEmpty ? 32 : 42)
             .background(RoundedRectangle(cornerRadius: 9).fill(Color.white.opacity(hovering ? 0.12 : 0.065)))
         }
         .buttonStyle(NotchPressStyle())
@@ -1586,6 +2116,7 @@ private struct QuestionChoiceButton: View {
 // MARK: - Approval overlay (driven by PermissionCenter.queue)
 
 private struct ApprovalOverlayView: View {
+    let agent: AgentKind
     let toolName: String
     let summary: String
     var extraCount: Int = 0
@@ -1595,6 +2126,7 @@ private struct ApprovalOverlayView: View {
     var onFinishOutcome: () -> Void = {}
     @State private var decision: ApprovalDecision?
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    @State private var isInteractive = false
 
     var body: some View {
         CellSurface {
@@ -1602,30 +2134,31 @@ private struct ApprovalOverlayView: View {
                 if let decision {
                     VStack(spacing: 8) {
                         Image(systemName: decision == .allow ? "checkmark.circle.fill" : "xmark.circle.fill")
-                            .font(.system(size: 28, weight: .medium))
+                            .font(.system(size: 30, weight: .medium))
                             .foregroundColor(decision == .allow ? DesignTokens.green : DesignTokens.red)
                             .symbolEffect(.bounce, value: decision)
                         Text(decision == .allow ? "Allowed once" : "Denied")
-                            .font(.system(size: 13, weight: .semibold))
-                        Text(decision == .allow ? "Claude can continue this action" : "Claude will return to the task")
-                            .font(.system(size: 8.5))
+                            .font(.system(size: 14, weight: .semibold))
+                            .tracking(-0.1)
+                        Text(decision == .allow ? "\(agent.displayName) can continue this action" : "\(agent.displayName) will return to the task")
+                            .font(.system(size: 9.5))
                             .foregroundColor(DesignTokens.muted)
                     }
                     .frame(maxWidth: .infinity, maxHeight: .infinity)
                     .transition(.opacity.combined(with: .scale(scale: reduceMotion ? 1 : 0.97)))
                 } else {
-                    VStack(alignment: .leading, spacing: 7) {
+                    VStack(alignment: .leading, spacing: 8) {
                         HStack(spacing: 6) {
                             Image(systemName: "exclamationmark.triangle.fill")
-                                .font(.system(size: 9))
+                                .font(.system(size: 10))
                                 .foregroundColor(DesignTokens.orange)
-                            Text("Claude requests permission")
-                                .font(.system(size: 9, weight: .medium))
+                            Text("\(agent.displayName) requests permission")
+                                .font(.system(size: 12, weight: .medium))
                                 .foregroundColor(DesignTokens.muted)
                             Spacer()
                             if extraCount > 0 {
                                 Text("+\(extraCount)")
-                                    .font(.system(size: 8, weight: .semibold))
+                                .font(.system(size: 10.5, weight: .semibold))
                                     .padding(.horizontal, 6)
                                     .frame(height: 18)
                                     .background(Capsule().fill(Color.white.opacity(0.09)))
@@ -1634,31 +2167,41 @@ private struct ApprovalOverlayView: View {
                         HStack(spacing: 7) {
                             Image(systemName: toolSymbol)
                                 .foregroundColor(DesignTokens.orange)
-                                .frame(width: 16)
+                                .frame(width: 18)
                             Text(toolName)
-                                .font(.system(size: 12, weight: .semibold, design: .rounded))
+                                .font(.system(size: 14, weight: .semibold, design: .rounded))
+                                .tracking(-0.1)
                             Text(summary)
-                                .font(.system(size: 10, design: .monospaced))
+                                .font(.system(size: 11.5, design: .monospaced))
                                 .foregroundColor(.white.opacity(0.72))
                                 .lineLimit(1)
                                 .truncationMode(.middle)
                         }
                         Text(summary.isEmpty ? "Review this action before Claude continues." : summary)
-                            .font(.system(size: 8, design: .monospaced))
+                            .font(.system(size: 11, design: .monospaced))
                             .foregroundColor(.white.opacity(0.58))
-                            .padding(.horizontal, 8)
-                            .frame(maxWidth: .infinity, minHeight: 30, alignment: .leading)
+                            .padding(.horizontal, 9)
+                            .frame(maxWidth: .infinity, minHeight: 34, alignment: .leading)
                             .background(RoundedRectangle(cornerRadius: 8).fill(Color.black.opacity(0.28)))
                         Spacer(minLength: 2)
                         HStack(spacing: 8) {
                             ApprovalActionButton(title: "Deny", shortcut: "⌘N", icon: "xmark", role: .deny) { decide(.deny) }
+                                .disabled(!isInteractive)
                             ApprovalActionButton(title: "Allow once", shortcut: "⌘Y", icon: "checkmark", role: .allow) { decide(.allow) }
+                                .disabled(!isInteractive)
                         }
                     }
                     .transition(.opacity)
                 }
             }
             .animation(reduceMotion ? .easeOut(duration: 0.12) : DesignTokens.spring, value: decision)
+        }
+        .onAppear {
+            isInteractive = false
+            Task { @MainActor in
+                try? await Task.sleep(nanoseconds: 150_000_000)
+                isInteractive = true
+            }
         }
     }
 
@@ -1677,21 +2220,147 @@ private struct ApprovalOverlayView: View {
         withAnimation(reduceMotion ? .easeOut(duration: 0.12) : DesignTokens.spring) {
             decision = newDecision
         }
+        // Resolve immediately — Claude Code's blocking hook must never wait on animation timing.
+        if newDecision == .allow {
+            onAllowOnce()
+        } else {
+            onDeny()
+        }
         Task { @MainActor in
-            try? await Task.sleep(nanoseconds: reduceMotion ? 180_000_000 : 300_000_000)
+            try? await Task.sleep(nanoseconds: reduceMotion ? 250_000_000 : 550_000_000)
             onCompactOutcome(newDecision == .allow)
-            try? await Task.sleep(nanoseconds: 1_000_000_000)
-            if newDecision == .allow {
-                onAllowOnce()
-            } else {
-                onDeny()
-            }
+            try? await Task.sleep(nanoseconds: reduceMotion ? 900_000_000 : 1_800_000_000)
             onFinishOutcome()
         }
     }
 }
 
 private enum ApprovalDecision { case allow, deny }
+
+// MARK: - Plan approval overlay (ExitPlanMode)
+
+private struct PlanApprovalOverlayView: View {
+    let agent: AgentKind
+    var onAllowOnce: () -> Void = {}
+    var onDeny: () -> Void = {}
+    var onCompactOutcome: (Bool) -> Void = { _ in }
+    var onFinishOutcome: () -> Void = {}
+    @State private var decision: ApprovalDecision?
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    @State private var isInteractive = false
+
+    var body: some View {
+        CellSurface {
+            Group {
+                if let decision {
+                    VStack(spacing: 8) {
+                        Image(systemName: decision == .allow ? "checkmark.circle.fill" : "xmark.circle.fill")
+                            .font(.system(size: 30, weight: .medium))
+                            .foregroundColor(decision == .allow ? DesignTokens.green : DesignTokens.red)
+                            .symbolEffect(.bounce, value: decision)
+                        Text(decision == .allow ? "Plan approved" : "Kept planning")
+                            .font(.system(size: 14, weight: .semibold))
+                            .tracking(-0.1)
+                        Text(decision == .allow ? "\(agent.displayName) will start implementing" : "\(agent.displayName) will keep refining the plan")
+                            .font(.system(size: 9.5))
+                            .foregroundColor(DesignTokens.muted)
+                    }
+                    .frame(maxWidth: .infinity, maxHeight: .infinity)
+                    .transition(.opacity.combined(with: .scale(scale: reduceMotion ? 1 : 0.97)))
+                } else {
+                    VStack(alignment: .leading, spacing: 7) {
+                        HStack(spacing: 6) {
+                            Image(systemName: "list.bullet.clipboard.fill")
+                                .font(.system(size: 10))
+                                .foregroundColor(DesignTokens.orange)
+                            Text("\(agent.displayName) is ready with a plan")
+                                .font(.system(size: 12, weight: .medium))
+                                .foregroundColor(DesignTokens.muted)
+                            Spacer()
+                        }
+                        VStack(spacing: 5) {
+                            PlanChoiceButton(title: "Yes, auto mode", detail: "Approve and apply edits automatically", isPrimary: true) { decide(.allow) }
+                                .disabled(!isInteractive)
+                            PlanChoiceButton(title: "Yes, manually approve edits", detail: "Approve, confirm each edit yourself", isPrimary: true) { decide(.allow) }
+                                .disabled(!isInteractive)
+                            PlanChoiceButton(title: "No, keep planning", detail: "Send back for more revisions", isPrimary: false) { decide(.deny) }
+                                .disabled(!isInteractive)
+                        }
+                    }
+                    .transition(.opacity)
+                }
+            }
+            .animation(reduceMotion ? .easeOut(duration: 0.12) : DesignTokens.spring, value: decision)
+        }
+        .onAppear {
+            isInteractive = false
+            Task { @MainActor in
+                try? await Task.sleep(nanoseconds: 150_000_000)
+                isInteractive = true
+            }
+        }
+    }
+
+    private func decide(_ newDecision: ApprovalDecision) {
+        guard decision == nil else { return }
+        SoundPlayer.shared.play(newDecision == .allow ? .approve : .deny)
+        withAnimation(reduceMotion ? .easeOut(duration: 0.12) : DesignTokens.spring) {
+            decision = newDecision
+        }
+        // Resolve immediately — Claude Code's blocking hook must never wait on animation timing.
+        if newDecision == .allow {
+            onAllowOnce()
+        } else {
+            onDeny()
+        }
+        Task { @MainActor in
+            try? await Task.sleep(nanoseconds: reduceMotion ? 250_000_000 : 550_000_000)
+            onCompactOutcome(newDecision == .allow)
+            try? await Task.sleep(nanoseconds: reduceMotion ? 900_000_000 : 1_800_000_000)
+            onFinishOutcome()
+        }
+    }
+}
+
+private struct PlanChoiceButton: View {
+    let title: String
+    let detail: String
+    let isPrimary: Bool
+    let action: () -> Void
+    @State private var hovering = false
+
+    var body: some View {
+        Button(action: action) {
+            VStack(alignment: .leading, spacing: 1) {
+                Text(title)
+                    .font(.system(size: 12, weight: .semibold))
+                    .foregroundColor(foreground)
+                Text(detail)
+                    .font(.system(size: 9, weight: .regular))
+                    .foregroundColor(foreground.opacity(0.62))
+                    .lineLimit(1)
+                    .truncationMode(.tail)
+            }
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .padding(.horizontal, 12)
+            .frame(minHeight: 38, maxHeight: 38)
+            .background(RoundedRectangle(cornerRadius: 8).fill(background))
+            .overlay(
+                RoundedRectangle(cornerRadius: 8)
+                    .strokeBorder(Color.white.opacity(isPrimary ? 0 : 0.28), lineWidth: 1)
+            )
+        }
+        .buttonStyle(NotchPressStyle())
+        .onHover { hovering = $0 }
+        .animation(.easeOut(duration: 0.18), value: hovering)
+        .help(detail)
+    }
+
+    private var foreground: Color { isPrimary ? .black : .white.opacity(0.86) }
+    private var background: Color {
+        isPrimary ? Color.white.opacity(hovering ? 1 : 0.94) : Color.white.opacity(hovering ? 0.1 : 0.0)
+    }
+}
 
 private struct ApprovalActionButton: View {
     let title: String
@@ -1709,10 +2378,10 @@ private struct ApprovalActionButton: View {
                 Spacer()
                 Text(shortcut).foregroundColor(foreground.opacity(0.48))
             }
-            .font(.system(size: 10, weight: .medium))
+            .font(.system(size: 12, weight: .medium))
             .foregroundColor(foreground)
-            .padding(.horizontal, 11)
-            .frame(maxWidth: .infinity, minHeight: 30)
+            .padding(.horizontal, 13)
+            .frame(maxWidth: .infinity, minHeight: 36)
             .background(RoundedRectangle(cornerRadius: 9).fill(background))
         }
         .buttonStyle(NotchPressStyle())

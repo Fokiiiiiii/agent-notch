@@ -12,6 +12,8 @@ import Darwin
 // JSON is translated into a synthetic hook payload and sent fire-and-forget
 // (no response is awaited, no stdout is ever produced, always exit 0).
 
+signal(SIGPIPE, SIG_IGN)
+
 private func fail() -> Never {
     exit(0)
 }
@@ -110,6 +112,9 @@ AgentNotch CLI
   agent-notch show | hide | toggle
   agent-notch setup [--all]
   agent-notch run --agent AGENT [--id ID] [--title TEXT] -- COMMAND [ARG...]
+  agent-notch question --agent AGENT --prompt TEXT [--header TEXT] [--option TEXT ...]
+  agent-notch plan --agent AGENT --title TEXT --summary TEXT
+  agent-notch permission --agent AGENT --tool TOOL --summary TEXT
   agent-notch session <start|update|done|fail|attention|pause|remove>
       [--id ID] [--agent AGENT]
       [--title TEXT] [--message TEXT] [--cwd PATH]
@@ -118,6 +123,12 @@ AgentNotch CLI
 private func option(_ name: String, in arguments: [String]) -> String? {
     guard let index = arguments.firstIndex(of: name), arguments.indices.contains(index + 1) else { return nil }
     return arguments[index + 1]
+}
+
+private func repeatedOptions(_ name: String, in arguments: [String]) -> [String] {
+    arguments.indices.compactMap { index in
+        arguments[index] == name && arguments.indices.contains(index + 1) ? arguments[index + 1] : nil
+    }
 }
 
 private let supportedAgents = ["claude", "codex", "antigravity", "gemini", "copilot", "cursor", "opencode", "aider", "goose"]
@@ -159,12 +170,20 @@ private func runWrappedCommand(arguments: [String]) -> Never {
     let id = option("--id", in: options) ?? "\(agent)-\(UUID().uuidString.lowercased())"
     let title = option("--title", in: options) ?? command[0]
 
-    func event(_ action: String, message: String) -> [String: Any] {
-        [
+    func event(_ action: String, message: String, pid: Int32? = nil) -> [String: Any] {
+        var input: [String: Any] = [
+            "action": action,
+            "agent": agent,
+            "title": title,
+            "message": message,
+            "managed": true,
+        ]
+        if let pid { input["pid"] = Int(pid) }
+        return [
             "hook_event_name": "AgentNotchSession",
             "session_id": id,
             "cwd": cwd,
-            "tool_input": ["action": action, "agent": agent, "title": title, "message": message],
+            "tool_input": input,
         ]
     }
 
@@ -180,6 +199,7 @@ private func runWrappedCommand(arguments: [String]) -> Never {
     process.standardError = FileHandle.standardError
     do {
         try process.run()
+        _ = sendCLIEvent(event("update", message: "Running \(command[0])…", pid: process.processIdentifier))
     } catch {
         _ = sendCLIEvent(event("fail", message: error.localizedDescription))
         cliExit("agent-notch: could not launch \(command[0]): \(error.localizedDescription)", code: 127)
@@ -257,6 +277,55 @@ private func runCLI(arguments: [String]) -> Never {
     case "show", "hide", "toggle":
         payload = ["hook_event_name": "AgentNotch\(command.capitalized)", "session_id": "cli", "cwd": FileManager.default.currentDirectoryPath]
         waitsForResponse = false
+    case "question":
+        let agent = option("--agent", in: arguments) ?? "claude"
+        guard supportedAgents.contains(agent) else { cliExit("agent-notch: invalid agent: \(agent)", code: 2) }
+        guard let prompt = option("--prompt", in: arguments) else { cliExit("agent-notch: missing --prompt", code: 2) }
+        let choices = repeatedOptions("--option", in: arguments).prefix(3).map {
+            ["label": $0, "description": ""]
+        }
+        payload = [
+            "hook_event_name": "AgentNotchQuestion",
+            "session_id": option("--id", in: arguments) ?? "\(agent):\(FileManager.default.currentDirectoryPath)",
+            "cwd": FileManager.default.currentDirectoryPath,
+            "tool_name": "agent_notch_question",
+            "tool_input": [
+                "agent": agent,
+                "questions": [[
+                    "header": option("--header", in: arguments) ?? "\(agent.capitalized) asks",
+                    "question": prompt,
+                    "options": Array(choices),
+                ]],
+            ],
+        ]
+        waitsForResponse = true
+    case "permission":
+        let agent = option("--agent", in: arguments) ?? "claude"
+        guard supportedAgents.contains(agent) else { cliExit("agent-notch: invalid agent: \(agent)", code: 2) }
+        guard let tool = option("--tool", in: arguments), let summary = option("--summary", in: arguments) else {
+            cliExit("agent-notch: permission requires --tool and --summary", code: 2)
+        }
+        payload = [
+            "hook_event_name": "PermissionRequest",
+            "session_id": option("--id", in: arguments) ?? "\(agent):\(FileManager.default.currentDirectoryPath)",
+            "cwd": FileManager.default.currentDirectoryPath,
+            "tool_name": tool,
+            "tool_input": ["agent": agent, "summary": summary],
+        ]
+        waitsForResponse = true
+    case "plan":
+        let agent = option("--agent", in: arguments) ?? "claude"
+        guard supportedAgents.contains(agent) else { cliExit("agent-notch: invalid agent: \(agent)", code: 2) }
+        guard let title = option("--title", in: arguments), let summary = option("--summary", in: arguments) else {
+            cliExit("agent-notch: plan requires --title and --summary", code: 2)
+        }
+        payload = [
+            "hook_event_name": "AgentNotchPlanReview",
+            "session_id": option("--id", in: arguments) ?? "\(agent):\(FileManager.default.currentDirectoryPath)",
+            "cwd": FileManager.default.currentDirectoryPath,
+            "tool_input": ["agent": agent, "title": title, "summary": summary],
+        ]
+        waitsForResponse = true
     case "session":
         guard arguments.count >= 2 else { cliExit("agent-notch: missing session action", code: 2) }
         let action = arguments[1]
@@ -347,18 +416,38 @@ if CommandLine.arguments.count >= 3, CommandLine.arguments[1] == "--codex" {
 
 let inputData = readStdinToEOF()
 guard !inputData.isEmpty,
-      let hookObject = (try? JSONSerialization.jsonObject(with: inputData)) as? [String: Any]
+      var hookObject = (try? JSONSerialization.jsonObject(with: inputData)) as? [String: Any]
 else {
     fail()
+}
+
+if let agent = ProcessInfo.processInfo.environment["AGENT_NOTCH_AGENT"], supportedAgents.contains(agent) {
+    var input = (hookObject["tool_input"] as? [String: Any]) ?? [:]
+    input["agent"] = agent
+    hookObject["tool_input"] = input
 }
 
 let eventName = (hookObject["hook_event_name"] as? String) ?? "Unknown"
 let toolName = hookObject["tool_name"] as? String
 let isQuestion = eventName == "PreToolUse"
     && (toolName == "AskUserQuestion" || toolName == "request_user_input")
+// ExitPlanMode's hook allow/deny only gates whether the tool call itself may
+// run — it has no bearing on the interactive multi-choice plan decision the
+// user makes separately in Claude Code's own UI. Blocking on it here would
+// just delay that native prompt for no benefit, so this is fire-and-forget:
+// send a heads-up notification event and let the tool call proceed immediately.
+let isExitPlanMode = eventName == "PermissionRequest" && toolName == "ExitPlanMode"
 
 let fd = connectSocket()
 guard fd >= 0 else { fail() }
+
+if isExitPlanMode {
+    var noticePayload = hookObject
+    noticePayload["hook_event_name"] = "AgentNotchPlanWaiting"
+    _ = writeEnvelope(noticePayload, to: fd)
+    Darwin.close(fd)
+    fail()
+}
 
 guard writeEnvelope(hookObject, to: fd) else {
     Darwin.close(fd)

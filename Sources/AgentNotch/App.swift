@@ -1,6 +1,7 @@
 import SwiftUI
 import AppKit
 import Combine
+import Darwin
 
 @main
 struct AgentNotchApp: App {
@@ -22,28 +23,36 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private var socketServer: SocketServer?
     private var permissionCenter: PermissionCenter?
     private var questionCenter: QuestionCenter?
+    private var planCenter: PlanCenter?
     private var soundPlayer: SoundPlayer?
+    private var nativeNotifier: NativeNotifier?
     private var store: SessionStore?
     private var collapseTask: Task<Void, Never>?
     private var hadPendingPermission = false
     private var cancellables = Set<AnyCancellable>()
 
     func applicationDidFinishLaunching(_ notification: Notification) {
+        signal(SIGPIPE, SIG_IGN)
         NSApp.setActivationPolicy(.accessory)
 
         let store = SessionStore()
         let permissionCenter = PermissionCenter()
         let questionCenter = QuestionCenter()
+        let planCenter = PlanCenter()
         store.permissionCenter = permissionCenter
         let soundPlayer = SoundPlayer.shared
+        let nativeNotifier = NativeNotifier()
+        nativeNotifier.requestAuthorizationIfNeeded()
 
-        let controller = NotchWindowController(store: store, permissions: permissionCenter, questions: questionCenter)
+        let controller = NotchWindowController(store: store, permissions: permissionCenter, questions: questionCenter, plans: planCenter)
         controller.showWindow()
 
         self.store = store
         self.permissionCenter = permissionCenter
         self.questionCenter = questionCenter
+        self.planCenter = planCenter
         self.soundPlayer = soundPlayer
+        self.nativeNotifier = nativeNotifier
         self.notchWindowController = controller
 
         let watcher = ClaudeWatcher(store: store)
@@ -65,6 +74,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             onCancel: { [weak self] connection in
                 self?.permissionCenter?.cancel(connection: connection)
                 self?.questionCenter?.cancel(connection: connection)
+                self?.planCenter?.cancel(connection: connection)
             }
         )
         server.start()
@@ -104,6 +114,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             let urgent = action == "attention" || action == "fail"
             notchWindowController?.showAgentActivity(urgent: urgent)
             soundPlayer?.play(action == "done" ? .done : urgent ? .permission : .action)
+        case "AgentNotchPlanWaiting":
+            notchWindowController?.showNotification(title: "Plan ready", message: "Approve in the terminal to continue")
+            soundPlayer?.play(.action)
         case "PermissionRequest":
             permissionCenter?.enqueue(event)
             soundPlayer?.play(.permission)
@@ -112,10 +125,25 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             questionCenter?.enqueue(event)
             soundPlayer?.play(.permission)
             notchWindowController?.showAttention()
-        case "Notification" where event.toolInput["notification_type"] as? String == "agent_needs_input":
+        case "AgentNotchQuestion":
             questionCenter?.enqueue(event)
             soundPlayer?.play(.permission)
             notchWindowController?.showAttention()
+        case "AgentNotchPlanReview":
+            planCenter?.enqueue(event)
+            soundPlayer?.play(.permission)
+            notchWindowController?.showAttention()
+        case "Notification":
+            let message = (event.toolInput["message"] as? String) ?? "Notification"
+            if event.toolInput["notification_type"] as? String == "agent_needs_input" {
+                questionCenter?.enqueue(event)
+                soundPlayer?.play(.permission)
+                notchWindowController?.showAttention()
+            } else {
+                notchWindowController?.showNotification(title: "Agent", message: message)
+                soundPlayer?.play(.action)
+            }
+            nativeNotifier?.notify(title: "AgentNotch", body: message)
         case "Stop", "CodexTurnComplete":
             store?.applyHookEvent(event)
             soundPlayer?.play(.done)

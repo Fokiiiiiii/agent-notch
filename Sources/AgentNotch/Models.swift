@@ -1,6 +1,6 @@
 import SwiftUI
 
-enum AgentKind: String {
+enum AgentKind: String, Hashable, Sendable {
     case claude, codex, antigravity, gemini, copilot, cursor, opencode, aider, goose
 
     var displayName: String {
@@ -42,8 +42,6 @@ enum AgentKind: String {
 }
 
 enum SessionState {
-    // NOTE: `failed` has no producer yet (ClaudeWatcher/hooks never emit it);
-    // it exists so the UI's status-dot mapping matches the design mock.
     case running, waitingApproval, done, idle, failed
 }
 
@@ -55,4 +53,6 @@ struct AgentSession: Identifiable {
     var lastActivity: Date
     var state: SessionState
     var lastMessage: String  // 例 "Writing middleware.ts"
+    var processID: Int32? = nil
+    var isManagedProcess: Bool = false
 }

@@ -265,6 +265,8 @@ final class SocketServer {
         if let type = payload["notification_type"] as? String { toolInput["notification_type"] = type }
         let isQuestion = eventName == "PreToolUse"
             && (toolName == "AskUserQuestion" || toolName == "request_user_input")
+        let isAgentNotchQuestion = eventName == "AgentNotchQuestion"
+        let isPlanReview = eventName == "AgentNotchPlanReview"
 
         return HookEvent(
             eventName: eventName,
@@ -272,7 +274,7 @@ final class SocketServer {
             cwd: cwd,
             toolName: toolName,
             toolInput: toolInput,
-            connection: eventName == "PermissionRequest" || eventName == "AgentNotchPing" || isQuestion ? connection : nil
+            connection: eventName == "PermissionRequest" || eventName == "AgentNotchPing" || isQuestion || isAgentNotchQuestion || isPlanReview ? connection : nil
         )
     }
 
