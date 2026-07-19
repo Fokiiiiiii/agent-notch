@@ -19,10 +19,15 @@ enum AgentKind: String, Hashable, Sendable {
 
     var accentColor: Color {
         switch self {
-        case .claude: return .orange
+        case .claude: return Color(red: 0.85, green: 0.45, blue: 0.35)
         case .codex: return .white.opacity(0.9)
         case .antigravity: return .cyan
-        case .gemini, .copilot, .cursor, .opencode, .aider, .goose: return .white.opacity(0.82)
+        case .gemini: return Color(red: 0.45, green: 0.55, blue: 1.0)
+        case .copilot: return Color(red: 0.55, green: 0.45, blue: 0.95)
+        case .cursor: return Color(red: 0.2, green: 0.7, blue: 0.9)
+        case .opencode: return Color(red: 0.2, green: 0.85, blue: 0.5)
+        case .aider: return Color(red: 0.95, green: 0.35, blue: 0.35)
+        case .goose: return Color(red: 0.98, green: 0.65, blue: 0.2)
         }
     }
 

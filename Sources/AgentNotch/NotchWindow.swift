@@ -405,13 +405,16 @@ final class NotchWindowController: NSObject {
             return false
         }
         let screenFrame = screen.frame
-        return windows.contains { info in
+        var unionRect: CGRect?
+        for info in windows {
             guard (info[kCGWindowOwnerPID as String] as? pid_t) == app.processIdentifier,
                   (info[kCGWindowLayer as String] as? Int) == 0,
                   let boundsDictionary = info[kCGWindowBounds as String] as? NSDictionary,
-                  let bounds = CGRect(dictionaryRepresentation: boundsDictionary as CFDictionary) else { return false }
-            return bounds.width >= screenFrame.width - 12 && bounds.height >= screenFrame.height - 12
+                  let bounds = CGRect(dictionaryRepresentation: boundsDictionary as CFDictionary) else { continue }
+            unionRect = unionRect?.union(bounds) ?? bounds
         }
+        guard let unionRect else { return false }
+        return unionRect.width >= screenFrame.width - 12 && unionRect.height >= screenFrame.height - 12
     }
 
     func showWindow() {
@@ -461,7 +464,13 @@ final class NotchWindowController: NSObject {
         switch uiState.mode {
         case .closed:
             if !shouldPersistVisible {
-                targetSize = fullscreenHoverSize
+                // While fullscreen-suppressed: keep the hit-test region narrow
+                // (avoids colliding with a fullscreen app's own top-edge
+                // chrome-reveal gesture) only while hidden. Once a long hover
+                // actually reveals the notch, it needs the normal width or
+                // the fixed-size visual content (`uiState.closedContentSize`)
+                // gets clipped at both edges.
+                targetSize = uiState.isVisible ? closedSize : fullscreenHoverSize
             } else {
                 targetSize = uiState.isMediaPreviewVisible ? mediaPreviewSize : closedSize
             }
