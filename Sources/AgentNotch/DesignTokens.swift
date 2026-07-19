@@ -27,3 +27,20 @@ enum DesignTokens {
     static let spring = Animation.spring(response: 0.42, dampingFraction: 0.92)
     static let contentTransition = Animation.easeInOut(duration: 0.30)
 }
+
+extension DesignTokens {
+    /// `closedRadius` scaled by `AppSettings.cornerRadiusScale`. Not yet wired
+    /// into `shellShape`'s callers — added ahead of time so a future settings
+    /// UI change only needs to switch call sites over.
+    @MainActor
+    static func scaledClosedRadius(_ settings: AppSettings = .shared) -> CGFloat {
+        closedRadius * settings.cornerRadiusScale
+    }
+
+    /// `openRadius` scaled by `AppSettings.cornerRadiusScale`. See
+    /// `scaledClosedRadius` for why call sites aren't switched over yet.
+    @MainActor
+    static func scaledOpenRadius(_ settings: AppSettings = .shared) -> CGFloat {
+        openRadius * settings.cornerRadiusScale
+    }
+}

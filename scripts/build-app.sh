@@ -24,6 +24,14 @@ APP=build/AgentNotch.app
 rm -rf "$APP"; mkdir -p "$APP/Contents/MacOS" "$APP/Contents/Resources"
 cp "$SCRATCH/release/AgentNotch" "$APP/Contents/MacOS/AgentNotch"
 cp "$SCRATCH/release/agent-notch-bridge" "$APP/Contents/MacOS/agent-notch-bridge"
+cp -R "$SCRATCH/release/agent-notch_AgentNotch.bundle" "$APP/agent-notch_AgentNotch.bundle"
+# swift build (CLT only, no Xcode/actool) just copies Localizable.xcstrings as raw JSON
+# instead of compiling it, and String(localized:) in the app looks up Bundle.main's own
+# Contents/Resources/<lang>.lproj -- not the nested SwiftPM resource bundle. Bridge the
+# gap by emitting classic .strings files straight into the app bundle.
+python3 scripts/xcstrings_to_strings.py \
+    Sources/AgentNotch/Resources/Localizable.xcstrings \
+    "$APP/Contents/Resources"
 cp scripts/setup-integrations.sh "$APP/Contents/Resources/setup-integrations"
 cp "$ADAPTER_DYLIB" "$APP/Contents/Resources/MediaRemoteAdapter.dylib"
 cp "$ADAPTER_SOURCE/mediaremote-adapter.pl" "$APP/Contents/Resources/mediaremote-adapter.pl"
@@ -53,6 +61,27 @@ cat > "$APP/Contents/Info.plist" <<'EOF'
     <string>AgentNotch can fall back to Apple Events for legacy media players.</string>
     <key>LSMinimumSystemVersion</key>
     <string>14.0</string>
+    <key>CFBundleDevelopmentRegion</key>
+    <string>en</string>
+    <key>CFBundleLocalizations</key>
+    <array>
+        <string>en</string>
+        <string>zh-Hans</string>
+        <string>es</string>
+        <string>fr</string>
+        <string>de</string>
+        <string>ru</string>
+        <string>ar</string>
+        <string>pt</string>
+        <string>hi</string>
+        <string>ja</string>
+        <string>ko</string>
+        <string>it</string>
+        <string>id</string>
+        <string>vi</string>
+        <string>th</string>
+        <string>fil</string>
+    </array>
 </dict>
 </plist>
 EOF

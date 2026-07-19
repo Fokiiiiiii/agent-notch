@@ -19,8 +19,8 @@ final class PlanCenter: ObservableObject {
             agent: (event.toolInput["agent"] as? String).flatMap(AgentKind.init(rawValue:)) ?? .claude,
             sessionID: event.sessionId,
             cwd: event.cwd,
-            title: (event.toolInput["title"] as? String) ?? "Plan Review",
-            summary: (event.toolInput["summary"] as? String) ?? "Review the proposed implementation plan.",
+            title: (event.toolInput["title"] as? String) ?? String(localized: "plan.fallbackTitle", defaultValue: "Plan Review"),
+            summary: (event.toolInput["summary"] as? String) ?? String(localized: "plan.fallbackSummary", defaultValue: "Review the proposed implementation plan."),
             connection: event.connection
         ))
     }

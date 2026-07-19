@@ -61,10 +61,10 @@ enum NookView: CaseIterable {
 
     var title: String {
         switch self {
-        case .agents: return "Agents"
-        case .media: return "Media"
-        case .today: return "Today"
-        case .system: return "System"
+        case .agents: return String(localized: "nook.tab.agents", defaultValue: "Agents")
+        case .media: return String(localized: "nook.tab.media", defaultValue: "Media")
+        case .today: return String(localized: "nook.tab.today", defaultValue: "Today")
+        case .system: return String(localized: "nook.tab.system", defaultValue: "System")
         }
     }
 }
@@ -206,10 +206,14 @@ final class NotchWindowController: NSObject {
         // 他アプリのツールバー等をブロックしすぎないようにする（幅+40, 高さ+70）。
         self.closedSize = CGSize(width: visualClosedSize.width + 40, height: visualClosedSize.height + 70)
         self.fullscreenHoverSize = CGSize(width: min(closedSize.width, 140), height: closedSize.height)
-        self.uiState.closedContentSize = visualClosedSize
+        self.uiState.closedContentSize = CGSize(
+            width: visualClosedSize.width * AppSettings.shared.uiScale,
+            height: visualClosedSize.height * AppSettings.shared.uiScale
+        )
 
+        let initialScale = AppSettings.shared.uiScale
         let initialFrame = NotchWindowController.frame(
-            for: closedSize,
+            for: CGSize(width: closedSize.width * initialScale, height: closedSize.height * initialScale),
             on: resolvedScreen
         )
 
@@ -392,6 +396,15 @@ final class NotchWindowController: NSObject {
         }
     }
 
+    /// Applies `AppSettings.uiScale` to a base panel size immediately before
+    /// it's turned into a screen frame. Base size constants (`closedSize`,
+    /// `openSize`, etc.) stay untouched so they keep documenting the
+    /// 1.0-scale defaults.
+    private func scaled(_ size: CGSize) -> CGSize {
+        let scale = AppSettings.shared.uiScale
+        return CGSize(width: size.width * scale, height: size.height * scale)
+    }
+
     private static func frame(for size: CGSize, on screen: NSScreen) -> NSRect {
         let x = screen.frame.midX - size.width / 2
         let y = screen.frame.maxY - size.height
@@ -490,7 +503,7 @@ final class NotchWindowController: NSObject {
             }
         }
 
-        let targetFrame = NotchWindowController.frame(for: targetSize, on: screen)
+        let targetFrame = NotchWindowController.frame(for: scaled(targetSize), on: screen)
 
         NSAnimationContext.runAnimationGroup { context in
             context.duration = uiState.mode == .closed ? 0.25 : 0.40
@@ -552,6 +565,11 @@ final class NotchWindowController: NSObject {
         guard shouldPersistVisible || bypassFullscreenSuppression else { return }
         hideTask?.cancel()
         uiState.isVisible = true
+        // Without this, the real NSPanel frame can be left at
+        // `fullscreenHoverSize` (the narrow hover-only hit region used while
+        // fullscreen-suppressed) even though SwiftUI now renders full-width
+        // `.closed` content into it — physically clipping the right side.
+        resizeForCurrentState()
     }
 
     /// Shows the notch immediately and expands it, from any starting state

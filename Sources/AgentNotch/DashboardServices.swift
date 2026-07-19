@@ -65,9 +65,9 @@ final class TodayModel: ObservableObject {
 final class MediaController: ObservableObject {
     static let shared = MediaController()
 
-    @Published private(set) var source = "No media"
-    @Published private(set) var title = "Nothing Playing"
-    @Published private(set) var artist = "Play media in any app"
+    @Published private(set) var source = String(localized: "media.noMedia", defaultValue: "No media")
+    @Published private(set) var title = String(localized: "media.nothingPlaying", defaultValue: "Nothing Playing")
+    @Published private(set) var artist = String(localized: "media.playInAnyApp", defaultValue: "Play media in any app")
     @Published private(set) var isPlaying = false
     @Published private(set) var position = 0.0
     @Published private(set) var duration = 1.0
@@ -123,9 +123,9 @@ final class MediaController: ObservableObject {
 
     private func apply(_ snapshot: SystemMediaSnapshot?) {
         guard let snapshot else {
-            source = isConnected ? "System media" : "Media unavailable"
-            title = "Nothing Playing"
-            artist = isConnected ? "Play media in any app" : "Media adapter is missing"
+            source = isConnected ? String(localized: "media.systemMedia", defaultValue: "System media") : String(localized: "media.mediaUnavailable", defaultValue: "Media unavailable")
+            title = String(localized: "media.nothingPlaying", defaultValue: "Nothing Playing")
+            artist = isConnected ? String(localized: "media.playInAnyApp", defaultValue: "Play media in any app") : String(localized: "media.adapterMissing", defaultValue: "Media adapter is missing")
             isPlaying = false
             position = 0
             duration = 1
@@ -139,7 +139,7 @@ final class MediaController: ObservableObject {
         let application = snapshot.bundleIdentifier.flatMap {
             NSRunningApplication.runningApplications(withBundleIdentifier: $0).first?.localizedName
         }
-        source = application ?? snapshot.bundleIdentifier ?? "System media"
+        source = application ?? snapshot.bundleIdentifier ?? String(localized: "media.systemMedia", defaultValue: "System media")
         title = snapshot.title
         artist = snapshot.artist?.isEmpty == false ? snapshot.artist! : source
         isPlaying = snapshot.isPlaying
@@ -303,7 +303,9 @@ final class SystemMonitor: ObservableObject {
         let seconds = ProcessInfo.processInfo.systemUptime
         let days = Int(seconds / 86_400)
         let hours = Int(seconds.truncatingRemainder(dividingBy: 86_400) / 3_600)
-        uptime = days > 0 ? "\(days)d \(hours)h" : "\(hours)h"
+        uptime = days > 0
+            ? String(localized: "system.uptimeDaysHours", defaultValue: "\(days)d \(hours)h")
+            : String(localized: "system.uptimeHours", defaultValue: "\(hours)h")
     }
 
     private func refreshBattery() {
@@ -323,7 +325,7 @@ final class SystemMonitor: ObservableObject {
         let minutesKey = isCharging ? kIOPSTimeToFullChargeKey : kIOPSTimeToEmptyKey
         if let minutes = description[minutesKey] as? Int {
             if minutes == -1 {
-                timeRemainingLabel = "Calculating…"
+                timeRemainingLabel = String(localized: "system.calculating", defaultValue: "Calculating…")
             } else if minutes > 0 {
                 let hours = minutes / 60
                 let mins = minutes % 60
@@ -428,13 +430,13 @@ final class BackgroundActivityMonitor: ObservableObject {
         }
 
         let detectors: [(needle: String, tokenCount: Int, symbol: String, title: String, detail: String)] = [
-            ("xcodebuild", 1, "hammer.fill", "Xcode Build", "xcodebuild is running"),
-            ("docker build", 2, "shippingbox.fill", "Docker Build", "Docker is building an image"),
-            ("docker pull", 2, "shippingbox.and.arrow.backward.fill", "Docker Pull", "Docker is downloading an image"),
-            ("git clone", 2, "arrow.triangle.branch", "Git Clone", "Repository transfer in progress"),
-            ("git fetch", 2, "arrow.triangle.branch", "Git Fetch", "Remote refs are updating"),
-            ("curl", 1, "arrow.down.circle.fill", "Download", "curl transfer in progress"),
-            ("aria2c", 1, "arrow.down.circle.fill", "Download", "aria2 transfer in progress"),
+            ("xcodebuild", 1, "hammer.fill", String(localized: "background.xcodeBuildTitle", defaultValue: "Xcode Build"), String(localized: "background.xcodeBuildDetail", defaultValue: "xcodebuild is running")),
+            ("docker build", 2, "shippingbox.fill", String(localized: "background.dockerBuildTitle", defaultValue: "Docker Build"), String(localized: "background.dockerBuildDetail", defaultValue: "Docker is building an image")),
+            ("docker pull", 2, "shippingbox.and.arrow.backward.fill", String(localized: "background.dockerPullTitle", defaultValue: "Docker Pull"), String(localized: "background.dockerPullDetail", defaultValue: "Docker is downloading an image")),
+            ("git clone", 2, "arrow.triangle.branch", String(localized: "background.gitCloneTitle", defaultValue: "Git Clone"), String(localized: "background.gitCloneDetail", defaultValue: "Repository transfer in progress")),
+            ("git fetch", 2, "arrow.triangle.branch", String(localized: "background.gitFetchTitle", defaultValue: "Git Fetch"), String(localized: "background.gitFetchDetail", defaultValue: "Remote refs are updating")),
+            ("curl", 1, "arrow.down.circle.fill", String(localized: "background.downloadTitle", defaultValue: "Download"), String(localized: "background.curlDetail", defaultValue: "curl transfer in progress")),
+            ("aria2c", 1, "arrow.down.circle.fill", String(localized: "background.downloadTitle", defaultValue: "Download"), String(localized: "background.aria2cDetail", defaultValue: "aria2 transfer in progress")),
         ]
 
         return detectors.compactMap { detector in

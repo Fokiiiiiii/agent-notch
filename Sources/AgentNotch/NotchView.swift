@@ -32,6 +32,15 @@ struct NotchView: View {
                 width: uiState.mode == .closed ? uiState.closedContentSize.width : nil,
                 height: uiState.mode == .closed ? uiState.closedContentSize.height : nil
             )
+            // The panel's real NSWindow frame is animated separately (AppKit,
+            // NSAnimationContext in NotchWindowController) on its own timing
+            // curve. If this SwiftUI frame animates too — even implicitly via
+            // the .animation() below — the two fall out of sync mid-transition
+            // and content can appear clipped against a window that has
+            // already reached its final (smaller) size. Snap it instantly.
+            .transaction { transaction in
+                transaction.animation = nil
+            }
             .clipShape(shellShape)
             .compositingGroup()
             .opacity(uiState.isVisible ? 1 : 0)
@@ -123,8 +132,8 @@ struct NotchView: View {
             .transition(.opacity)
         }
         .buttonStyle(NotchPressStyle(pressedScale: 0.985))
-        .accessibilityLabel("Open AgentNotch")
-        .help(shouldShowCompactMedia ? "Open Media" : "Open AgentNotch")
+        .accessibilityLabel(String(localized: "notch.openAgentNotch", defaultValue: "Open AgentNotch"))
+        .help(shouldShowCompactMedia ? String(localized: "notch.openMedia", defaultValue: "Open Media") : String(localized: "notch.openAgentNotch", defaultValue: "Open AgentNotch"))
         .animation(.easeOut(duration: reduceMotion ? 0.12 : 0.24), value: shouldShowCompactMedia)
     }
 
@@ -204,11 +213,11 @@ struct NotchView: View {
                     .font(.system(size: 12, weight: .medium))
                     .foregroundColor(DesignTokens.orange)
                     .frame(width: 22, height: 22)
-                Text("Approval required")
+                Text(String(localized: "compact.approvalRequired", defaultValue: "Approval required"))
                     .font(.system(size: 10.5, weight: .semibold))
                     .foregroundColor(.white)
                 Spacer(minLength: 4)
-                Text("Click to review")
+                Text(String(localized: "compact.clickToReview", defaultValue: "Click to review"))
                     .font(.system(size: 8))
                     .foregroundColor(DesignTokens.muted)
             } else if !plans.queue.isEmpty {
@@ -216,11 +225,11 @@ struct NotchView: View {
                     .font(.system(size: 12, weight: .medium))
                     .foregroundColor(.white.opacity(0.88))
                     .frame(width: 22, height: 22)
-                Text("Plan ready for review")
+                Text(String(localized: "compact.planReadyForReview", defaultValue: "Plan ready for review"))
                     .font(.system(size: 10.5, weight: .semibold))
                     .foregroundColor(.white)
                 Spacer(minLength: 4)
-                Text("Click to review")
+                Text(String(localized: "compact.clickToReview", defaultValue: "Click to review"))
                     .font(.system(size: 8))
                     .foregroundColor(DesignTokens.muted)
             } else if !questions.queue.isEmpty {
@@ -228,16 +237,17 @@ struct NotchView: View {
                     .font(.system(size: 12, weight: .medium))
                     .foregroundColor(DesignTokens.cyan)
                     .frame(width: 22, height: 22)
-                Text("Agent has a question")
+                Text(String(localized: "compact.agentHasQuestion", defaultValue: "Agent has a question"))
                     .font(.system(size: 10.5, weight: .semibold))
                     .foregroundColor(.white)
                 Spacer(minLength: 4)
-                Text("Click to answer")
+                Text(String(localized: "compact.clickToAnswer", defaultValue: "Click to answer"))
                     .font(.system(size: 8))
                     .foregroundColor(DesignTokens.muted)
             } else {
                 GlyphBox(agent: selectedSession?.agent)
                     .layoutPriority(1)
+                    .fixedSize()
                 if let session = selectedSession {
                 Text(session.title)
                     .font(.system(size: 11, weight: .semibold))
@@ -253,19 +263,18 @@ struct NotchView: View {
                     Text(session.agent.displayName)
                         .font(.system(size: 9))
                         .foregroundColor(DesignTokens.muted)
+                        .lineLimit(1)
                 }
-                .fixedSize()
                 .layoutPriority(1)
                 } else {
-                    Text("AgentNotch")
+                    Text(String(localized: "compact.appName", defaultValue: "AgentNotch"))
                         .font(.system(size: 11, weight: .semibold))
                         .foregroundColor(.white)
                         .layoutPriority(0)
                     Spacer(minLength: 4)
-                    Text("idle")
+                    Text(String(localized: "compact.idle", defaultValue: "idle"))
                         .font(.system(size: 9))
                         .foregroundColor(DesignTokens.muted)
-                        .fixedSize()
                         .layoutPriority(1)
                 }
             }
@@ -288,7 +297,7 @@ struct NotchView: View {
         .padding(.horizontal, 6)
         .frame(height: 20)
         .background(Capsule().fill(Color.white.opacity(0.08)))
-        .accessibilityLabel("Tray, \(uiState.trayItemCount) items")
+        .accessibilityLabel(String(localized: "tray.badgeAccessibilityLabel", defaultValue: "Tray, \(uiState.trayItemCount) items"))
     }
 
     // MARK: - Compact outcome notice
@@ -301,17 +310,17 @@ struct NotchView: View {
                     .foregroundColor(outcome.allowed ? DesignTokens.green : DesignTokens.red)
                     .symbolEffect(.bounce, value: outcome)
                 VStack(alignment: .leading, spacing: 1) {
-                    Text(outcome.allowed ? "Allowed once" : "Denied")
+                    Text(outcome.allowed ? String(localized: "notice.allowedOnce", defaultValue: "Allowed once") : String(localized: "notice.denied", defaultValue: "Denied"))
                         .font(.system(size: 10.5, weight: .semibold))
                         .foregroundColor(.white)
-                    Text(outcome.allowed ? "Claude is continuing" : "Returned to Claude")
+                    Text(outcome.allowed ? String(localized: "notice.claudeContinuing", defaultValue: "Claude is continuing") : String(localized: "notice.returnedToClaude", defaultValue: "Returned to Claude"))
                         .font(.system(size: 7.5))
                         .foregroundColor(DesignTokens.muted)
                 }
             } else if let message = uiState.noticeMessage {
                 GlyphBox(agent: nil)
                 VStack(alignment: .leading, spacing: 1) {
-                    Text(uiState.noticeTitle ?? "Notification")
+                    Text(uiState.noticeTitle ?? String(localized: "notice.notification", defaultValue: "Notification"))
                         .font(.system(size: 10.5, weight: .semibold))
                         .foregroundColor(.white)
                     Text(message)
@@ -321,7 +330,7 @@ struct NotchView: View {
                 }
             } else {
                 GlyphBox(agent: nil)
-                Text("Notification")
+                Text(String(localized: "notice.notification", defaultValue: "Notification"))
                     .font(.system(size: 10.5, weight: .semibold))
                     .foregroundColor(.white)
             }
@@ -378,10 +387,10 @@ struct NotchView: View {
     private var nookbar: some View {
         HStack(spacing: 6) {
             HStack(spacing: 4) {
-                tabButton(title: "Nook", icon: "sparkles", count: 0, isActive: uiState.activeTab == .nook) {
+                tabButton(title: String(localized: "notch.tab.nook", defaultValue: "Nook"), icon: "sparkles", count: 0, isActive: uiState.activeTab == .nook) {
                     selectTab(.nook)
                 }
-                tabButton(title: "Tray", icon: "tray.full", count: uiState.trayItemCount, isActive: uiState.activeTab == .tray) {
+                tabButton(title: String(localized: "notch.tab.tray", defaultValue: "Tray"), icon: "tray.full", count: uiState.trayItemCount, isActive: uiState.activeTab == .tray) {
                     selectTab(.tray)
                 }
             }
@@ -393,7 +402,20 @@ struct NotchView: View {
             }
             .buttonStyle(.plain)
             .frame(maxWidth: .infinity, minHeight: 24)
-            .help("Click the notch bar to close")
+            .help(String(localized: "notch.clickBarToClose", defaultValue: "Click the notch bar to close"))
+            Button {
+                NSApp.activate(ignoringOtherApps: true)
+                NSApp.sendAction(Selector(("showSettingsWindow:")), to: nil, from: nil)
+            } label: {
+                Image(systemName: "gearshape")
+                    .font(.system(size: 13))
+                    .foregroundColor(.white.opacity(0.62))
+                    .frame(width: 28, height: 28)
+            }
+            .buttonStyle(NotchPressStyle())
+            .hoverLift(cornerRadius: 8)
+            .accessibilityIdentifier("notch.settings")
+            .help(String(localized: "notch.settingsHelp", defaultValue: "Settings"))
             Button { controller.closeExplicitly() } label: {
                 Image(systemName: "xmark")
                     .font(.system(size: 13))
@@ -403,7 +425,7 @@ struct NotchView: View {
             .buttonStyle(NotchPressStyle())
             .hoverLift(cornerRadius: 8)
             .accessibilityIdentifier("notch.close")
-            .help("Close  Esc")
+            .help(String(localized: "notch.closeEscHelp", defaultValue: "Close  Esc"))
         }
         .frame(height: 30)
     }
@@ -431,7 +453,7 @@ struct NotchView: View {
         .buttonStyle(NotchPressStyle())
         .hoverLift(cornerRadius: 14)
         .accessibilityIdentifier("notch.tab.\(title.lowercased())")
-        .help(isActive ? "Current tab" : "Show \(title)")
+        .help(isActive ? String(localized: "notch.currentTab", defaultValue: "Current tab") : String(localized: "notch.showTab", defaultValue: "Show \(title)"))
     }
 
     private var nookContentView: some View {
@@ -549,11 +571,11 @@ struct NotchView: View {
                 .hoverLift(cornerRadius: 9, strength: 0.08)
                 .accessibilityLabel(view.title)
                 .accessibilityIdentifier("notch.view.\(view.title.lowercased())")
-                .help(uiState.activeView == view ? "Current view" : "Show \(view.title)")
+                .help(uiState.activeView == view ? String(localized: "nook.tab.currentView", defaultValue: "Current view") : String(localized: "nook.tab.showView", defaultValue: "Show \(view.title)"))
             }
             Spacer(minLength: 2)
             Button { controller.toggleDetailExpansion() } label: {
-                Label("Details", systemImage: uiState.isDetailExpanded ? "chevron.up" : "chevron.down")
+                Label(String(localized: "nook.tab.details", defaultValue: "Details"), systemImage: uiState.isDetailExpanded ? "chevron.up" : "chevron.down")
                     .font(.system(size: 9.5, weight: .medium))
                     .foregroundColor(.white.opacity(0.60))
                     .padding(.horizontal, 9)
@@ -563,7 +585,7 @@ struct NotchView: View {
             .buttonStyle(NotchPressStyle(pressedScale: 0.9))
             .hoverLift(cornerRadius: 9)
             .accessibilityIdentifier("notch.details")
-            .help(uiState.isDetailExpanded ? "Collapse details" : "Expand details")
+            .help(uiState.isDetailExpanded ? String(localized: "nook.tab.collapseDetails", defaultValue: "Collapse details") : String(localized: "nook.tab.expandDetails", defaultValue: "Expand details"))
         }
         .frame(height: 30)
     }
@@ -582,16 +604,28 @@ struct NotchView: View {
         switch uiState.activeView {
         case .agents:
             DetailStrip(items: [
-                ("Repository", selectedSession.map { URL(fileURLWithPath: $0.cwd).lastPathComponent } ?? "—"),
-                ("Activity", selectedSession?.lastMessage ?? "No active session"),
-                ("Usage", selectedSession.flatMap { usageStore.snapshots[$0.agent]?.compactLabel } ?? "Unavailable")
+                (String(localized: "detail.agents.repository", defaultValue: "Repository"), selectedSession.map { URL(fileURLWithPath: $0.cwd).lastPathComponent } ?? "—"),
+                (String(localized: "detail.agents.activity", defaultValue: "Activity"), selectedSession?.lastMessage ?? String(localized: "detail.agents.noActiveSession", defaultValue: "No active session")),
+                (String(localized: "detail.agents.usage", defaultValue: "Usage"), selectedSession.flatMap { usageStore.snapshots[$0.agent]?.compactLabel } ?? String(localized: "detail.agents.unavailable", defaultValue: "Unavailable"))
             ])
         case .media:
-            DetailStrip(items: [("Sources", "System Now Playing"), ("Control", "Current media session"), ("Privacy", "Local only")])
+            DetailStrip(items: [
+                (String(localized: "detail.media.sources", defaultValue: "Sources"), String(localized: "detail.media.sourcesValue", defaultValue: "System Now Playing")),
+                (String(localized: "detail.media.control", defaultValue: "Control"), String(localized: "detail.media.controlValue", defaultValue: "Current media session")),
+                (String(localized: "detail.media.privacy", defaultValue: "Privacy"), String(localized: "detail.media.privacyValue", defaultValue: "Local only"))
+            ])
         case .today:
-            DetailStrip(items: [("Calendar", "Today only"), ("Focus", "Local timer"), ("Privacy", "On-device")])
+            DetailStrip(items: [
+                (String(localized: "detail.today.calendar", defaultValue: "Calendar"), String(localized: "detail.today.calendarValue", defaultValue: "Today only")),
+                (String(localized: "detail.today.focus", defaultValue: "Focus"), String(localized: "detail.today.focusValue", defaultValue: "Local timer")),
+                (String(localized: "detail.today.privacy", defaultValue: "Privacy"), String(localized: "detail.today.privacyValue", defaultValue: "On-device"))
+            ])
         case .system:
-            DetailStrip(items: [("Source", "macOS live data"), ("Refresh", "Every 3 sec"), ("Access", "Read only")])
+            DetailStrip(items: [
+                (String(localized: "detail.system.source", defaultValue: "Source"), String(localized: "detail.system.sourceValue", defaultValue: "macOS live data")),
+                (String(localized: "detail.system.refresh", defaultValue: "Refresh"), String(localized: "detail.system.refreshValue", defaultValue: "Every 3 sec")),
+                (String(localized: "detail.system.access", defaultValue: "Access"), String(localized: "detail.system.accessValue", defaultValue: "Read only"))
+            ])
         }
     }
 
@@ -610,14 +644,14 @@ struct NotchView: View {
                 chooseTrayFiles()
             case .open:
                 selectedURLs.forEach { NSWorkspace.shared.open($0) }
-                trayFeedback = selectedURLs.isEmpty ? "Select a file" : "Opened"
+                trayFeedback = selectedURLs.isEmpty ? String(localized: "tray.feedback.selectAFile", defaultValue: "Select a file") : String(localized: "tray.feedback.opened", defaultValue: "Opened")
             case .reveal:
                 guard !selectedURLs.isEmpty else {
-                    trayFeedback = "Select a file"
+                    trayFeedback = String(localized: "tray.feedback.selectAFile", defaultValue: "Select a file")
                     return
                 }
                 NSWorkspace.shared.activateFileViewerSelecting(selectedURLs)
-                trayFeedback = "Shown in Finder"
+                trayFeedback = String(localized: "tray.feedback.shownInFinder", defaultValue: "Shown in Finder")
             case .clear:
                 let clearedCount = trayItems.count
                 pendingTrayUndo = trayItems
@@ -625,22 +659,22 @@ struct NotchView: View {
                 selectedTrayItemID = nil
                 syncTrayState()
                 controller.releaseTrayHold()
-                trayFeedback = "Cleared \(clearedCount) item\(clearedCount == 1 ? "" : "s")"
+                trayFeedback = String(localized: "tray.feedback.clearedItems", defaultValue: "Cleared \(clearedCount) item\(clearedCount == 1 ? "" : "s")")
                 scheduleTrayUndoExpiry()
             case .removeSelected:
                 guard let selectedTrayItemID,
                       let index = trayItems.firstIndex(where: { $0.id == selectedTrayItemID }) else {
-                    trayFeedback = "Select a file"
+                    trayFeedback = String(localized: "tray.feedback.selectAFile", defaultValue: "Select a file")
                     return
                 }
                 pendingTrayUndo = [trayItems.remove(at: index)]
                 self.selectedTrayItemID = trayItems.indices.contains(index) ? trayItems[index].id : trayItems.last?.id
                 syncTrayState()
-                trayFeedback = "Removed from Tray"
+                trayFeedback = String(localized: "tray.feedback.removedFromTray", defaultValue: "Removed from Tray")
                 scheduleTrayUndoExpiry()
             case .removeItem(let itemID):
                 guard let index = trayItems.firstIndex(where: { $0.id == itemID }) else {
-                    trayFeedback = "Select a file"
+                    trayFeedback = String(localized: "tray.feedback.selectAFile", defaultValue: "Select a file")
                     return
                 }
                 pendingTrayUndo = [trayItems.remove(at: index)]
@@ -648,7 +682,7 @@ struct NotchView: View {
                     selectedTrayItemID = trayItems.indices.contains(index) ? trayItems[index].id : trayItems.last?.id
                 }
                 syncTrayState()
-                trayFeedback = "Removed from Tray"
+                trayFeedback = String(localized: "tray.feedback.removedFromTray", defaultValue: "Removed from Tray")
                 scheduleTrayUndoExpiry()
             case .undo:
                 guard !pendingTrayUndo.isEmpty else { return }
@@ -661,27 +695,27 @@ struct NotchView: View {
                 selectedTrayItemID = restored.last?.id
                 syncTrayState()
                 controller.keepTrayOpen()
-                trayFeedback = "Restored"
+                trayFeedback = String(localized: "tray.feedback.restored", defaultValue: "Restored")
             case .copyPath:
                 NSPasteboard.general.clearContents()
                 NSPasteboard.general.setString(selectedURLs.map(\.path).joined(separator: "\n"), forType: .string)
-                trayFeedback = "Paths copied"
+                trayFeedback = String(localized: "tray.feedback.pathsCopied", defaultValue: "Paths copied")
             case .airDrop:
                 if let service = NSSharingService(named: .sendViaAirDrop), service.canPerform(withItems: selectedURLs) {
                     service.perform(withItems: selectedURLs)
-                    trayFeedback = "AirDrop opened"
+                    trayFeedback = String(localized: "tray.feedback.airDropOpened", defaultValue: "AirDrop opened")
                 } else {
-                    trayFeedback = "AirDrop unavailable"
+                    trayFeedback = String(localized: "tray.feedback.airDropUnavailable", defaultValue: "AirDrop unavailable")
                 }
             case .compress:
-                trayFeedback = "Compressing…"
+                trayFeedback = String(localized: "tray.feedback.compressing", defaultValue: "Compressing…")
                 Task {
                     trayFeedback = await compressTrayItems(selectedURLs)
                 }
             case .attach:
                 NSPasteboard.general.clearContents()
                 NSPasteboard.general.writeObjects(selectedURLs.map { $0 as NSURL })
-                trayFeedback = "Ready to paste into agent"
+                trayFeedback = String(localized: "tray.feedback.readyToPaste", defaultValue: "Ready to paste into agent")
             }
         }
     }
@@ -694,7 +728,7 @@ struct NotchView: View {
         }
         selectedTrayItemID = trayItems.last?.id
         isDropTargeted = false
-        trayFeedback = urls.isEmpty ? "Drop failed" : "Saved temporarily"
+        trayFeedback = urls.isEmpty ? String(localized: "tray.feedback.dropFailed", defaultValue: "Drop failed") : String(localized: "tray.feedback.savedTemporarily", defaultValue: "Saved temporarily")
         syncTrayState()
         if !trayItems.isEmpty { controller.keepTrayOpen() }
         SoundPlayer.shared.play(.action)
@@ -708,11 +742,15 @@ struct NotchView: View {
 
     private func scheduleTrayUndoExpiry() {
         trayUndoTask?.cancel()
+        // Compare against the message captured at schedule time rather than
+        // specific English text — the text is localized, so a literal string
+        // match would silently stop working once translations are in place.
+        let feedbackAtSchedule = trayFeedback
         trayUndoTask = Task { @MainActor in
             try? await Task.sleep(nanoseconds: 5_000_000_000)
             guard !Task.isCancelled else { return }
             pendingTrayUndo.removeAll()
-            if trayFeedback?.hasPrefix("Cleared ") == true || trayFeedback == "Removed from Tray" {
+            if trayFeedback == feedbackAtSchedule {
                 trayFeedback = nil
             }
         }
@@ -723,7 +761,7 @@ struct NotchView: View {
         picker.allowsMultipleSelection = true
         picker.canChooseFiles = true
         picker.canChooseDirectories = true
-        picker.prompt = "Add to Tray"
+        picker.prompt = String(localized: "tray.addToTrayPrompt", defaultValue: "Add to Tray")
         NSApp.activate(ignoringOtherApps: true)
         picker.begin { response in
             guard response == .OK else { return }
@@ -732,7 +770,7 @@ struct NotchView: View {
     }
 
     private func compressTrayItems(_ urls: [URL]) async -> String {
-        guard !urls.isEmpty, let directory = urls.first?.deletingLastPathComponent() else { return "Nothing to compress" }
+        guard !urls.isEmpty, let directory = urls.first?.deletingLastPathComponent() else { return String(localized: "tray.feedback.nothingToCompress", defaultValue: "Nothing to compress") }
         var output = directory.appendingPathComponent("AgentNotch Archive.zip")
         var suffix = 2
         while FileManager.default.fileExists(atPath: output.path) {
@@ -747,12 +785,12 @@ struct NotchView: View {
         let outputName = output.lastPathComponent
         return await withCheckedContinuation { continuation in
             process.terminationHandler = { finished in
-                continuation.resume(returning: finished.terminationStatus == 0 ? "Saved \(outputName)" : "Compression failed")
+                continuation.resume(returning: finished.terminationStatus == 0 ? String(localized: "tray.feedback.savedArchive", defaultValue: "Saved \(outputName)") : String(localized: "tray.feedback.compressionFailed", defaultValue: "Compression failed"))
             }
             do {
                 try process.run()
             } catch {
-                continuation.resume(returning: "Compression failed")
+                continuation.resume(returning: String(localized: "tray.feedback.compressionFailed", defaultValue: "Compression failed"))
             }
         }
     }
@@ -1305,18 +1343,18 @@ private struct AgentsCell: View {
 
     private var emptyState: some View {
         VStack(spacing: 7) {
-            Label("Watching for agent activity", systemImage: "antenna.radiowaves.left.and.right")
+            Label(String(localized: "agents.watchingForActivity", defaultValue: "Watching for agent activity"), systemImage: "antenna.radiowaves.left.and.right")
                 .font(.system(size: 12, weight: .semibold))
                 .foregroundColor(.white.opacity(0.88))
-            Text("Claude Code, Codex and compatible CLIs appear here automatically.")
+            Text(String(localized: "agents.watchingForActivityDetail", defaultValue: "Claude Code, Codex and compatible CLIs appear here automatically."))
                 .font(.system(size: 10))
                 .foregroundColor(DesignTokens.muted)
                 .multilineTextAlignment(.center)
                 .lineLimit(2)
             HStack(spacing: 6) {
-                agentChip("Claude Code", symbol: "sparkle")
-                agentChip("Codex", symbol: "chevron.left.forwardslash.chevron.right")
-                agentChip("Terminal", symbol: "terminal")
+                agentChip(String(localized: "agents.chip.claudeCode", defaultValue: "Claude Code"), symbol: "sparkle")
+                agentChip(String(localized: "agents.chip.codex", defaultValue: "Codex"), symbol: "chevron.left.forwardslash.chevron.right")
+                agentChip(String(localized: "agents.chip.terminal", defaultValue: "Terminal"), symbol: "terminal")
             }
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
@@ -1357,7 +1395,7 @@ private struct AgentsCell: View {
                     .foregroundColor(.white)
                     .lineLimit(1)
                     .truncationMode(.tail)
-                Text("\(session.agent.displayName) · \(cwdTail(session.cwd))")
+                Text(String(localized: "agents.agentAndCwd", defaultValue: "\(session.agent.displayName) · \(cwdTail(session.cwd))"))
                     .font(.system(size: 9))
                     .foregroundColor(DesignTokens.muted)
                     .lineLimit(1)
@@ -1388,7 +1426,7 @@ private struct AgentsCell: View {
             SoundPlayer.shared.play(.navigation)
             Jumper.jump(to: session)
         }
-        .help("Double-click to return to \(session.agent.displayName)")
+        .help(String(localized: "agents.doubleClickToReturn", defaultValue: "Double-click to return to \(session.agent.displayName)"))
     }
 
     private func activityRow(_ session: AgentSession) -> some View {
@@ -1424,11 +1462,11 @@ private struct AgentsCell: View {
                                 uiState.selectedSessionId = session.id
                             }
                         } label: {
-                            Label("\(session.agent.displayName) · \(session.title)", systemImage: session.id == selected?.id ? "checkmark" : "circle.fill")
+                            Label(String(localized: "agents.sessionMenuItem", defaultValue: "\(session.agent.displayName) · \(session.title)"), systemImage: session.id == selected?.id ? "checkmark" : "circle.fill")
                         }
                     }
                 } label: {
-                    Label("Sessions \(store.sessions.count)", systemImage: "rectangle.stack")
+                    Label(String(localized: "agents.sessionsCount", defaultValue: "Sessions \(store.sessions.count)"), systemImage: "rectangle.stack")
                         .font(.system(size: 10, weight: .medium))
                         .padding(.horizontal, 9)
                         .frame(height: 30)
@@ -1436,23 +1474,23 @@ private struct AgentsCell: View {
                 }
                 .menuStyle(.borderlessButton)
                 .menuIndicator(.hidden)
-                .help("Switch coding-agent session")
+                .help(String(localized: "agents.switchSession", defaultValue: "Switch coding-agent session"))
             }
             Spacer(minLength: 4)
             if let selected, selected.isManagedProcess {
                 MiniButton(
-                    title: selected.state == .idle ? "Resume" : "Pause",
+                    title: selected.state == .idle ? String(localized: "agents.action.resume", defaultValue: "Resume") : String(localized: "agents.action.pause", defaultValue: "Pause"),
                     icon: selected.state == .idle ? "play.fill" : "pause.fill",
-                    helpText: selected.state == .idle ? "Resume the managed process" : "Pause the managed process"
+                    helpText: selected.state == .idle ? String(localized: "agents.action.resumeHelp", defaultValue: "Resume the managed process") : String(localized: "agents.action.pauseHelp", defaultValue: "Pause the managed process")
                 ) {
                     let action: ManagedSessionAction = selected.state == .idle ? .resume : .pause
-                    actionFeedback = store.controlManagedSession(id: selected.id, action: action) ? nil : "Could not control process"
+                    actionFeedback = store.controlManagedSession(id: selected.id, action: action) ? nil : String(localized: "agents.action.controlFailed", defaultValue: "Could not control process")
                 }
-                MiniButton(title: "Stop", icon: "stop.fill", isDanger: true, helpText: "Stop the managed process") {
-                    actionFeedback = store.controlManagedSession(id: selected.id, action: .stop) ? "Stopping…" : "Could not stop process"
+                MiniButton(title: String(localized: "agents.action.stop", defaultValue: "Stop"), icon: "stop.fill", isDanger: true, helpText: String(localized: "agents.action.stopHelp", defaultValue: "Stop the managed process")) {
+                    actionFeedback = store.controlManagedSession(id: selected.id, action: .stop) ? String(localized: "agents.action.stopping", defaultValue: "Stopping…") : String(localized: "agents.action.stopFailed", defaultValue: "Could not stop process")
                 }
             }
-            MiniButton(title: "Terminal", icon: "terminal", helpText: "Return to Terminal") {
+            MiniButton(title: String(localized: "agents.action.terminal", defaultValue: "Terminal"), icon: "terminal", helpText: String(localized: "agents.action.terminalHelp", defaultValue: "Return to Terminal")) {
                 if let selected {
                     Jumper.jump(to: selected)
                 }
@@ -1466,11 +1504,11 @@ private struct AgentsCell: View {
 
     private func sessionStateLabel(_ state: SessionState) -> String {
         switch state {
-        case .running: return "Running"
-        case .waitingApproval: return "Needs attention"
-        case .done: return "Done"
-        case .idle: return "Paused"
-        case .failed: return "Failed"
+        case .running: return String(localized: "agents.state.running", defaultValue: "Running")
+        case .waitingApproval: return String(localized: "agents.state.needsAttention", defaultValue: "Needs attention")
+        case .done: return String(localized: "agents.state.done", defaultValue: "Done")
+        case .idle: return String(localized: "agents.state.paused", defaultValue: "Paused")
+        case .failed: return String(localized: "agents.state.failed", defaultValue: "Failed")
         }
     }
 }
@@ -1579,19 +1617,19 @@ private struct MediaCell: View {
                     ProgressView(value: media.progress)
                         .progressViewStyle(.linear)
                         .tint(Color(nsColor: media.accentColor))
-                        .accessibilityLabel("Playback progress")
+                        .accessibilityLabel(String(localized: "media.playbackProgress", defaultValue: "Playback progress"))
                         .accessibilityValue(timeLabel)
                     HStack {
                         if media.hasMedia {
-                            MediaControlButton(icon: "backward.fill", help: "Previous", action: media.previous)
-                            MediaControlButton(icon: media.isPlaying ? "pause.fill" : "play.fill", help: media.isPlaying ? "Pause" : "Play", prominent: true, action: media.togglePlayback)
-                            MediaControlButton(icon: "forward.fill", help: "Next", action: media.next)
+                            MediaControlButton(icon: "backward.fill", help: String(localized: "media.previous", defaultValue: "Previous"), action: media.previous)
+                            MediaControlButton(icon: media.isPlaying ? "pause.fill" : "play.fill", help: media.isPlaying ? String(localized: "media.pause", defaultValue: "Pause") : String(localized: "media.play", defaultValue: "Play"), prominent: true, action: media.togglePlayback)
+                            MediaControlButton(icon: "forward.fill", help: String(localized: "media.next", defaultValue: "Next"), action: media.next)
                         } else {
                             Button {
                                 SoundPlayer.shared.play(.action)
                                 media.refresh()
                             } label: {
-                                Label("Check Now Playing", systemImage: "arrow.clockwise")
+                                Label(String(localized: "media.checkNowPlaying", defaultValue: "Check Now Playing"), systemImage: "arrow.clockwise")
                                     .font(.system(size: 8.5, weight: .medium))
                                     .padding(.horizontal, 9)
                                     .frame(height: 24)
@@ -1599,10 +1637,10 @@ private struct MediaCell: View {
                             }
                             .buttonStyle(NotchPressStyle())
                             .hoverLift(cornerRadius: 8)
-                            .help("Check the current macOS media session")
+                            .help(String(localized: "media.checkNowPlayingHelp", defaultValue: "Check the current macOS media session"))
                         }
                         Spacer()
-                        Text(media.hasMedia ? timeLabel : (media.isConnected ? media.source : "Unavailable"))
+                        Text(media.hasMedia ? timeLabel : (media.isConnected ? media.source : String(localized: "media.unavailable", defaultValue: "Unavailable")))
                             .font(.system(size: 9, design: .rounded))
                             .foregroundColor(DesignTokens.muted)
                         if media.hasMedia {
@@ -1623,7 +1661,7 @@ private struct MediaCell: View {
     }
 
     private var timeLabel: String {
-        guard media.hasMedia, media.duration > 1 else { return "Position unavailable" }
+        guard media.hasMedia, media.duration > 1 else { return String(localized: "media.positionUnavailable", defaultValue: "Position unavailable") }
         func format(_ seconds: Double) -> String {
             let value = max(Int(seconds.rounded()), 0)
             return String(format: "%d:%02d", value / 60, value % 60)
@@ -1772,7 +1810,7 @@ private struct TodayCell: View {
             Divider().overlay(DesignTokens.line)
             VStack(alignment: .leading, spacing: 7) {
                 if model.events.isEmpty {
-                    Label("No more events today", systemImage: "calendar.badge.checkmark")
+                    Label(String(localized: "today.noMoreEventsToday", defaultValue: "No more events today"), systemImage: "calendar.badge.checkmark")
                         .font(.system(size: 10.5, weight: .medium))
                         .foregroundColor(.white.opacity(0.72))
                 } else {
@@ -1792,9 +1830,9 @@ private struct TodayCell: View {
 
     private func calendarPermissionContent(remaining: Int?) -> some View {
         VStack(spacing: 8) {
-            Label(remaining == nil || remaining == 0 ? "Focus for 25 minutes" : "Focus is active", systemImage: remaining == nil || remaining == 0 ? "moon.stars.fill" : "timer")
+            Label(remaining == nil || remaining == 0 ? String(localized: "today.focusFor25Minutes", defaultValue: "Focus for 25 minutes") : String(localized: "today.focusIsActive", defaultValue: "Focus is active"), systemImage: remaining == nil || remaining == 0 ? "moon.stars.fill" : "timer")
                 .font(.system(size: 12, weight: .semibold))
-            Text(remaining == nil || remaining == 0 ? "A local timer keeps the current task in view." : "The timer continues when you switch views or close the Nook.")
+            Text(remaining == nil || remaining == 0 ? String(localized: "today.focusLocalTimerDescription", defaultValue: "A local timer keeps the current task in view.") : String(localized: "today.focusContinuesDescription", defaultValue: "The timer continues when you switch views or close the Nook."))
                 .font(.system(size: 10))
                 .foregroundColor(DesignTokens.muted)
                 .multilineTextAlignment(.center)
@@ -1803,7 +1841,7 @@ private struct TodayCell: View {
                 SoundPlayer.shared.play(.action)
                 model.requestAccess()
             } label: {
-                Label("Show today's Calendar events", systemImage: "calendar.badge.plus")
+                Label(String(localized: "today.showCalendarEvents", defaultValue: "Show today's Calendar events"), systemImage: "calendar.badge.plus")
                     .font(.system(size: 10, weight: .medium))
                     .padding(.horizontal, 10)
                     .frame(height: 28)
@@ -1812,7 +1850,7 @@ private struct TodayCell: View {
             .buttonStyle(NotchPressStyle())
             .hoverLift(cornerRadius: 8)
             .accessibilityIdentifier("today.enable-calendar")
-            .help("Allow access to today's events")
+            .help(String(localized: "today.allowAccessHelp", defaultValue: "Allow access to today's events"))
             if let error = model.errorMessage {
                 Text(error)
                     .font(.system(size: 9.5))
@@ -1838,12 +1876,13 @@ private struct TodayCell: View {
         .buttonStyle(NotchPressStyle())
         .hoverLift(cornerRadius: 9)
         .accessibilityIdentifier("today.focus")
-        .help(remaining == nil || remaining == 0 ? "Start a 25 minute local focus timer" : "End Focus")
+        .help(remaining == nil || remaining == 0 ? String(localized: "today.startFocusHelp", defaultValue: "Start a 25 minute local focus timer") : String(localized: "today.endFocus", defaultValue: "End Focus"))
     }
 
     private func focusLabel(_ remaining: Int?) -> String {
-        guard let remaining, remaining > 0 else { return "Start Focus" }
-        return String(format: "End Focus · %02d:%02d", remaining / 60, remaining % 60)
+        guard let remaining, remaining > 0 else { return String(localized: "today.startFocus", defaultValue: "Start Focus") }
+        let format = String(localized: "today.endFocusWithTime", defaultValue: "End Focus · %02d:%02d")
+        return String(format: format, remaining / 60, remaining % 60)
     }
 }
 
@@ -1885,11 +1924,11 @@ private struct SystemCell: View {
                             ProgressView().controlSize(.small).tint(.white.opacity(0.8))
                         }
                         HStack {
-                            Label("Running in background", systemImage: "clock.arrow.circlepath")
+                            Label(String(localized: "system.runningInBackground", defaultValue: "Running in background"), systemImage: "clock.arrow.circlepath")
                                 .font(.system(size: 9.5, weight: .medium))
                                 .foregroundColor(.white.opacity(0.58))
                             if background.activities.count > 1 {
-                                Text("+\(background.activities.count - 1) more")
+                                Text(String(localized: "system.moreActivities", defaultValue: "+\(background.activities.count - 1) more"))
                                     .font(.system(size: 9.5, weight: .medium))
                                     .foregroundColor(DesignTokens.muted)
                             }
@@ -1906,14 +1945,14 @@ private struct SystemCell: View {
                     HStack(spacing: 6) {
                         SystemActionCard(
                             icon: monitor.isCharging ? "battery.100percent.bolt" : "battery.75percent",
-                            title: monitor.batteryLevel == nil ? "Power" : "Battery",
-                            value: monitor.batteryLevel.map { "\($0)%" } ?? "AC power",
-                            detail: monitor.batteryLevel == nil ? "No battery detected" : batteryDetail
+                            title: monitor.batteryLevel == nil ? String(localized: "system.power", defaultValue: "Power") : String(localized: "system.battery", defaultValue: "Battery"),
+                            value: monitor.batteryLevel.map { "\($0)%" } ?? String(localized: "system.acPower", defaultValue: "AC power"),
+                            detail: monitor.batteryLevel == nil ? String(localized: "system.noBatteryDetected", defaultValue: "No battery detected") : batteryDetail
                         ) { openSystemSettings("x-apple.systempreferences:com.apple.Battery-Settings.extension") }
-                        SystemActionCard(icon: "memorychip", title: "Memory", value: monitor.memoryUsed, detail: monitor.memoryDetail) {
+                        SystemActionCard(icon: "memorychip", title: String(localized: "system.memory", defaultValue: "Memory"), value: monitor.memoryUsed, detail: monitor.memoryDetail) {
                             NSWorkspace.shared.open(URL(fileURLWithPath: "/System/Applications/Utilities/Activity Monitor.app"))
                         }
-                        SystemActionCard(icon: "externaldrive", title: "Free storage", value: monitor.storageAvailable, detail: monitor.storageDetail) {
+                        SystemActionCard(icon: "externaldrive", title: String(localized: "system.freeStorage", defaultValue: "Free storage"), value: monitor.storageAvailable, detail: monitor.storageDetail) {
                             openSystemSettings("x-apple.systempreferences:com.apple.settings.Storage")
                         }
                     }
@@ -1922,9 +1961,9 @@ private struct SystemCell: View {
                             .font(.system(size: 11, weight: .medium))
                             .foregroundColor(.white.opacity(0.55))
                         VStack(alignment: .leading, spacing: 1) {
-                            Text("No active background work")
+                            Text(String(localized: "system.noActiveBackgroundWork", defaultValue: "No active background work"))
                                 .font(.system(size: 10.5, weight: .medium))
-                            Text("Builds, Git transfers and downloads appear here")
+                            Text(String(localized: "system.noActiveBackgroundWorkDetail", defaultValue: "Builds, Git transfers and downloads appear here"))
                                 .font(.system(size: 9.5))
                                 .foregroundColor(DesignTokens.muted)
                         }
@@ -1941,16 +1980,16 @@ private struct SystemCell: View {
 
     private var batteryDetail: String {
         guard let remaining = monitor.timeRemainingLabel else {
-            return monitor.isCharging ? "Charging" : "Open settings"
+            return monitor.isCharging ? String(localized: "system.charging", defaultValue: "Charging") : String(localized: "system.openSettings", defaultValue: "Open settings")
         }
-        return monitor.isCharging ? "Charging · \(remaining) remaining" : "\(remaining) remaining"
+        return monitor.isCharging ? String(localized: "system.chargingRemaining", defaultValue: "Charging · \(remaining) remaining") : String(localized: "system.remaining", defaultValue: "\(remaining) remaining")
     }
 
     private var activityMonitorButton: some View {
         Button {
             NSWorkspace.shared.open(URL(fileURLWithPath: "/System/Applications/Utilities/Activity Monitor.app"))
         } label: {
-            Label("Activity Monitor", systemImage: "gauge.with.dots.needle.50percent")
+            Label(String(localized: "system.activityMonitor", defaultValue: "Activity Monitor"), systemImage: "gauge.with.dots.needle.50percent")
                 .font(.system(size: 9.5, weight: .medium))
                 .padding(.horizontal, 10)
                 .frame(height: 30)
@@ -2008,7 +2047,7 @@ private struct SystemActionCard: View {
         }
         .buttonStyle(NotchPressStyle())
         .hoverLift(cornerRadius: 10)
-        .help("Open \(title) details")
+        .help(String(localized: "system.openDetailsHelp", defaultValue: "Open \(title) details"))
     }
 }
 
@@ -2058,7 +2097,7 @@ private struct TrayCell: View {
                             .lineLimit(1)
                     }
                     if canUndo {
-                        Button("Undo") { action(.undo) }
+                        Button(String(localized: "tray.undo", defaultValue: "Undo")) { action(.undo) }
                             .buttonStyle(.plain)
                             .font(.system(size: 10, weight: .semibold))
                             .foregroundColor(.white.opacity(0.86))
@@ -2066,18 +2105,18 @@ private struct TrayCell: View {
                     }
                     Spacer(minLength: 4)
                     if items.isEmpty {
-                        TrayButton("Choose Files", "plus", action: { action(.choose) })
+                        TrayButton(String(localized: "tray.chooseFiles", defaultValue: "Choose Files"), "plus", action: { action(.choose) })
                     } else {
-                        TrayButton("Open", "arrow.up.forward.app", action: { action(.open) })
-                        TrayButton("Finder", "folder", action: { action(.reveal) })
-                        TrayButton("AirDrop", "airplayaudio", action: { action(.airDrop) })
-                        TrayButton("Copy for Agent", "paperclip", action: { action(.attach) })
+                        TrayButton(String(localized: "tray.open", defaultValue: "Open"), "arrow.up.forward.app", action: { action(.open) })
+                        TrayButton(String(localized: "tray.finder", defaultValue: "Finder"), "folder", action: { action(.reveal) })
+                        TrayButton(String(localized: "tray.airDrop", defaultValue: "AirDrop"), "airplayaudio", action: { action(.airDrop) })
+                        TrayButton(String(localized: "tray.copyForAgent", defaultValue: "Copy for Agent"), "paperclip", action: { action(.attach) })
                         Menu {
-                            Button("Compress", systemImage: "archivebox") { action(.compress) }
-                            Button("Copy Path", systemImage: "doc.on.doc") { action(.copyPath) }
+                            Button(String(localized: "tray.compress", defaultValue: "Compress"), systemImage: "archivebox") { action(.compress) }
+                            Button(String(localized: "tray.copyPath", defaultValue: "Copy Path"), systemImage: "doc.on.doc") { action(.copyPath) }
                             Divider()
-                            Button("Remove Selected", systemImage: "minus.circle", role: .destructive) { action(.removeSelected) }
-                            Button("Clear All", systemImage: "trash", role: .destructive) {
+                            Button(String(localized: "tray.removeSelected", defaultValue: "Remove Selected"), systemImage: "minus.circle", role: .destructive) { action(.removeSelected) }
+                            Button(String(localized: "tray.clearAll", defaultValue: "Clear All"), systemImage: "trash", role: .destructive) {
                                 SoundPlayer.shared.play(.deny)
                                 action(.clear)
                             }
@@ -2088,7 +2127,7 @@ private struct TrayCell: View {
                         }
                         .menuStyle(.borderlessButton)
                         .menuIndicator(.hidden)
-                        .help("More file actions")
+                        .help(String(localized: "tray.moreFileActionsHelp", defaultValue: "More file actions"))
                     }
                 }
             }.foregroundColor(.white)
@@ -2096,12 +2135,12 @@ private struct TrayCell: View {
     }
 
     private var statusLabel: String {
-        guard !items.isEmpty else { return "Tray is empty" }
+        guard !items.isEmpty else { return String(localized: "tray.isEmpty", defaultValue: "Tray is empty") }
         guard let selectedItemID,
               let selected = items.first(where: { $0.id == selectedItemID }) else {
-            return "\(items.count) item\(items.count == 1 ? "" : "s")"
+            return String(localized: "tray.itemCount", defaultValue: "\(items.count) item\(items.count == 1 ? "" : "s")")
         }
-        return "\(selected.url.lastPathComponent) · \(items.count) item\(items.count == 1 ? "" : "s")"
+        return String(localized: "tray.selectedItemCount", defaultValue: "\(selected.url.lastPathComponent) · \(items.count) item\(items.count == 1 ? "" : "s")")
     }
 
     @ViewBuilder
@@ -2118,9 +2157,9 @@ private struct TrayCell: View {
                             Image(systemName: "tray.and.arrow.down.fill")
                                 .font(.system(size: 21, weight: .medium))
                             VStack(alignment: .leading, spacing: 3) {
-                                Text("Drop files here")
+                                Text(String(localized: "tray.dropFilesHere", defaultValue: "Drop files here"))
                                     .font(.system(size: 12, weight: .semibold))
-                                Text("or click to choose from Finder")
+                                Text(String(localized: "tray.clickToChoose", defaultValue: "or click to choose from Finder"))
                                     .font(.system(size: 8.5))
                                     .foregroundColor(DesignTokens.muted)
                             }
@@ -2128,7 +2167,7 @@ private struct TrayCell: View {
                     )
             }
             .buttonStyle(NotchPressStyle())
-            .help("Add files to the temporary Tray")
+            .help(String(localized: "tray.addFilesHelp", defaultValue: "Add files to the temporary Tray"))
         } else {
             ScrollView(.horizontal, showsIndicators: false) {
                 HStack(spacing: 8) {
@@ -2176,7 +2215,7 @@ private struct TrayCell: View {
                             }
                             .buttonStyle(.plain)
                             .offset(x: 4, y: -4)
-                            .help("Remove \(item.url.lastPathComponent) from Tray")
+                            .help(String(localized: "tray.removeItemHelp", defaultValue: "Remove \(item.url.lastPathComponent) from Tray"))
                         }
                     }
                     Button { action(.choose) } label: {
@@ -2186,7 +2225,7 @@ private struct TrayCell: View {
                             .background(RoundedRectangle(cornerRadius: 11).fill(Color.white.opacity(0.04)))
                     }
                     .buttonStyle(NotchPressStyle())
-                    .help("Add more files")
+                    .help(String(localized: "tray.addMoreFiles", defaultValue: "Add more files"))
                 }
                 .padding(.horizontal, 2)
             }
@@ -2223,10 +2262,10 @@ private struct PlanReviewView: View {
     var body: some View {
         CellSurface {
             VStack(alignment: .leading, spacing: 7) {
-                Label("\(request.agent.displayName) · Plan Review", systemImage: "list.bullet.clipboard").font(.system(size: 11, weight: .semibold))
+                Label(String(localized: "plan.reviewHeader", defaultValue: "\(request.agent.displayName) · Plan Review"), systemImage: "list.bullet.clipboard").font(.system(size: 11, weight: .semibold))
                 Text(request.title).font(.system(size: 12, weight: .semibold)).lineLimit(1).help(request.title)
                 Text(request.summary).font(.system(size: 10)).foregroundColor(DesignTokens.muted).lineLimit(2).help(request.summary)
-                TextField("Add a comment…", text: $comment)
+                TextField(String(localized: "plan.addCommentPlaceholder", defaultValue: "Add a comment…"), text: $comment)
                     .textFieldStyle(.plain)
                     .font(.system(size: 10.5))
                     .padding(.horizontal, 9)
@@ -2236,9 +2275,9 @@ private struct PlanReviewView: View {
                     .focused($commentFocused)
                     .onExitCommand { commentFocused = false }
                 HStack {
-                    MiniButton(title: "Changes", icon: "arrow.uturn.backward", isDanger: true, helpText: "Request changes") { resolve("request_changes", comment) }
-                    MiniButton(title: "Approve", icon: "checkmark", isPrimary: true, helpText: "Approve plan") { resolve("approve", comment) }
-                    MiniButton(title: "Terminal", icon: "terminal", helpText: "Open the working directory in Terminal") {
+                    MiniButton(title: String(localized: "plan.changesButton", defaultValue: "Changes"), icon: "arrow.uturn.backward", isDanger: true, helpText: String(localized: "plan.requestChangesHelp", defaultValue: "Request changes")) { resolve("request_changes", comment) }
+                    MiniButton(title: String(localized: "plan.approveButton", defaultValue: "Approve"), icon: "checkmark", isPrimary: true, helpText: String(localized: "plan.approvePlanHelp", defaultValue: "Approve plan")) { resolve("approve", comment) }
+                    MiniButton(title: String(localized: "plan.terminalButton", defaultValue: "Terminal"), icon: "terminal", helpText: String(localized: "plan.openInTerminalHelp", defaultValue: "Open the working directory in Terminal")) {
                         NSWorkspace.shared.open(URL(fileURLWithPath: request.cwd))
                     }
                 }
@@ -2265,7 +2304,7 @@ private struct AgentQuestionView: View {
         CellSurface {
             VStack(alignment: .leading, spacing: 7) {
                 HStack(spacing: 6) {
-                    Label("\(request.agent.displayName) asks", systemImage: request.agent.symbolName)
+                    Label(String(localized: "question.asks", defaultValue: "\(request.agent.displayName) asks"), systemImage: request.agent.symbolName)
                         .font(.system(size: 12, weight: .semibold))
                         .foregroundColor(request.agent == .codex ? .white.opacity(0.9) : DesignTokens.cyan)
                     Text(request.header)
@@ -2277,7 +2316,7 @@ private struct AgentQuestionView: View {
                         .background(Capsule().fill(Color.white.opacity(0.07)))
                     Spacer(minLength: 4)
                     if !request.options.isEmpty {
-                        Button(customMode ? "Choices" : "Other…") {
+                        Button(customMode ? String(localized: "question.choices", defaultValue: "Choices") : String(localized: "question.other", defaultValue: "Other…")) {
                             withAnimation(.easeOut(duration: 0.20)) {
                                 customMode.toggle()
                             }
@@ -2289,7 +2328,7 @@ private struct AgentQuestionView: View {
                         .padding(.horizontal, 7)
                         .frame(height: 24)
                         .background(Capsule().fill(Color.white.opacity(0.07)))
-                        .help(customMode ? "Show choices" : "Type another answer")
+                        .help(customMode ? String(localized: "question.showChoicesHelp", defaultValue: "Show choices") : String(localized: "question.otherHelp", defaultValue: "Type another answer"))
                     }
                 }
                 Text(request.prompt)
@@ -2332,7 +2371,7 @@ private struct AgentQuestionView: View {
         VStack(alignment: .leading, spacing: 8) {
             ZStack(alignment: .topLeading) {
                 if customAnswer.isEmpty {
-                    Text("Type your answer…")
+                    Text(String(localized: "question.typeYourAnswer", defaultValue: "Type your answer…"))
                         .font(.system(size: 12))
                         .foregroundColor(DesignTokens.muted)
                         .padding(.horizontal, 12)
@@ -2351,7 +2390,7 @@ private struct AgentQuestionView: View {
             .background(RoundedRectangle(cornerRadius: 11).fill(Color.white.opacity(0.06)))
             .overlay(RoundedRectangle(cornerRadius: 11).stroke(customFieldFocused ? Color.white.opacity(0.28) : Color.white.opacity(0.05), lineWidth: 1))
             Button { submitCustomAnswer() } label: {
-                Label("Send answer", systemImage: "arrow.up")
+                Label(String(localized: "question.sendAnswer", defaultValue: "Send answer"), systemImage: "arrow.up")
                     .font(.system(size: 10.5, weight: .semibold))
                     .frame(maxWidth: .infinity, minHeight: 32)
                     .background(RoundedRectangle(cornerRadius: 8).fill(Color.white.opacity(0.92)))
@@ -2415,7 +2454,7 @@ private struct QuestionChoiceButton: View {
         .onHover { hovering = $0 }
         .animation(.easeOut(duration: 0.18), value: hovering)
         .keyboardShortcut(key, modifiers: .command)
-        .help(detail.isEmpty ? "Choose \(title)" : "\(title)\n\(detail)")
+        .help(detail.isEmpty ? String(localized: "question.chooseHelp", defaultValue: "Choose \(title)") : String(localized: "question.choiceHelpWithDetail", defaultValue: "\(title)\n\(detail)"))
     }
 }
 
@@ -2443,10 +2482,10 @@ private struct ApprovalOverlayView: View {
                             .font(.system(size: 30, weight: .medium))
                             .foregroundColor(decision == .allow ? DesignTokens.green : DesignTokens.red)
                             .symbolEffect(.bounce, value: decision)
-                        Text(decision == .allow ? "Allowed once" : "Denied")
+                        Text(decision == .allow ? String(localized: "approval.allowedOnce", defaultValue: "Allowed once") : String(localized: "approval.denied", defaultValue: "Denied"))
                             .font(.system(size: 14, weight: .semibold))
                             .tracking(-0.1)
-                        Text(decision == .allow ? "\(agent.displayName) can continue this action" : "\(agent.displayName) will return to the task")
+                        Text(decision == .allow ? String(localized: "approval.canContinue", defaultValue: "\(agent.displayName) can continue this action") : String(localized: "approval.willReturn", defaultValue: "\(agent.displayName) will return to the task"))
                             .font(.system(size: 9.5))
                             .foregroundColor(DesignTokens.muted)
                     }
@@ -2458,12 +2497,12 @@ private struct ApprovalOverlayView: View {
                             Image(systemName: "exclamationmark.triangle.fill")
                                 .font(.system(size: 10))
                                 .foregroundColor(DesignTokens.orange)
-                            Text("\(agent.displayName) requests permission")
+                            Text(String(localized: "approval.requestsPermission", defaultValue: "\(agent.displayName) requests permission"))
                                 .font(.system(size: 12, weight: .medium))
                                 .foregroundColor(DesignTokens.muted)
                             Spacer()
                             if extraCount > 0 {
-                                Text("+\(extraCount)")
+                                Text(String(localized: "approval.extraCount", defaultValue: "+\(extraCount)"))
                                 .font(.system(size: 10.5, weight: .semibold))
                                     .padding(.horizontal, 6)
                                     .frame(height: 18)
@@ -2483,7 +2522,7 @@ private struct ApprovalOverlayView: View {
                                 .lineLimit(1)
                                 .truncationMode(.middle)
                         }
-                        Text(summary.isEmpty ? "Review this action before Claude continues." : summary)
+                        Text(summary.isEmpty ? String(localized: "approval.reviewAction", defaultValue: "Review this action before Claude continues.") : summary)
                             .font(.system(size: 11, design: .monospaced))
                             .foregroundColor(.white.opacity(0.58))
                             .padding(.horizontal, 9)
@@ -2491,9 +2530,9 @@ private struct ApprovalOverlayView: View {
                             .background(RoundedRectangle(cornerRadius: 8).fill(Color.black.opacity(0.28)))
                         Spacer(minLength: 2)
                         HStack(spacing: 8) {
-                            ApprovalActionButton(title: "Deny", shortcut: "⌘N", icon: "xmark", role: .deny) { decide(.deny) }
+                            ApprovalActionButton(title: String(localized: "approval.deny", defaultValue: "Deny"), shortcut: "⌘N", icon: "xmark", role: .deny) { decide(.deny) }
                                 .disabled(!isInteractive)
-                            ApprovalActionButton(title: "Allow once", shortcut: "⌘Y", icon: "checkmark", role: .allow) { decide(.allow) }
+                            ApprovalActionButton(title: String(localized: "approval.allowOnce", defaultValue: "Allow once"), shortcut: "⌘Y", icon: "checkmark", role: .allow) { decide(.allow) }
                                 .disabled(!isInteractive)
                         }
                     }
@@ -2564,10 +2603,10 @@ private struct PlanApprovalOverlayView: View {
                             .font(.system(size: 30, weight: .medium))
                             .foregroundColor(decision == .allow ? DesignTokens.green : DesignTokens.red)
                             .symbolEffect(.bounce, value: decision)
-                        Text(decision == .allow ? "Plan approved" : "Kept planning")
+                        Text(decision == .allow ? String(localized: "plan.approved", defaultValue: "Plan approved") : String(localized: "plan.keptPlanning", defaultValue: "Kept planning"))
                             .font(.system(size: 14, weight: .semibold))
                             .tracking(-0.1)
-                        Text(decision == .allow ? "\(agent.displayName) will start implementing" : "\(agent.displayName) will keep refining the plan")
+                        Text(decision == .allow ? String(localized: "plan.willStartImplementing", defaultValue: "\(agent.displayName) will start implementing") : String(localized: "plan.willKeepRefining", defaultValue: "\(agent.displayName) will keep refining the plan"))
                             .font(.system(size: 9.5))
                             .foregroundColor(DesignTokens.muted)
                     }
@@ -2579,17 +2618,17 @@ private struct PlanApprovalOverlayView: View {
                             Image(systemName: "list.bullet.clipboard.fill")
                                 .font(.system(size: 10))
                                 .foregroundColor(DesignTokens.orange)
-                            Text("\(agent.displayName) is ready with a plan")
+                            Text(String(localized: "plan.readyWithPlan", defaultValue: "\(agent.displayName) is ready with a plan"))
                                 .font(.system(size: 12, weight: .medium))
                                 .foregroundColor(DesignTokens.muted)
                             Spacer()
                         }
                         VStack(spacing: 5) {
-                            PlanChoiceButton(title: "Yes, auto mode", detail: "Approve and apply edits automatically", isPrimary: true) { decide(.allow) }
+                            PlanChoiceButton(title: String(localized: "plan.yesAutoMode", defaultValue: "Yes, auto mode"), detail: String(localized: "plan.yesAutoModeDetail", defaultValue: "Approve and apply edits automatically"), isPrimary: true) { decide(.allow) }
                                 .disabled(!isInteractive)
-                            PlanChoiceButton(title: "Yes, manually approve edits", detail: "Approve, confirm each edit yourself", isPrimary: true) { decide(.allow) }
+                            PlanChoiceButton(title: String(localized: "plan.yesManuallyApprove", defaultValue: "Yes, manually approve edits"), detail: String(localized: "plan.yesManuallyApproveDetail", defaultValue: "Approve, confirm each edit yourself"), isPrimary: true) { decide(.allow) }
                                 .disabled(!isInteractive)
-                            PlanChoiceButton(title: "No, keep planning", detail: "Send back for more revisions", isPrimary: false) { decide(.deny) }
+                            PlanChoiceButton(title: String(localized: "plan.noKeepPlanning", defaultValue: "No, keep planning"), detail: String(localized: "plan.noKeepPlanningDetail", defaultValue: "Send back for more revisions"), isPrimary: false) { decide(.deny) }
                                 .disabled(!isInteractive)
                         }
                     }
@@ -2694,7 +2733,7 @@ private struct ApprovalActionButton: View {
         .onHover { hovering = $0 }
         .animation(.easeOut(duration: 0.18), value: hovering)
         .keyboardShortcut(role == .allow ? KeyEquivalent("y") : KeyEquivalent("n"), modifiers: .command)
-        .help(role == .allow ? "Allow this action once" : "Deny this action")
+        .help(role == .allow ? String(localized: "approval.allowOnceHelp", defaultValue: "Allow this action once") : String(localized: "approval.denyHelp", defaultValue: "Deny this action"))
     }
 
     private var foreground: Color { role == .allow ? .black : .white.opacity(0.86) }

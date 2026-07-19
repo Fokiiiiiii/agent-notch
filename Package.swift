@@ -4,7 +4,11 @@ let package = Package(
     name: "agent-notch",
     platforms: [.macOS(.v14)],
     targets: [
-        .executableTarget(name: "AgentNotch", path: "Sources/AgentNotch"),
+        .executableTarget(
+            name: "AgentNotch",
+            path: "Sources/AgentNotch",
+            resources: [.process("Resources/Localizable.xcstrings")]
+        ),
         .executableTarget(name: "agent-notch-bridge", path: "Sources/agent-notch-bridge"),
     ]
 )

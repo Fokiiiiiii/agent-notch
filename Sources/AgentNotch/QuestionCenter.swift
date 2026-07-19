@@ -25,11 +25,11 @@ final class QuestionCenter: ObservableObject {
         let first = (event.toolInput["questions"] as? [[String: Any]])?.first
         let prompt = (first?["question"] as? String)
             ?? (event.toolInput["message"] as? String)
-            ?? "Agent needs your input"
-        let header = (first?["header"] as? String) ?? "Agent asks"
+            ?? String(localized: "question.fallbackPrompt", defaultValue: "Agent needs your input")
+        let header = (first?["header"] as? String) ?? String(localized: "question.fallbackHeader", defaultValue: "Agent asks")
         let options = ((first?["options"] as? [[String: Any]]) ?? []).prefix(3).map {
             Option(
-                label: ($0["label"] as? String) ?? "Option",
+                label: ($0["label"] as? String) ?? String(localized: "question.fallbackOptionLabel", defaultValue: "Option"),
                 detail: ($0["description"] as? String) ?? ""
             )
         }
