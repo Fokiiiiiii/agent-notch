@@ -126,6 +126,7 @@ final class CodexWatcher {
 
         var cwd: String?
         var lastMessage: String?
+        var contextUsedPercent: Double?
 
         // Walk from the end to find the most recent cwd / agent message / command.
         for rawLine in lines.reversed() {
@@ -155,7 +156,17 @@ final class CodexWatcher {
                 }
             }
 
-            if cwd != nil, lastMessage != nil {
+            if contextUsedPercent == nil, topType == "event_msg", (payload?["type"] as? String) == "token_count" {
+                if let info = payload?["info"] as? [String: Any],
+                   let totalUsage = info["total_token_usage"] as? [String: Any],
+                   let totalTokens = (totalUsage["total_tokens"] as? NSNumber)?.doubleValue,
+                   let contextWindow = (info["model_context_window"] as? NSNumber)?.doubleValue,
+                   contextWindow > 0 {
+                    contextUsedPercent = (totalTokens / contextWindow) * 100
+                }
+            }
+
+            if cwd != nil, lastMessage != nil, contextUsedPercent != nil {
                 break
             }
         }
@@ -175,7 +186,8 @@ final class CodexWatcher {
             cwd: cwd,
             lastActivity: modDate,
             state: state,
-            lastMessage: lastMessage ?? "…"
+            lastMessage: lastMessage ?? "…",
+            contextUsedPercent: contextUsedPercent
         )
     }
 

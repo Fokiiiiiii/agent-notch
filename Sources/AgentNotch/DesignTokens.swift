@@ -53,4 +53,18 @@ extension DesignTokens {
     static func scaledOpenRadius(_ settings: AppSettings = .shared) -> CGFloat {
         openRadius * settings.cornerRadiusScale
     }
+
+    /// `spring` scaled by `AppSettings.animationSpeedScale`. A larger scale
+    /// lengthens `response` (slower settle); a smaller scale shortens it.
+    /// `dampingFraction` is left untouched since it's a ratio, not a duration.
+    @MainActor
+    static func scaledSpring(_ settings: AppSettings = .shared) -> Animation {
+        .spring(response: 0.42 * settings.animationSpeedScale, dampingFraction: 0.92)
+    }
+
+    /// `contentTransition` scaled by `AppSettings.animationSpeedScale`.
+    @MainActor
+    static func scaledContentTransition(_ settings: AppSettings = .shared) -> Animation {
+        .easeInOut(duration: 0.30 * settings.animationSpeedScale)
+    }
 }

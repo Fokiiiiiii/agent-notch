@@ -150,10 +150,13 @@ final class NotchWindowController: NSObject {
     /// Sessions beyond this count no longer grow the panel further —
     /// `AgentsCell.sessionList`'s own `ScrollView` takes over instead, so
     /// the notch never grows large enough to run off-screen.
-    private let agentsMaxVisibleRows = 4
+    private let agentsMaxVisibleRows = 6
     /// Absolute ceiling on the Agents tab height, independent of session
     /// count, as a second safety net alongside `agentsMaxVisibleRows`.
-    private let agentsMaxHeight: CGFloat = 340
+    /// `agentsBaseHeight + agentsRowHeight * 5` (6 visible rows) = 426pt;
+    /// capped a bit below that so the panel still comfortably fits on
+    /// screen rather than growing exactly to the theoretical max.
+    private let agentsMaxHeight: CGFloat = 400
     private var hoverTask: Task<Void, Never>?
     private var noticeAutoDismissTask: Task<Void, Never>?
     private var cancellables = Set<AnyCancellable>()
@@ -184,6 +187,11 @@ final class NotchWindowController: NSObject {
     private var verticalScrollTotal: CGFloat = 0
     private var didCommitCurrentVerticalScroll = false
     private var lastDiscreteVerticalSwitch: TimeInterval = 0
+    /// Coalesces same-runloop-tick `resizeForCurrentState()` requests (e.g.
+    /// `activeTab`, `activeView`, and `store.sessions` all changing from one
+    /// user action) into a single deferred resize, so `NSAnimationContext`
+    /// animation groups don't race against each other mid-flight.
+    private var resizeScheduled = false
     /// Ids of permission/question/plan requests already surfaced via a
     /// fallback native notification (fullscreen suppression), so the same
     /// event never notifies twice as visibility toggles.
@@ -338,7 +346,7 @@ final class NotchWindowController: NSObject {
             .dropFirst()
             .sink { [weak self] _ in
                 guard let self, self.uiState.mode == .open else { return }
-                self.resizeForCurrentState()
+                self.scheduleResize()
             }
             .store(in: &cancellables)
 
@@ -346,15 +354,21 @@ final class NotchWindowController: NSObject {
             .dropFirst()
             .sink { [weak self] _ in
                 guard let self, self.uiState.mode == .closed else { return }
-                self.resizeForCurrentState()
+                self.scheduleResize()
             }
             .store(in: &cancellables)
 
         uiState.$activeTab
             .dropFirst()
             .sink { [weak self] _ in
-                guard let self, self.uiState.mode == .open else { return }
-                self.resizeForCurrentState()
+                guard let self else { return }
+                // A detail panel left expanded from a previous tab would
+                // otherwise carry its extra height into the new tab's size
+                // calculation (`resizeForCurrentState`), making the notch
+                // look wrong-sized after switching.
+                self.uiState.isDetailExpanded = false
+                guard self.uiState.mode == .open else { return }
+                self.scheduleResize()
             }
             .store(in: &cancellables)
 
@@ -364,8 +378,22 @@ final class NotchWindowController: NSObject {
         uiState.$activeView
             .dropFirst()
             .sink { [weak self] _ in
-                guard let self, self.uiState.mode == .open else { return }
-                self.resizeForCurrentState()
+                guard let self else { return }
+                self.uiState.isDetailExpanded = false
+                guard self.uiState.mode == .open else { return }
+                self.scheduleResize()
+            }
+            .store(in: &cancellables)
+
+        // Dropping a file into the tray (or clearing it) while fullscreen
+        // suppression is already active must re-evaluate visibility: items
+        // arriving should surface the notch, and clearing the last item
+        // should let normal fullscreen suppression resume.
+        uiState.$trayHasItems
+            .dropFirst()
+            .sink { [weak self] _ in
+                guard let self, Self.isNonFinderFullscreen(on: self.screen) else { return }
+                self.refreshVisibilityForCurrentSpace()
             }
             .store(in: &cancellables)
 
@@ -380,7 +408,7 @@ final class NotchWindowController: NSObject {
                       self.uiState.mode == .open,
                       self.uiState.activeTab == .nook,
                       self.uiState.activeView == .agents else { return }
-                self.resizeForCurrentState()
+                self.scheduleResize()
             }
             .store(in: &cancellables)
 
@@ -572,11 +600,25 @@ final class NotchWindowController: NSObject {
             uiState.isMediaPreviewVisible = false
         }
         uiState.mode = mode
-        resizeForCurrentState()
+        scheduleResize()
         if mode == .closed {
             scheduleHideIfIdle()
         } else {
             hideTask?.cancel()
+        }
+    }
+
+    /// Defers `resizeForCurrentState()` to the next runloop turn and drops
+    /// duplicate requests queued before it runs, so several state changes
+    /// firing in the same tick (e.g. `activeTab` and `activeView` both
+    /// updating from one tab switch) collapse into a single animation.
+    private func scheduleResize() {
+        guard !resizeScheduled else { return }
+        resizeScheduled = true
+        DispatchQueue.main.async { [weak self] in
+            guard let self else { return }
+            self.resizeScheduled = false
+            self.resizeForCurrentState()
         }
     }
 
@@ -616,7 +658,7 @@ final class NotchWindowController: NSObject {
         let targetFrame = NotchWindowController.frame(for: scaled(targetSize), on: screen)
 
         NSAnimationContext.runAnimationGroup { context in
-            context.duration = uiState.mode == .closed ? 0.25 : 0.40
+            context.duration = (uiState.mode == .closed ? 0.25 : 0.40) * AppSettings.shared.animationSpeedScale
             context.timingFunction = CAMediaTimingFunction(controlPoints: 0.20, 0.72, 0.24, 1)
             panel.animator().setFrame(targetFrame, display: true)
         }
@@ -696,7 +738,7 @@ final class NotchWindowController: NSObject {
         // `fullscreenHoverSize` (the narrow hover-only hit region used while
         // fullscreen-suppressed) even though SwiftUI now renders full-width
         // `.closed` content into it — physically clipping the right side.
-        resizeForCurrentState()
+        scheduleResize()
     }
 
     /// Shows the notch immediately and expands it, from any starting state
@@ -770,7 +812,7 @@ final class NotchWindowController: NSObject {
         isClickPinned = true
         uiState.isVisible = true
         uiState.mode = .open
-        resizeForCurrentState()
+        scheduleResize()
     }
 
     func hideFromCLI() {
@@ -781,7 +823,7 @@ final class NotchWindowController: NSObject {
         uiState.approvalOutcome = nil
         uiState.mode = .closed
         uiState.isVisible = false
-        resizeForCurrentState()
+        scheduleResize()
     }
 
     func toggleOpen() {
@@ -812,7 +854,7 @@ final class NotchWindowController: NSObject {
         if uiState.mode != .open {
             setMode(.open)
         } else {
-            resizeForCurrentState()
+            scheduleResize()
         }
     }
 
@@ -840,7 +882,7 @@ final class NotchWindowController: NSObject {
         guard uiState.mode == .open, uiState.overlay == nil else { return }
         guard uiState.isDetailExpanded != expanded else { return }
         uiState.isDetailExpanded = expanded
-        resizeForCurrentState()
+        scheduleResize()
         SoundPlayer.shared.play(.navigation)
     }
 
@@ -939,6 +981,13 @@ final class NotchWindowController: NSObject {
             } else {
                 showMinimal()
             }
+        } else if uiState.trayHasItems {
+            // Files parked in the tray are otherwise unreachable once the
+            // notch is fully hidden, so a non-empty tray keeps a minimal
+            // pill up even under fullscreen suppression (bypassing the
+            // normal suppression guard `showMinimal()` respects).
+            hideTask?.cancel()
+            showMinimal(bypassFullscreenSuppression: true)
         } else {
             hoverTask?.cancel()
             dwellTask?.cancel()
@@ -947,7 +996,7 @@ final class NotchWindowController: NSObject {
             uiState.isDetailExpanded = false
             uiState.mode = .closed
             uiState.isVisible = false
-            resizeForCurrentState()
+            scheduleResize()
         }
     }
 
@@ -1022,6 +1071,13 @@ final class NotchWindowController: NSObject {
     }
 
     private func handleVerticalScroll(_ event: NSEvent, delta deltaY: CGFloat) {
+        // The Agents tab hosts its own vertical `ScrollView` for the session
+        // list; treating ordinary list scrolling as a "swipe to expand
+        // detail" gesture there was firing accidentally. Agents and Media no
+        // longer have a detail panel at all (NotchView.hasDetailPanel), so
+        // swipe-to-expand is disabled for both.
+        guard uiState.activeView != .agents, uiState.activeView != .media else { return }
+
         if event.phase == .began {
             verticalScrollTotal = 0
             didCommitCurrentVerticalScroll = false
@@ -1056,7 +1112,7 @@ final class NotchWindowController: NSObject {
     private func navigatePage(forward: Bool) {
         let animation: Animation = NSWorkspace.shared.accessibilityDisplayShouldReduceMotion
             ? .easeOut(duration: 0.14)
-            : DesignTokens.contentTransition
+            : DesignTokens.scaledContentTransition()
 
         withAnimation(animation) {
             if uiState.activeTab == .tray {

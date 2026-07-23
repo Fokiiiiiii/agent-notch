@@ -115,4 +115,6 @@ struct AgentSession: Identifiable {
     var lastMessage: String  // 例 "Writing middleware.ts"
     var processID: Int32? = nil
     var isManagedProcess: Bool = false
+    /// 現在のセッション会話がコンテキストウィンドウの何%を使用しているか（0-100）。取得不可の場合はnil。
+    var contextUsedPercent: Double? = nil
 }

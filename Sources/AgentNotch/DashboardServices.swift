@@ -7,8 +7,11 @@ import IOKit.ps
 struct TodayEvent: Identifiable {
     let id: String
     let startDate: Date
+    let endDate: Date
     let title: String
     let calendar: String
+    let location: String?
+    let attendeeCount: Int?
 }
 
 @MainActor
@@ -51,11 +54,15 @@ final class TodayModel: ObservableObject {
             .filter { !$0.isAllDay }
             .prefix(4)
             .map {
-                TodayEvent(
+                let trimmedLocation = $0.location?.trimmingCharacters(in: .whitespacesAndNewlines)
+                return TodayEvent(
                     id: $0.eventIdentifier ?? UUID().uuidString,
                     startDate: $0.startDate,
+                    endDate: $0.endDate ?? $0.startDate,
                     title: $0.title ?? "Untitled event",
-                    calendar: $0.calendar.title
+                    calendar: $0.calendar.title,
+                    location: (trimmedLocation?.isEmpty == false) ? trimmedLocation : nil,
+                    attendeeCount: $0.hasAttendees ? $0.attendees?.count : nil
                 )
             }
     }

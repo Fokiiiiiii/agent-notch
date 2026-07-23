@@ -110,6 +110,7 @@ final class ClaudeWatcher {
         var cwd: String?
         var slug: String?
         var lastMessage: String?
+        var contextUsedPercent: Double?
 
         // Walk from the end to find the most recent metadata / message.
         for rawLine in lines.reversed() {
@@ -145,7 +146,22 @@ final class ClaudeWatcher {
                 }
             }
 
-            if sessionId != nil, cwd != nil, lastMessage != nil {
+            if contextUsedPercent == nil, (obj["type"] as? String) == "assistant" {
+                if let message = obj["message"] as? [String: Any],
+                   let usage = message["usage"] as? [String: Any] {
+                    let inputTokens = (usage["input_tokens"] as? NSNumber)?.doubleValue ?? 0
+                    let cacheCreation = (usage["cache_creation_input_tokens"] as? NSNumber)?.doubleValue ?? 0
+                    let cacheRead = (usage["cache_read_input_tokens"] as? NSNumber)?.doubleValue ?? 0
+                    let usedTokens = inputTokens + cacheCreation + cacheRead
+                    if usedTokens > 0 {
+                        let modelName = message["model"] as? String
+                        let contextWindow = Self.contextWindowTokens(forModel: modelName)
+                        contextUsedPercent = (usedTokens / contextWindow) * 100
+                    }
+                }
+            }
+
+            if sessionId != nil, cwd != nil, lastMessage != nil, contextUsedPercent != nil {
                 break
             }
         }
@@ -172,8 +188,21 @@ final class ClaudeWatcher {
             cwd: cwd,
             lastActivity: modDate,
             state: state,
-            lastMessage: lastMessage ?? "…"
+            lastMessage: lastMessage ?? "…",
+            contextUsedPercent: contextUsedPercent
         )
+    }
+
+    /// Default context window (in tokens) for current Claude models when the
+    /// exact figure can't be looked up. Models with an explicit extended
+    /// ("1M") context variant in their name get the larger window; everything
+    /// else falls back to the standard ~200k window.
+    private static func contextWindowTokens(forModel model: String?) -> Double {
+        guard let model = model?.lowercased() else { return 200_000 }
+        if model.contains("1m") {
+            return 1_000_000
+        }
+        return 200_000
     }
 
     /// Heuristically detects slugs that were derived from a URL (e.g. pasted link

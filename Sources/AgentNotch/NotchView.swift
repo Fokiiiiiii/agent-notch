@@ -10,6 +10,9 @@ struct NotchView: View {
     @EnvironmentObject var uiState: NotchUIState
     @StateObject private var media = MediaController.shared
     @StateObject private var usageStore = AgentUsageStore.shared
+    @StateObject private var todayModel = TodayModel()
+    @StateObject private var systemMonitor = SystemMonitor()
+    @StateObject private var backgroundActivity = BackgroundActivityMonitor()
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @State private var trayItems: [TrayItem] = []
     @State private var selectedTrayItemID: UUID?
@@ -45,7 +48,7 @@ struct NotchView: View {
             .compositingGroup()
             .opacity(uiState.isVisible ? 1 : 0)
             .allowsHitTesting(uiState.isVisible)
-            .animation(DesignTokens.spring, value: uiState.mode)
+            .animation(DesignTokens.scaledSpring(), value: uiState.mode)
         }
         .contentShape(Rectangle())
         .onHover {
@@ -73,7 +76,7 @@ struct NotchView: View {
     }
 
     private var shellShape: UnevenRoundedRectangle {
-        let radius = uiState.mode == .open ? DesignTokens.openRadius : DesignTokens.closedRadius
+        let radius = uiState.mode == .open ? DesignTokens.scaledOpenRadius() : DesignTokens.scaledClosedRadius()
         return UnevenRoundedRectangle(
             topLeadingRadius: 0,
             bottomLeadingRadius: radius,
@@ -358,7 +361,7 @@ struct NotchView: View {
                 insertion: .opacity.combined(with: .offset(y: reduceMotion ? 0 : 3)),
                 removal: .opacity.combined(with: .offset(y: reduceMotion ? 0 : -2))
             ))
-            .animation(reduceMotion ? .easeOut(duration: 0.14) : DesignTokens.contentTransition, value: contentIdentity)
+            .animation(reduceMotion ? .easeOut(duration: 0.14) : DesignTokens.scaledContentTransition(), value: contentIdentity)
             .frame(maxHeight: .infinity)
             .offset(x: reduceMotion ? 0 : horizontalDrag / 7)
             .offset(y: reduceMotion ? 0 : rubberBand(verticalDrag, limit: 36) / 8)
@@ -475,7 +478,7 @@ struct NotchView: View {
                 }
             }
             .frame(maxHeight: .infinity)
-            if uiState.overlay == nil, uiState.isDetailExpanded {
+            if uiState.overlay == nil, uiState.isDetailExpanded, hasDetailPanel(for: uiState.activeView) {
                 expandedDetail
                     .transition(.opacity.combined(with: .offset(y: reduceMotion ? 0 : -3)))
             }
@@ -573,19 +576,23 @@ struct NotchView: View {
                 .accessibilityIdentifier("notch.view.\(view.title.lowercased())")
                 .help(uiState.activeView == view ? String(localized: "nook.tab.currentView", defaultValue: "Current view") : String(localized: "nook.tab.showView", defaultValue: "Show \(view.title)"))
             }
-            Spacer(minLength: 2)
-            Button { controller.toggleDetailExpansion() } label: {
-                Label(String(localized: "nook.tab.details", defaultValue: "Details"), systemImage: uiState.isDetailExpanded ? "chevron.up" : "chevron.down")
-                    .font(.system(size: 9.5, weight: .medium))
-                    .foregroundColor(.white.opacity(0.60))
-                    .padding(.horizontal, 9)
-                    .frame(height: 28)
-                    .background(Capsule().fill(Color.white.opacity(0.055)))
+            if hasDetailPanel(for: uiState.activeView) {
+                Spacer(minLength: 2)
+                Button { controller.toggleDetailExpansion() } label: {
+                    Label(String(localized: "nook.tab.details", defaultValue: "Details"), systemImage: uiState.isDetailExpanded ? "chevron.up" : "chevron.down")
+                        .font(.system(size: 9.5, weight: .medium))
+                        .foregroundColor(.white.opacity(0.60))
+                        .padding(.horizontal, 9)
+                        .frame(height: 28)
+                        .background(Capsule().fill(Color.white.opacity(0.055)))
+                }
+                .buttonStyle(NotchPressStyle(pressedScale: 0.9))
+                .hoverLift(cornerRadius: 9)
+                .accessibilityIdentifier("notch.details")
+                .help(uiState.isDetailExpanded ? String(localized: "nook.tab.collapseDetails", defaultValue: "Collapse details") : String(localized: "nook.tab.expandDetails", defaultValue: "Expand details"))
+            } else {
+                Spacer(minLength: 2)
             }
-            .buttonStyle(NotchPressStyle(pressedScale: 0.9))
-            .hoverLift(cornerRadius: 9)
-            .accessibilityIdentifier("notch.details")
-            .help(uiState.isDetailExpanded ? String(localized: "nook.tab.collapseDetails", defaultValue: "Collapse details") : String(localized: "nook.tab.expandDetails", defaultValue: "Expand details"))
         }
         .frame(height: 30)
     }
@@ -599,48 +606,89 @@ struct NotchView: View {
         }
     }
 
+    /// Agents and Media have no detail panel: their metadata is fully
+    /// covered by the always-visible main content, so a separate panel
+    /// would only repeat it. System and Today surface additional data here.
+    private func hasDetailPanel(for view: NookView) -> Bool {
+        view == .system || view == .today
+    }
+
     @ViewBuilder
     private var expandedDetail: some View {
         switch uiState.activeView {
-        case .agents:
-            HStack(spacing: 6) {
-                DetailBox(label: String(localized: "detail.agents.repository", defaultValue: "Repository")) {
-                    Text(selectedSession.map { URL(fileURLWithPath: $0.cwd).lastPathComponent } ?? "—")
-                        .font(.system(size: 8.5, weight: .medium))
-                        .foregroundColor(.white.opacity(0.82))
-                        .lineLimit(2)
-                        .truncationMode(.tail)
-                }
-                DetailBox(label: String(localized: "detail.agents.activity", defaultValue: "Activity")) {
-                    Text(selectedSession?.lastMessage ?? String(localized: "detail.agents.noActiveSession", defaultValue: "No active session"))
-                        .font(.system(size: 8.5, weight: .medium))
-                        .foregroundColor(.white.opacity(0.82))
-                        .lineLimit(2)
-                        .truncationMode(.tail)
-                }
-                DetailBox(label: String(localized: "detail.agents.usage", defaultValue: "Usage")) {
-                    UsageBarStack(snapshot: selectedSession.flatMap { usageStore.snapshots[$0.agent] })
-                }
-            }
-        case .media:
-            DetailStrip(items: [
-                (String(localized: "detail.media.sources", defaultValue: "Sources"), String(localized: "detail.media.sourcesValue", defaultValue: "System Now Playing")),
-                (String(localized: "detail.media.control", defaultValue: "Control"), String(localized: "detail.media.controlValue", defaultValue: "Current media session")),
-                (String(localized: "detail.media.privacy", defaultValue: "Privacy"), String(localized: "detail.media.privacyValue", defaultValue: "Local only"))
-            ])
+        case .agents, .media:
+            EmptyView()
         case .today:
-            DetailStrip(items: [
-                (String(localized: "detail.today.calendar", defaultValue: "Calendar"), String(localized: "detail.today.calendarValue", defaultValue: "Today only")),
-                (String(localized: "detail.today.focus", defaultValue: "Focus"), String(localized: "detail.today.focusValue", defaultValue: "Local timer")),
-                (String(localized: "detail.today.privacy", defaultValue: "Privacy"), String(localized: "detail.today.privacyValue", defaultValue: "On-device"))
-            ])
+            DetailStrip(items: orderedDetailItems(tabId: "today", items: [
+                ("today.location", String(localized: "detail.today.location", defaultValue: "Location"), todayLocationValue),
+                ("today.duration", String(localized: "detail.today.duration", defaultValue: "Duration"), todayDurationValue),
+                ("today.attendees", String(localized: "detail.today.attendees", defaultValue: "Attendees"), todayAttendeesValue)
+            ]))
+            .onAppear { todayModel.refresh() }
         case .system:
-            DetailStrip(items: [
-                (String(localized: "detail.system.source", defaultValue: "Source"), String(localized: "detail.system.sourceValue", defaultValue: "macOS live data")),
-                (String(localized: "detail.system.refresh", defaultValue: "Refresh"), String(localized: "detail.system.refreshValue", defaultValue: "Every 3 sec")),
-                (String(localized: "detail.system.access", defaultValue: "Access"), String(localized: "detail.system.accessValue", defaultValue: "Read only"))
-            ])
+            DetailStrip(items: orderedDetailItems(tabId: "system", items: [
+                ("system.uptime", String(localized: "detail.system.uptime", defaultValue: "Uptime"), systemMonitor.uptime),
+                ("system.activity", String(localized: "detail.system.activity", defaultValue: "Also running"), systemMoreActivityValue)
+            ]))
         }
+    }
+
+    /// Reorders/filters `items` (each `(id, label, value)`) using
+    /// `AppSettings.shared.tabLayouts[tabId]`, falling back to `items`'
+    /// built-in order untouched when no layout is saved for this tab (the
+    /// default, until a future settings UI writes one). This is the only
+    /// place `tabLayouts` currently affects rendering — the data model is
+    /// otherwise inert until a layout-editing UI exists.
+    private func orderedDetailItems(tabId: String, items: [(id: String, label: String, value: String)]) -> [(String, String)] {
+        guard let configuration = AppSettings.shared.tabLayouts[tabId] else {
+            return items.map { ($0.label, $0.value) }
+        }
+        let byId = Dictionary(uniqueKeysWithValues: items.map { ($0.id, $0) })
+        let orderedIds = configuration.applying(to: items.map(\.id))
+        return orderedIds.compactMap { byId[$0] }.map { ($0.label, $0.value) }
+    }
+
+    private var todayLocationValue: String {
+        guard let event = todayModel.events.first else {
+            return String(localized: "detail.today.noEvent", defaultValue: "No event")
+        }
+        return event.location ?? String(localized: "detail.today.locationNone", defaultValue: "No location")
+    }
+
+    private var todayDurationValue: String {
+        guard let event = todayModel.events.first else {
+            return String(localized: "detail.today.noEvent", defaultValue: "No event")
+        }
+        let minutes = max(Int(event.endDate.timeIntervalSince(event.startDate) / 60), 0)
+        guard minutes > 0 else {
+            return String(localized: "detail.today.durationUnknown", defaultValue: "—")
+        }
+        if minutes >= 60 {
+            let hours = minutes / 60
+            let remainder = minutes % 60
+            return remainder > 0
+                ? String(localized: "detail.today.durationHoursMinutes", defaultValue: "\(String(hours))h \(String(remainder))m")
+                : String(localized: "detail.today.durationHours", defaultValue: "\(String(hours))h")
+        }
+        return String(localized: "detail.today.durationMinutes", defaultValue: "\(String(minutes)) min")
+    }
+
+    private var todayAttendeesValue: String {
+        guard let event = todayModel.events.first else {
+            return String(localized: "detail.today.noEvent", defaultValue: "No event")
+        }
+        guard let count = event.attendeeCount, count > 0 else {
+            return String(localized: "detail.today.attendeesJustYou", defaultValue: "Just you")
+        }
+        return String(localized: "detail.today.attendeesCount", defaultValue: "\(String(count)) people")
+    }
+
+    private var systemMoreActivityValue: String {
+        let extra = backgroundActivity.activities.dropFirst()
+        guard !extra.isEmpty else {
+            return String(localized: "detail.system.activityNone", defaultValue: "Nothing else running")
+        }
+        return extra.map { "\($0.title) (\($0.elapsedLabel))" }.joined(separator: ", ")
     }
 
     private var trayContent: some View {
@@ -830,11 +878,13 @@ struct NotchView: View {
         DragGesture(minimumDistance: 10, coordinateSpace: .local)
             .updating($verticalDrag) { value, state, _ in
                 guard uiState.overlay == nil,
+                      uiState.activeView != .agents, uiState.activeView != .media,
                       abs(value.translation.height) > abs(value.translation.width) else { return }
                 state = value.translation.height
             }
             .onEnded { value in
                 guard uiState.overlay == nil,
+                      uiState.activeView != .agents, uiState.activeView != .media,
                       abs(value.translation.height) > abs(value.translation.width) * 1.15 else { return }
                 let projected = value.predictedEndTranslation.height
                 let committed = abs(value.translation.height) > 34 || abs(projected) > 58
@@ -852,7 +902,7 @@ struct NotchView: View {
     private func selectTab(_ tab: NotchTab) {
         guard uiState.activeTab != tab else { return }
         SoundPlayer.shared.play(.navigation)
-        withAnimation(reduceMotion ? .easeOut(duration: 0.12) : DesignTokens.spring) {
+        withAnimation(reduceMotion ? .easeOut(duration: 0.12) : DesignTokens.scaledSpring()) {
             uiState.activeTab = tab
         }
     }
@@ -860,7 +910,7 @@ struct NotchView: View {
     private func selectView(_ view: NookView) {
         guard uiState.activeView != view else { return }
         SoundPlayer.shared.play(.navigation)
-        withAnimation(reduceMotion ? .easeOut(duration: 0.12) : DesignTokens.contentTransition) {
+        withAnimation(reduceMotion ? .easeOut(duration: 0.12) : DesignTokens.scaledContentTransition()) {
             uiState.activeView = view
         }
     }
@@ -907,8 +957,8 @@ private struct DetailStrip: View {
 }
 
 /// A single labeled box used inside the expanded detail strip. Extracted so
-/// callers (e.g. the Agents tab's usage row) can swap in richer content than
-/// a plain text value while keeping the same box chrome/sizing.
+/// callers can swap in richer content than a plain text value while keeping
+/// the same box chrome/sizing.
 private struct DetailBox<Content: View>: View {
     let label: String
     @ViewBuilder var content: () -> Content
@@ -926,8 +976,7 @@ private struct DetailBox<Content: View>: View {
     }
 }
 
-/// Shared label for a usage window ("5h"/"Day"/"Week"), used by both the
-/// detailed `UsageBarStack` (inside the expanded detail strip) and the
+/// Shared label for a usage window ("5h"/"Day"/"Week"), used by the
 /// always-visible compact `UsageSummaryBar` (pinned atop the Agents cell).
 private func usageWindowLabel(_ window: UsageWindow) -> String {
     switch window.windowMinutes ?? 0 {
@@ -937,83 +986,12 @@ private func usageWindowLabel(_ window: UsageWindow) -> String {
     }
 }
 
-/// Renders an agent's usage windows (e.g. "5h"/"Day") as compact mini
-/// progress bars instead of a dense text string, so remaining quota reads at
-/// a glance. Falls back to a short status text when no usage data exists.
-private struct UsageBarStack: View {
-    let snapshot: AgentUsageSnapshot?
-
-    private var windows: [(String, UsageWindow)] {
-        guard let snapshot else { return [] }
-        return [snapshot.primary, snapshot.secondary]
-            .compactMap { $0 }
-            .map { (usageWindowLabel($0), $0) }
-    }
-
-    var body: some View {
-        if windows.isEmpty {
-            Text(snapshot?.error == nil
-                 ? String(localized: "detail.agents.noUsageWindow", defaultValue: "No usage window")
-                 : String(localized: "detail.agents.unavailable", defaultValue: "Unavailable"))
-                .font(.system(size: 8.5, weight: .medium))
-                .foregroundColor(.white.opacity(0.82))
-        } else {
-            VStack(alignment: .leading, spacing: 3) {
-                ForEach(windows, id: \.0) { label, window in
-                    UsageBar(label: label, usedPercent: window.usedPercent)
-                }
-            }
-        }
-    }
-}
-
-private struct UsageBar: View {
-    let label: String
-    let usedPercent: Double
-
-    private var clampedPercent: Double {
-        min(max(usedPercent, 0), 100)
-    }
-
-    /// Warns as remaining quota shrinks: green under 80% used, orange from
-    /// 80%, red from 95%.
-    private var barColor: Color {
-        if clampedPercent >= 95 { return DesignTokens.red }
-        if clampedPercent >= 80 { return DesignTokens.orange }
-        return DesignTokens.green
-    }
-
-    var body: some View {
-        HStack(spacing: 4) {
-            Text(label)
-                .font(.system(size: 7, weight: .medium))
-                .foregroundColor(.white.opacity(0.6))
-                .frame(width: 20, alignment: .leading)
-            GeometryReader { geometry in
-                ZStack(alignment: .leading) {
-                    RoundedRectangle(cornerRadius: 2)
-                        .fill(Color.white.opacity(0.12))
-                    RoundedRectangle(cornerRadius: 2)
-                        .fill(barColor)
-                        .frame(width: geometry.size.width * clampedPercent / 100)
-                }
-            }
-            .frame(height: 4)
-            Text("\(Int(clampedPercent.rounded()))%")
-                .font(.system(size: 7.5, weight: .semibold))
-                .foregroundColor(clampedPercent >= 80 ? barColor : .white.opacity(0.72))
-                .frame(width: 24, alignment: .trailing)
-                .accessibilityLabel(String(localized: "usage.percentUsedAccessibility", defaultValue: "\(Int(clampedPercent.rounded())) percent used"))
-        }
-    }
-}
-
 /// Always-visible, single-line usage summary pinned to the very top of the
 /// Agents cell (above the session list), styled after the reference
 /// design's "✦ 5h 11% 4h1m | 7d 2% 6h1m" bar: a sparkle glyph, then each
 /// usage window as "label percent% resetIn", separated by "|". Colors each
-/// window's percentage using the same green/orange/red thresholds as the
-/// detailed `UsageBarStack`.
+/// window's percentage using the same green/orange/red thresholds used
+/// throughout the app for quota warnings.
 private struct UsageSummaryBar: View {
     let agent: AgentKind
     let snapshot: AgentUsageSnapshot?
@@ -1608,7 +1586,11 @@ private struct AgentsCell: View {
                     .foregroundColor(.white)
                     .lineLimit(1)
                     .truncationMode(.tail)
+                    .layoutPriority(1)
                 Spacer(minLength: 4)
+                if !isSelected, let percent = session.contextUsedPercent {
+                    compactContextBadge(percent)
+                }
                 agentBadge(session.agent)
                 Text(elapsedString(session))
                     .font(.system(size: 9, design: .rounded))
@@ -1622,6 +1604,10 @@ private struct AgentsCell: View {
                         .foregroundColor(DesignTokens.muted)
                         .lineLimit(1)
                         .truncationMode(.tail)
+                    if let percent = session.contextUsedPercent {
+                        Spacer(minLength: 4)
+                        contextUsageLabel(percent)
+                    }
                 }
                 .padding(.leading, 34)
                 HStack(spacing: 6) {
@@ -1656,7 +1642,7 @@ private struct AgentsCell: View {
         .onTapGesture(count: 1) {
             guard !isSelected else { return }
             SoundPlayer.shared.play(.navigation)
-            withAnimation(DesignTokens.contentTransition) {
+            withAnimation(DesignTokens.scaledContentTransition()) {
                 uiState.selectedSessionId = session.id
             }
         }
@@ -1667,6 +1653,36 @@ private struct AgentsCell: View {
     /// per-row "Claude"/"Codex"/"Gemini" pill. Terminal-app badges are
     /// omitted: `AgentSession` doesn't currently carry which terminal a
     /// session is running in, so adding that pairing is left for later.
+    /// Color for a context-window usage percentage, matching `UsageBar`'s
+    /// green/orange/red thresholds elsewhere in the notch.
+    private func contextUsageColor(_ percent: Double) -> Color {
+        let clamped = min(max(percent, 0), 100)
+        if clamped >= 95 { return DesignTokens.red }
+        if clamped >= 80 { return DesignTokens.orange }
+        return DesignTokens.green
+    }
+
+    /// Tiny "NN%" tag shown on compact (non-selected) session rows when
+    /// `contextUsedPercent` is available, kept minimal to avoid crowding
+    /// the single-line layout.
+    private func compactContextBadge(_ percent: Double) -> some View {
+        let clamped = min(max(percent, 0), 100)
+        return Text("\(Int(clamped.rounded()))%")
+            .font(.system(size: 7.5, weight: .semibold, design: .rounded))
+            .foregroundColor(contextUsageColor(percent))
+            .frame(minWidth: 18, alignment: .trailing)
+            .accessibilityLabel(String(localized: "agents.contextUsedPercentAccessibility", defaultValue: "Context window \(Int(clamped.rounded())) percent used"))
+    }
+
+    /// "Context NN%" label shown in the expanded selected-session row.
+    private func contextUsageLabel(_ percent: Double) -> some View {
+        let clamped = min(max(percent, 0), 100)
+        return Text(String(localized: "agents.contextUsedPercent", defaultValue: "Context \(Int(clamped.rounded()))%"))
+            .font(.system(size: 8.5, weight: .medium))
+            .foregroundColor(contextUsageColor(percent))
+            .lineLimit(1)
+    }
+
     private func agentBadge(_ agent: AgentKind) -> some View {
         Text(agent.displayName)
             .font(.system(size: 8.5, weight: .semibold))
@@ -2375,39 +2391,50 @@ private struct TrayCell: View {
             ScrollView(.horizontal, showsIndicators: false) {
                 HStack(spacing: 8) {
                     ForEach(items) { item in
-                        Button {
-                            selectedItemID = item.id
-                        } label: {
-                            VStack(spacing: 5) {
-                                Image(nsImage: NSWorkspace.shared.icon(forFile: item.url.path))
-                                    .resizable()
-                                    .scaledToFit()
-                                    .frame(width: 42, height: 42)
-                                Text(item.url.lastPathComponent)
-                                    .font(.system(size: 9.5, weight: .medium))
-                                    .lineLimit(1)
-                                    .truncationMode(.middle)
-                                    .frame(width: 68)
+                        // The card (select/open/drag-out) and the remove
+                        // button used to share the same corner with only a
+                        // 4pt offset between them, so a slightly imprecise
+                        // click on one could trigger the other (e.g. trying
+                        // to grab the remove "x" instead starting a drag).
+                        // Reserving top/trailing padding around the card
+                        // gives the "x" its own dead zone outside the card's
+                        // hit-test bounds instead of overlapping it.
+                        ZStack(alignment: .topTrailing) {
+                            Button {
+                                selectedItemID = item.id
+                            } label: {
+                                VStack(spacing: 5) {
+                                    Image(nsImage: NSWorkspace.shared.icon(forFile: item.url.path))
+                                        .resizable()
+                                        .scaledToFit()
+                                        .frame(width: 42, height: 42)
+                                    Text(item.url.lastPathComponent)
+                                        .font(.system(size: 9.5, weight: .medium))
+                                        .lineLimit(1)
+                                        .truncationMode(.middle)
+                                        .frame(width: 68)
+                                }
+                                .padding(.horizontal, 7)
+                                .padding(.vertical, 8)
+                                .background(
+                                    RoundedRectangle(cornerRadius: 11)
+                                        .fill(Color.white.opacity(selectedItemID == item.id ? 0.14 : 0.055))
+                                )
+                                .overlay(
+                                    RoundedRectangle(cornerRadius: 11)
+                                        .stroke(Color.white.opacity(selectedItemID == item.id ? 0.20 : 0.04), lineWidth: 1)
+                                )
                             }
-                            .padding(.horizontal, 7)
-                            .padding(.vertical, 8)
-                            .background(
-                                RoundedRectangle(cornerRadius: 11)
-                                    .fill(Color.white.opacity(selectedItemID == item.id ? 0.14 : 0.055))
-                            )
-                            .overlay(
-                                RoundedRectangle(cornerRadius: 11)
-                                    .stroke(Color.white.opacity(selectedItemID == item.id ? 0.20 : 0.04), lineWidth: 1)
-                            )
-                        }
-                        .buttonStyle(NotchPressStyle())
-                        .help(item.url.path)
-                        .simultaneousGesture(TapGesture(count: 2).onEnded { NSWorkspace.shared.open(item.url) })
-                        .onDrag {
-                            selectedItemID = item.id
-                            return NSItemProvider(contentsOf: item.url) ?? NSItemProvider()
-                        }
-                        .overlay(alignment: .topTrailing) {
+                            .buttonStyle(NotchPressStyle())
+                            .help(item.url.path)
+                            .simultaneousGesture(TapGesture(count: 2).onEnded { NSWorkspace.shared.open(item.url) })
+                            .onDrag {
+                                selectedItemID = item.id
+                                return NSItemProvider(contentsOf: item.url) ?? NSItemProvider()
+                            }
+                            .padding(.top, 7)
+                            .padding(.trailing, 7)
+
                             Button {
                                 action(.removeItem(item.id))
                             } label: {
@@ -2417,7 +2444,8 @@ private struct TrayCell: View {
                                     .background(Circle().fill(Color.black.opacity(0.35)))
                             }
                             .buttonStyle(.plain)
-                            .offset(x: 4, y: -4)
+                            .frame(width: 22, height: 22)
+                            .contentShape(Circle())
                             .help(String(localized: "tray.removeItemHelp", defaultValue: "Remove \(item.url.lastPathComponent) from Tray"))
                         }
                     }
@@ -2559,7 +2587,14 @@ private struct AgentQuestionView: View {
                         .transition(.opacity.combined(with: .offset(y: 2)))
                     }
                 }
-            }.foregroundColor(.white)
+            }
+            .foregroundColor(.white)
+            // The question card's window is a fixed openQuestionSize, but a
+            // short prompt with only 2-3 choices doesn't fill it — without a
+            // top-aligned frame here, CellSurface's plain .overlay() centers
+            // the content, leaving a large dead gap above the prompt instead
+            // of below it.
+            .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
         }
         .onAppear {
             isInteractive = false
@@ -2742,7 +2777,7 @@ private struct ApprovalOverlayView: View {
                     .transition(.opacity)
                 }
             }
-            .animation(reduceMotion ? .easeOut(duration: 0.12) : DesignTokens.spring, value: decision)
+            .animation(reduceMotion ? .easeOut(duration: 0.12) : DesignTokens.scaledSpring(), value: decision)
         }
         .onAppear {
             isInteractive = false
@@ -2765,7 +2800,7 @@ private struct ApprovalOverlayView: View {
     private func decide(_ newDecision: ApprovalDecision) {
         guard decision == nil else { return }
         SoundPlayer.shared.play(newDecision == .allow ? .approve : .deny)
-        withAnimation(reduceMotion ? .easeOut(duration: 0.12) : DesignTokens.spring) {
+        withAnimation(reduceMotion ? .easeOut(duration: 0.12) : DesignTokens.scaledSpring()) {
             decision = newDecision
         }
         // Resolve immediately — Claude Code's blocking hook must never wait on animation timing.
@@ -2835,10 +2870,11 @@ private struct PlanApprovalOverlayView: View {
                                 .disabled(!isInteractive)
                         }
                     }
+                    .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
                     .transition(.opacity)
                 }
             }
-            .animation(reduceMotion ? .easeOut(duration: 0.12) : DesignTokens.spring, value: decision)
+            .animation(reduceMotion ? .easeOut(duration: 0.12) : DesignTokens.scaledSpring(), value: decision)
         }
         .onAppear {
             isInteractive = false
@@ -2852,7 +2888,7 @@ private struct PlanApprovalOverlayView: View {
     private func decide(_ newDecision: ApprovalDecision) {
         guard decision == nil else { return }
         SoundPlayer.shared.play(newDecision == .allow ? .approve : .deny)
-        withAnimation(reduceMotion ? .easeOut(duration: 0.12) : DesignTokens.spring) {
+        withAnimation(reduceMotion ? .easeOut(duration: 0.12) : DesignTokens.scaledSpring()) {
             decision = newDecision
         }
         // Resolve immediately — Claude Code's blocking hook must never wait on animation timing.
