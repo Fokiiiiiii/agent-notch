@@ -12,6 +12,7 @@ final class PermissionCenter: ObservableObject {
         let cwd: String
         let toolName: String
         let summary: String
+        let toolInput: [String: Any]
         let connectionRef: SocketConnection
     }
 
@@ -27,6 +28,7 @@ final class PermissionCenter: ObservableObject {
             cwd: event.cwd,
             toolName: toolName,
             summary: Self.summarize(toolName: toolName, toolInput: event.toolInput),
+            toolInput: event.toolInput,
             connectionRef: connection
         )
         queue.append(pending)
@@ -47,28 +49,24 @@ final class PermissionCenter: ObservableObject {
 
     private static func summarize(toolName: String, toolInput: [String: Any]) -> String {
         if let summary = toolInput["summary"] as? String {
-            return truncate(summary)
+            return summary
         }
         switch toolName {
         case "Bash":
             if let command = toolInput["command"] as? String {
-                return truncate(command)
+                return command
             }
         case "Edit", "Write", "Read":
             if let filePath = toolInput["file_path"] as? String {
-                return truncate(filePath)
+                return filePath
             }
         default:
             break
         }
         if let data = try? JSONSerialization.data(withJSONObject: toolInput),
            let str = String(data: data, encoding: .utf8) {
-            return truncate(str)
+            return str
         }
         return ""
-    }
-
-    private static func truncate(_ s: String, _ limit: Int = 60) -> String {
-        s.count > limit ? String(s.prefix(limit)) + "…" : s
     }
 }

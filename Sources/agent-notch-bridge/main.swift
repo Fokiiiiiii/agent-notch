@@ -62,6 +62,16 @@ private func connectSocket() -> Int32 {
         Darwin.close(fd)
         return -1
     }
+
+    // Bound how long we'll block reading the app's response. The app is
+    // expected to respond within a user-interaction timescale; 90s is well
+    // under Claude Code's own 86400s hook timeout but long enough that a
+    // human would never notice it as a hard cutoff. Without this, a stuck
+    // or crashed app would wedge the hook (and, transitively, Claude Code)
+    // indefinitely.
+    var timeout = timeval(tv_sec: 90, tv_usec: 0)
+    _ = setsockopt(fd, SOL_SOCKET, SO_RCVTIMEO, &timeout, socklen_t(MemoryLayout<timeval>.size))
+
     return fd
 }
 
@@ -89,11 +99,21 @@ private func writeEnvelope(_ payload: [String: Any], to fd: Int32) -> Bool {
     }
 }
 
+/// Reads a single NDJSON response line from `fd`. Returns nil on EOF, error,
+/// or a receive timeout (the socket has `SO_RCVTIMEO` set by `connectSocket`),
+/// so callers can fall through to their existing `fail()`-style handling.
 private func readResponseLine(from fd: Int32) -> Data? {
     var buffer = Data()
     while true {
         var byte: UInt8 = 0
         let n = Darwin.read(fd, &byte, 1)
+        if n < 0 {
+            if errno == EAGAIN || errno == EWOULDBLOCK {
+                // Receive timeout elapsed: treat like any other failure.
+                return nil
+            }
+            return nil
+        }
         guard n > 0 else { return nil }
         if byte == 0x0A { return buffer }
         buffer.append(byte)
@@ -110,7 +130,7 @@ private let cliHelp = """
 AgentNotch CLI
 
   agent-notch ping
-  agent-notch show | hide | toggle
+  agent-notch show [--mode open|hover] | hide | toggle
   agent-notch setup [--all]
   agent-notch run --agent AGENT [--id ID] [--title TEXT] -- COMMAND [ARG...]
   agent-notch question --agent AGENT --prompt TEXT [--header TEXT] [--option TEXT ...]
@@ -276,13 +296,20 @@ private func runCLI(arguments: [String]) -> Never {
         payload = ["hook_event_name": "AgentNotchPing", "session_id": "cli", "cwd": FileManager.default.currentDirectoryPath]
         waitsForResponse = true
     case "show", "hide", "toggle":
-        payload = ["hook_event_name": "AgentNotch\(command.capitalized)", "session_id": "cli", "cwd": FileManager.default.currentDirectoryPath]
+        var showPayload: [String: Any] = ["hook_event_name": "AgentNotch\(command.capitalized)", "session_id": "cli", "cwd": FileManager.default.currentDirectoryPath]
+        // `--mode`はテスト・デバッグ用: 実運用では`show`は常に`.open`を強制表示する。
+        // ノッチ寸法シミュレーション(AGENT_NOTCH_SIMULATE_NOTCH)と組み合わせて
+        // `.hover`をフルスクリーン抑制を無視して直接目視確認するための踏み台。
+        if command == "show", let mode = option("--mode", in: arguments) {
+            showPayload["tool_input"] = ["mode": mode]
+        }
+        payload = showPayload
         waitsForResponse = false
     case "question":
         let agent = option("--agent", in: arguments) ?? "claude"
         guard supportedAgents.contains(agent) else { cliExit("agent-notch: invalid agent: \(agent)", code: 2) }
         guard let prompt = option("--prompt", in: arguments) else { cliExit("agent-notch: missing --prompt", code: 2) }
-        let choices = repeatedOptions("--option", in: arguments).prefix(3).map {
+        let choices = repeatedOptions("--option", in: arguments).map {
             ["label": $0, "description": ""]
         }
         payload = [
@@ -460,7 +487,8 @@ guard eventName == "PermissionRequest" || isQuestion else {
     fail()
 }
 
-// Block (no timeout) waiting for exactly one NDJSON response line.
+// Block (bounded by SO_RCVTIMEO, see connectSocket) waiting for exactly one
+// NDJSON response line.
 guard let responseBuffer = readResponseLine(from: fd) else {
     Darwin.close(fd)
     fail()
@@ -474,11 +502,15 @@ guard let responseObj = (try? JSONSerialization.jsonObject(with: responseBuffer)
 let output: [String: Any]
 if isQuestion {
     guard let answer = responseObj["answer"] as? String, !answer.isEmpty else { fail() }
+    // When the original tool call carried several questions, `answer`
+    // already combines every one of them (AgentNotch collects all answers
+    // in the batch before ever responding — see QuestionCenter.resolve).
+    let reason = "User answered in AgentNotch: \(answer)"
     output = [
         "hookSpecificOutput": [
             "hookEventName": "PreToolUse",
             "permissionDecision": "deny",
-            "permissionDecisionReason": "User answered in AgentNotch: \(answer)",
+            "permissionDecisionReason": reason,
         ],
     ]
 } else {

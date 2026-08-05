@@ -16,5 +16,10 @@ let package = Package(
             dependencies: ["AgentNotchCore"],
             path: "Sources/agent-notch-bridge"
         ),
+        .testTarget(
+            name: "AgentNotchTests",
+            dependencies: ["AgentNotch"],
+            path: "Tests/AgentNotchTests"
+        ),
     ]
 )

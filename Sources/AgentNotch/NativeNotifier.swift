@@ -62,7 +62,7 @@ final class NativeNotifier {
     /// background) off-screen and packages it as a notification image
     /// attachment. Best-effort only: any failure here must fall back to a
     /// text-only notification, never block or crash delivery.
-    private func renderGlyphAttachment(for agent: AgentKind) -> UNNotificationAttachment? {
+    func renderGlyphAttachment(for agent: AgentKind) -> UNNotificationAttachment? {
         let renderer = ImageRenderer(content: GlyphBox(agent: agent))
         renderer.scale = 2
         guard let nsImage = renderer.nsImage else {
@@ -78,9 +78,15 @@ final class NativeNotifier {
         let fileURL = FileManager.default.temporaryDirectory.appendingPathComponent("\(UUID().uuidString).png")
         do {
             try pngData.write(to: fileURL)
-            return try UNNotificationAttachment(identifier: UUID().uuidString, url: fileURL, options: nil)
+            // UNNotificationAttachment copies the file into its own managed
+            // storage on success, so the source temp file is no longer
+            // needed and must not be left behind.
+            let attachment = try UNNotificationAttachment(identifier: UUID().uuidString, url: fileURL, options: nil)
+            try? FileManager.default.removeItem(at: fileURL)
+            return attachment
         } catch {
             FileHandle.standardError.write("agent-notch: glyph attachment error: \(error.localizedDescription)\n".data(using: .utf8)!)
+            try? FileManager.default.removeItem(at: fileURL)
             return nil
         }
     }

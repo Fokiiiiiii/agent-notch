@@ -37,6 +37,7 @@ final class SoundPlayer {
     }
 
     func play(_ sound: AppSound) {
+        guard AppSettings.shared.soundEnabled else { return }
         let now = Date()
         if let last = lastPlayedAt[sound], now.timeIntervalSince(last) < debounce(for: sound) {
             return

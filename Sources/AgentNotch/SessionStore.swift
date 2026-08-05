@@ -1,6 +1,58 @@
 import Foundation
 import Darwin
 
+/// PID再利用検知用のプロセス識別情報の取得と照合。純粋な照合ロジックを
+/// 単体テストしやすいよう`internal`な静的関数として切り出す。
+enum ProcessInspector {
+    struct Fingerprint: Equatable {
+        var startedAt: Date?
+        var executablePath: String?
+    }
+
+    static func fingerprint(for pid: Int32) -> Fingerprint {
+        Fingerprint(startedAt: startTime(for: pid), executablePath: executablePath(for: pid))
+    }
+
+    static func executablePath(for pid: Int32) -> String? {
+        // PROC_PIDPATHINFO_MAXSIZE (4 * MAXPATHLEN) はマクロがSwiftから見えないため直値を使用。
+        var buf = [Int8](repeating: 0, count: 4 * 1024)
+        let ret = proc_pidpath(pid, &buf, UInt32(buf.count))
+        guard ret > 0 else { return nil }
+        return String(cString: buf)
+    }
+
+    static func startTime(for pid: Int32) -> Date? {
+        var mib: [Int32] = [CTL_KERN, KERN_PROC, KERN_PROC_PID, pid]
+        var info = kinfo_proc()
+        var size = MemoryLayout<kinfo_proc>.stride
+        let ret = sysctl(&mib, u_int(mib.count), &info, &size, nil, 0)
+        guard ret == 0, size > 0 else { return nil }
+        let tv = info.kp_proc.p_un.__p_starttime
+        guard tv.tv_sec != 0 else { return nil }
+        let seconds = Double(tv.tv_sec) + Double(tv.tv_usec) / 1_000_000.0
+        return Date(timeIntervalSince1970: seconds)
+    }
+
+    /// 記録済みのフィンガープリントと、指定PIDの現在の状態を照合する。
+    /// 記録された値が両方nilの場合（旧セッション等で取得できなかった場合）は
+    /// 後方互換のため常に一致とみなす。
+    static func matches(recordedStartedAt: Date?, recordedExecutablePath: String?, pid: Int32) -> Bool {
+        if recordedStartedAt == nil && recordedExecutablePath == nil {
+            return true
+        }
+        let current = fingerprint(for: pid)
+        if let recorded = recordedExecutablePath {
+            guard current.executablePath == recorded else { return false }
+        }
+        if let recorded = recordedStartedAt {
+            guard let currentStart = current.startedAt else { return false }
+            // sysctlの時刻粒度による微小な誤差を許容する。
+            guard abs(currentStart.timeIntervalSince(recorded)) < 2.0 else { return false }
+        }
+        return true
+    }
+}
+
 @MainActor
 final class SessionStore: ObservableObject {
     @Published var sessions: [AgentSession]
@@ -33,6 +85,11 @@ final class SessionStore: ObservableObject {
     func controlManagedSession(id: String, action: ManagedSessionAction) -> Bool {
         guard var session = cliSessions[id], session.isManagedProcess,
               let pid = session.processID, pid > 1 else { return false }
+        guard ProcessInspector.matches(
+            recordedStartedAt: session.processStartedAt,
+            recordedExecutablePath: session.processExecutablePath,
+            pid: pid
+        ) else { return false }
         let signal: Int32
         switch action {
         case .pause: signal = SIGSTOP
@@ -150,6 +207,24 @@ final class SessionStore: ObservableObject {
         }
 
         let cwd = event.cwd.isEmpty ? (existing?.cwd ?? FileManager.default.currentDirectoryPath) : event.cwd
+
+        let newPid = (input["pid"] as? NSNumber)?.int32Value
+        let resolvedProcessID: Int32?
+        let resolvedStartedAt: Date?
+        let resolvedExecutablePath: String?
+        if let newPid {
+            // 新しいPIDが渡された場合のみフィンガープリントを取得し直す。
+            let fingerprint = ProcessInspector.fingerprint(for: newPid)
+            resolvedProcessID = newPid
+            resolvedStartedAt = fingerprint.startedAt
+            resolvedExecutablePath = fingerprint.executablePath
+        } else {
+            resolvedProcessID = existing?.processID
+            resolvedStartedAt = existing?.processStartedAt
+            resolvedExecutablePath = existing?.processExecutablePath
+        }
+
+        let isTerminal = (state == .done || state == .failed)
         let session = AgentSession(
             id: id,
             agent: agent,
@@ -158,8 +233,10 @@ final class SessionStore: ObservableObject {
             lastActivity: Date(),
             state: state,
             lastMessage: (input["message"] as? String) ?? existing?.lastMessage ?? action.capitalized,
-            processID: (input["pid"] as? NSNumber)?.int32Value ?? existing?.processID,
-            isManagedProcess: (input["managed"] as? Bool) ?? existing?.isManagedProcess ?? false
+            processID: isTerminal ? nil : resolvedProcessID,
+            isManagedProcess: isTerminal ? false : ((input["managed"] as? Bool) ?? existing?.isManagedProcess ?? false),
+            processStartedAt: isTerminal ? nil : resolvedStartedAt,
+            processExecutablePath: isTerminal ? nil : resolvedExecutablePath
         )
         cliSessions[id] = session
         sessions.removeAll { $0.id == id }

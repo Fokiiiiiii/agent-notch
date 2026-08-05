@@ -52,7 +52,7 @@ private final class FileDropContainerView: NSView {
 
 /// The three sizes the notch window/panel can take.
 enum IslandMode {
-    case closed, notice, open
+    case closed, hover, notice, open
 }
 
 /// Which page is shown inside the "Nook" tab of the open panel.
@@ -76,13 +76,55 @@ enum NotchTab {
 
 /// Inline approval, plan, and agent-question surfaces displayed in the Nook.
 enum IslandOverlay: Equatable {
-    case approval(agent: AgentKind, toolName: String, summary: String, extraCount: Int)
+    /// `otherAgentPending`: set when at least one of the `extraCount` queued
+    /// requests behind this one is from a *different* agent than `agent`.
+    /// Without this, a lingering older request (e.g. an unanswered Claude
+    /// approval) showing while a brand-new Codex request waits behind it
+    /// reads as "the agent label is wrong" — it isn't; it's just the wrong
+    /// (older) *request*. Surfacing which other agent is waiting (see the
+    /// `+N (Codex)` badge in `ApprovalOverlayView`) makes that legible
+    /// without changing FIFO resolution order (changing to "show newest"
+    /// would let a busy agent starve an older pending request into timing
+    /// out unanswered, which is worse).
+    case approval(agent: AgentKind, toolName: String, summary: String, extraCount: Int, otherAgentPending: AgentKind?)
     case plan
     case question
 }
 
 struct ApprovalOutcome: Equatable {
     let allowed: Bool
+}
+
+/// A lightweight, plain-data snapshot of the screen geometry inputs
+/// `NotchWindowController`'s sizing/placement math needs. Real `NSScreen`s
+/// are converted via the `init(screen:)` adapter below; everything else in
+/// this file operates on the snapshot so the same logic can run against a
+/// fake screen configuration in tests (notch/no-notch, narrow safe area,
+/// external displays, etc.) without touching `NSScreen` at all.
+struct ScreenSnapshot {
+    let frame: CGRect
+    let safeAreaInsetsTop: CGFloat
+    let auxiliaryTopLeftWidth: CGFloat?
+    let auxiliaryTopRightWidth: CGFloat?
+    let isBuiltIn: Bool
+
+    /// The only place that touches live `NSScreen`/`CGDirectDisplayID` APIs
+    /// to build a snapshot; production code always goes through here.
+    init(screen: NSScreen) {
+        self.frame = screen.frame
+        self.safeAreaInsetsTop = screen.safeAreaInsets.top
+        self.auxiliaryTopLeftWidth = screen.auxiliaryTopLeftArea?.width
+        self.auxiliaryTopRightWidth = screen.auxiliaryTopRightArea?.width
+        self.isBuiltIn = NotchWindowController.isBuiltInDisplay(screen)
+    }
+
+    init(frame: CGRect, safeAreaInsetsTop: CGFloat, auxiliaryTopLeftWidth: CGFloat?, auxiliaryTopRightWidth: CGFloat?, isBuiltIn: Bool) {
+        self.frame = frame
+        self.safeAreaInsetsTop = safeAreaInsetsTop
+        self.auxiliaryTopLeftWidth = auxiliaryTopLeftWidth
+        self.auxiliaryTopRightWidth = auxiliaryTopRightWidth
+        self.isBuiltIn = isBuiltIn
+    }
 }
 
 @MainActor
@@ -106,10 +148,42 @@ final class NotchUIState: ObservableObject {
     /// (invisibly, for file-drag hit-testing) without the visible shape
     /// growing along with it.
     @Published var closedContentSize: CGSize = CGSize(width: 220, height: 34)
+    /// The fixed on-screen size of the `.hover`-mode peek. Same rationale as
+    /// `closedContentSize`: `NotchView`'s explicit `.frame()` uses this
+    /// directly instead of leaving `.hover` to size itself from ambient
+    /// SwiftUI layout, which otherwise lets the visible shape/content
+    /// mis-align with the panel's real (screen/uiScale-derived) frame.
+    @Published var hoverContentSize: CGSize = CGSize(width: 320, height: 90)
+    /// Extra top space `HoverPeekView` must leave empty on a real notched
+    /// Mac before drawing anything readable — the physical camera housing
+    /// is opaque and covers the top `notchHeight` of the screen, so content
+    /// placed there is invisible, not just tightly cropped. `0` on a
+    /// non-notched screen, where the original (pre-notch-aware) layout is
+    /// left exactly as it was.
+    @Published var hoverTopClearance: CGFloat = 0
     /// Whether the notch is visible at all (fully independent of `mode`,
     /// which only tracks compact/notice/open *sizing* once visible). See
     /// `NotchWindowController`'s visibility state machine.
     @Published var isVisible: Bool = false
+    /// Which sub-question of the current `.question` overlay's batch is
+    /// showing, and whether it's in free-text ("Other…") mode — lifted out
+    /// of `AgentQuestionView`'s local `@State` into here so
+    /// `NotchWindowController` can size the panel to fit the *current*
+    /// step's content instead of a single fixed `openQuestionSize` for the
+    /// whole batch (see `questionOpenSize(for:)`).
+    @Published var questionStepIndex: Int = 0
+    @Published var questionCustomMode: Bool = false
+    /// Live-measured heights of the two genuinely variable-length text
+    /// elements in the question/approval overlays (the question prompt can
+    /// run to several lines; the approval summary is a full command/diff
+    /// excerpt with no line cap, since truncating it could hide the
+    /// dangerous part of what's being approved). Every other element in
+    /// those overlays has a fixed or `lineLimit`-capped height, so only
+    /// these two need real measurement — see `NotchView.swift`'s
+    /// `.onGeometryChange` on each Text, and `questionOpenSize(for:)`/
+    /// `approvalOpenSize()` in `NotchWindowController`.
+    @Published var questionPromptHeight: CGFloat = 20
+    @Published var approvalSummaryHeight: CGFloat = 34
 
     var hasOverlay: Bool { overlay != nil }
 }
@@ -124,19 +198,62 @@ final class NotchWindowController: NSObject {
     private let questions: QuestionCenter
     private let plans: PlanCenter
     private let nativeNotifier: NativeNotifier?
-    private let screen: NSScreen
+    private var screen: NSScreen
+    /// Geometry-only mirror of `screen`, recomputed alongside it. See
+    /// `ScreenSnapshot`.
+    private var screenSnapshot: ScreenSnapshot
     private var closedSize: CGSize
     /// Narrower than `closedSize`: used only while fullscreen-suppressed, so the
     /// long-hover peek doesn't collide with a fullscreen app's own top-edge
     /// chrome-reveal gesture (which typically spans the full screen width).
-    private let fullscreenHoverSize: CGSize
+    private var fullscreenHoverSize: CGSize
     private var mediaPreviewSize: CGSize
+    /// The visible `.closed`-mode shape's size before `closedSize`'s
+    /// `+40w/+70h` hit-test padding — i.e. the actual on-screen pill.
+    /// Kept as its own stored property (mirroring `mediaPreviewSize`/
+    /// `hoverSize`) so `resizeForCurrentState()` can recompute
+    /// `uiState.closedContentSize` correctly whenever `isMediaPreviewVisible`
+    /// toggles, instead of `closedContentSize` staying pinned to whatever it
+    /// was on the last screen-geometry change (a real bug: the window frame
+    /// already grows to `mediaPreviewSize` on media preview, but the visible
+    /// SwiftUI content didn't follow, leaving a transparent gap).
+    private var visualClosedSize: CGSize
     private let noticeSize = CGSize(width: 320, height: 50)
     private let openSize = CGSize(width: 540, height: 206)
     private let trayOpenSize = CGSize(width: 560, height: 222)
     private let openDetailSize = CGSize(width: 540, height: 264)
     private let openOverlaySize = CGSize(width: 540, height: 246)
     private let openQuestionSize = CGSize(width: 540, height: 316)
+    /// Intermediate size for `.hover` — a lightweight peek shown after a
+    /// further dwell over the already-visible `.closed` notch (song/
+    /// project/status/elapsed time; see `HoverPeekView` in `NotchView.swift`).
+    /// Deliberately between `closedSize` (~232×34, screen-derived) and
+    /// `openSize` (540×206). On a real notched Mac this widens to visually
+    /// merge with the physical notch cutout, matching NotchNook's reference
+    /// look; on a non-notched screen it stays the plain fixed default.
+    /// Screen-derived (like `closedSize`), so recomputed alongside it —
+    /// see `computeHoverSize`. This is the *two-row* height (media + session
+    /// both showing); `resizeForCurrentState()` substitutes
+    /// `hoverCompactHeight` instead whenever only one row is actually being
+    /// drawn, so the pill doesn't sit mostly-empty around a single short
+    /// line (reported as looking visually unbalanced).
+    private var hoverSize: CGSize
+    /// Height for `.hover` when `HoverPeekView` draws only one row (no
+    /// playing media, or media but no tracked session — see its `body`).
+    /// Comfortably fits one row's icon + two-line text stack plus the same
+    /// vertical padding `HoverPeekView` uses (10pt top/bottom), without the
+    /// leftover empty space a fixed two-row-sized pill left behind it.
+    static let hoverCompactHeight: CGFloat = 64
+    /// Extra top clearance `.hover` must reserve on a real notched Mac
+    /// before `HoverPeekView` may draw anything readable — `0` on a
+    /// non-notched screen, where the pre-existing layout is left untouched.
+    /// See `computeScreenGeometry`'s `hoverTopClearance` for why.
+    private var hoverTopClearance: CGFloat
+    /// Whether the anchor screen has a real physical notch. `.hover` is
+    /// gated on this — it's a NotchNook-style feature meant specifically
+    /// for notched Macs, and must never trigger on a non-notched screen
+    /// (see `shouldEnterHover`).
+    private var hasRealNotch: Bool
     /// Height for the Agents tab with exactly one tracked session (the
     /// selected-row detail lines plus usage bar and footer already exceed
     /// `openSize.height`, which is what caused the footer button to visually
@@ -158,6 +275,11 @@ final class NotchWindowController: NSObject {
     /// screen rather than growing exactly to the theoretical max.
     private let agentsMaxHeight: CGFloat = 400
     private var hoverTask: Task<Void, Never>?
+    /// Second-stage dwell timer: while already visible in `.closed` and
+    /// still being hovered, expands to `.hover` after a further short dwell.
+    /// Kept separate from `dwellTask` (hidden → visible reveal) so the two
+    /// distinct transitions never cancel each other out.
+    private var hoverExpandTask: Task<Void, Never>?
     private var noticeAutoDismissTask: Task<Void, Never>?
     private var cancellables = Set<AnyCancellable>()
 
@@ -178,6 +300,8 @@ final class NotchWindowController: NSObject {
     private var isClickPinned = false
     private var workspaceObserver: NSObjectProtocol?
     private var spaceObserver: NSObjectProtocol?
+    private var screenParametersObserver: NSObjectProtocol?
+    private var screenGeometryRefreshTask: Task<Void, Never>?
     private var scrollMonitor: Any?
     private var outsideClickLocalMonitor: Any?
     private var outsideClickGlobalMonitor: Any?
@@ -199,12 +323,25 @@ final class NotchWindowController: NSObject {
     private var notifiedQuestionIDs: Set<UUID> = []
     private var notifiedPlanIDs: Set<UUID> = []
 
+    /// Throttles the `showAgentActivity(urgent:)` fallback notification
+    /// (fullscreen suppression) so repeated attention/fail events for the
+    /// same busy session don't spam native notifications.
+    private var lastAgentActivityNotifyDate: Date?
+    private let agentActivityNotifyMinInterval: TimeInterval = 30
+
     /// Whether the pointer is currently inside the notch. Consulted by
     /// AppDelegate before auto-collapsing after the permission queue drains.
     private(set) var isHovering = false
+    /// Any approval/question/plan awaiting a response. Always wins over the
+    /// `.hover` peek — such items are surfaced directly via `showAttention()`
+    /// (see `shouldEnterHover`), never routed through the lightweight Hover
+    /// state.
+    private var hasPendingAttention: Bool {
+        !permissions.queue.isEmpty || !questions.queue.isEmpty || !plans.queue.isEmpty
+    }
     var isPinnedOpen: Bool { isClickPinned && uiState.mode == .open }
     var debugMode: String {
-        switch uiState.mode { case .closed: return "closed"; case .notice: return "notice"; case .open: return "open" }
+        switch uiState.mode { case .closed: return "closed"; case .hover: return "hover"; case .notice: return "notice"; case .open: return "open" }
     }
     var debugOverlay: String {
         guard let overlay = uiState.overlay else { return "none" }
@@ -212,12 +349,13 @@ final class NotchWindowController: NSObject {
     }
     var debugVisible: Bool { uiState.isVisible }
     var debugPersists: Bool { shouldPersistVisible }
-    let debugScreenInfo: [String: Any]
+    private(set) var debugScreenInfo: [String: Any]
 
     /// True if the given screen's backing display is the Mac's built-in
     /// panel (as opposed to an external monitor). Uses the live `CGDirectDisplayID`
     /// rather than any hardcoded model table, so it holds across all Mac models.
-    private static func isBuiltInDisplay(_ screen: NSScreen) -> Bool {
+    /// `fileprivate` rather than `private`: also called from `ScreenSnapshot.init(screen:)`.
+    nonisolated fileprivate static func isBuiltInDisplay(_ screen: NSScreen) -> Bool {
         guard let screenNumber = screen.deviceDescription[NSDeviceDescriptionKey("NSScreenNumber")] as? NSNumber else {
             return false
         }
@@ -228,18 +366,33 @@ final class NotchWindowController: NSObject {
     /// Picks the screen to anchor the notch window to. Preference order:
     /// built-in display with a notch, then built-in display (no notch),
     /// then any screen reporting a notch-like safe area, then the system
-    /// default, then simply the first available screen.
+    /// default, then simply the first available screen. The priority
+    /// ordering itself lives in `selectScreenIndex(from:)` (pure, snapshot-based);
+    /// this wrapper just supplies live `NSScreen`s and the `NSScreen.main`/first
+    /// fallback, which has no snapshot equivalent.
     private static func selectScreen() -> NSScreen? {
-        if let builtinWithNotch = NSScreen.screens.first(where: { isBuiltInDisplay($0) && $0.safeAreaInsets.top > 0 }) {
-            return builtinWithNotch
+        let screens = NSScreen.screens
+        guard let index = selectScreenIndex(from: screens.map { ScreenSnapshot(screen: $0) }) else {
+            return NSScreen.main ?? screens.first
         }
-        if let builtin = NSScreen.screens.first(where: { isBuiltInDisplay($0) }) {
-            return builtin
+        return screens[index]
+    }
+
+    /// Pure version of `selectScreen()`'s priority logic (built-in+notch →
+    /// built-in → any notch → none), operating on `ScreenSnapshot`s instead
+    /// of live `NSScreen`s so the ordering can be exercised with fake screen
+    /// configurations in tests.
+    static func selectScreenIndex(from snapshots: [ScreenSnapshot]) -> Int? {
+        if let index = snapshots.firstIndex(where: { $0.isBuiltIn && $0.safeAreaInsetsTop > 0 }) {
+            return index
         }
-        if let anyNotch = NSScreen.screens.first(where: { $0.safeAreaInsets.top > 0 }) {
-            return anyNotch
+        if let index = snapshots.firstIndex(where: { $0.isBuiltIn }) {
+            return index
         }
-        return NSScreen.main ?? NSScreen.screens.first
+        if let index = snapshots.firstIndex(where: { $0.safeAreaInsetsTop > 0 }) {
+            return index
+        }
+        return nil
     }
 
     /// Derives the visible `.closed`-mode shape size from the physically
@@ -252,6 +405,193 @@ final class NotchWindowController: NSObject {
         )
     }
 
+    /// Derives `.hover`'s size. On a non-notched screen (`hasNotch == false`)
+    /// this is the plain fixed default (320×90) the peek was originally
+    /// designed for. On a real notched Mac, the width widens to at least
+    /// `notchWidth`'s footprint so the pill visually merges with the
+    /// physical notch cutout instead of floating as a narrower island next
+    /// to it — matching the NotchNook reference look. Height stays fixed;
+    /// `HoverPeekView`'s two rows don't depend on notch height.
+    static func computeHoverSize(notchWidth: CGFloat, hasNotch: Bool) -> CGSize {
+        let defaultSize = CGSize(width: 320, height: 90)
+        guard hasNotch else { return defaultSize }
+        return CGSize(width: max(notchWidth + 120, defaultSize.width), height: defaultSize.height)
+    }
+
+    /// Small safety margin added on top of the measured `notchHeight`.
+    /// `safeAreaInsetsTop` is Apple's own boundary for "safe to place menu
+    /// bar content", not a guaranteed pixel-exact match for the physical
+    /// camera housing's actual bottom edge (anti-aliasing/rounding at the
+    /// housing's corners can eat a few more points than the reported
+    /// inset), so text starting exactly at that line can still clip under
+    /// the housing at its rounded edges. A few extra points of clearance
+    /// costs nothing on a notched screen (0 on non-notched, always).
+    private static let notchClearanceSafetyMargin: CGFloat = 6
+
+    /// Extra top space `.hover` must reserve before drawing anything
+    /// readable. The physical camera housing on a real notched Mac is
+    /// opaque — content placed in its `notchHeight`-tall footprint is
+    /// invisible, not merely clipped — so `.hover` (which draws actual
+    /// multi-line text, unlike `.closed`'s single glyph) needs to grow by
+    /// that much (plus a small safety margin) and start its rows below the
+    /// line. `0` on a non-notched screen, which must stay exactly as it was
+    /// before notch-awareness.
+    static func computeHoverTopClearance(notchHeight: CGFloat, hasNotch: Bool) -> CGFloat {
+        guard hasNotch else { return 0 }
+        return notchHeight + notchClearanceSafetyMargin
+    }
+
+    /// Vertical padding (10+10) + inter-row spacing (6) + one text line
+    /// (~18) below `HoverPeekView`'s icon band on a real notched Mac — see
+    /// `notchAwareContent`/`primaryInfo` there. The icon band's own height
+    /// *is* `hoverTopClearance` (icons sit in the pill's left/right
+    /// margins, clear of the notch), so unlike the pre-notch-aware layout
+    /// this is additive on top of it rather than a separate reserved gap.
+    /// Used for the session/idle case, which is a single line.
+    private static let hoverNotchAwareContentBudget: CGFloat = 44
+
+    /// Same as `hoverNotchAwareContentBudget` but for media: `primaryInfo`
+    /// draws the track title *and* the artist as a second, smaller line
+    /// underneath it (both were legible before this redesign; truncating
+    /// the artist away entirely lost real information), so it needs a bit
+    /// more room than the single-line session/idle case.
+    private static let hoverNotchAwareMediaContentBudget: CGFloat = 54
+
+    /// `.hover`'s pill height on a real notched Mac: the icon band
+    /// (`topClearance` tall) plus the info text below it — never media and
+    /// session simultaneously (see `HoverPeekView.primaryInfo`), so the only
+    /// distinction left is media's extra artist line vs. session/idle's
+    /// single line.
+    static func computeHoverContentHeight(topClearance: CGFloat, isMediaPlaying: Bool) -> CGFloat {
+        topClearance + (isMediaPlaying ? hoverNotchAwareMediaContentBudget : hoverNotchAwareContentBudget)
+    }
+
+    /// Every screen-derived value `NotchWindowController` keeps around,
+    /// bundled together so `init` and the
+    /// `didChangeScreenParametersNotification` handler can share one
+    /// computation instead of duplicating it.
+    private struct ScreenGeometry {
+        let screen: NSScreen
+        let snapshot: ScreenSnapshot
+        let closedSize: CGSize
+        let fullscreenHoverSize: CGSize
+        let mediaPreviewSize: CGSize
+        let visualClosedSize: CGSize
+        let closedContentSize: CGSize
+        let hoverSize: CGSize
+        let hoverContentSize: CGSize
+        let hoverTopClearance: CGFloat
+        let hasRealNotch: Bool
+        let debugScreenInfo: [String: Any]
+    }
+
+    /// 実機の物理ノッチ寸法（幅, 高さ）の軽量プリセット表。値はコミュニティ計測値ベースの
+    /// 近似値でよく、ピクセル完全一致は狙わない（テスト用フラグの目的はHover挙動の目視確認）。
+    private static let notchPresets: [String: (width: CGFloat, height: CGFloat)] = [
+        "14": (200, 37),   // MacBook Pro 14/16-inch (2021+)
+        "16": (200, 37),
+        "air": (180, 37),  // MacBook Air 15-inch (2023+)
+    ]
+    private static let defaultNotchPresetKey = "14"
+
+    /// テスト用フラグ: 環境変数 `AGENT_NOTCH_SIMULATE_NOTCH` が設定されている場合に限り、
+    /// 実測の画面ジオメトリを模擬ノッチ搭載機の値に置き換える。物理ノッチを持たない開発機
+    /// でも、ノッチ専用のHover挙動・クリアランス計算を目視確認できるようにするための踏み
+    /// 台。値には機種プリセット名（"14"/"16"/"air"）を指定でき、`1`や未知の値は
+    /// `defaultNotchPresetKey`にフォールバックする。未設定・`0`では常に`nil`を返し、
+    /// 通常起動・配布物や既存の実機検出には一切影響しない。
+    private static func simulatedNotchSnapshot(for screen: NSScreen) -> ScreenSnapshot? {
+        guard let raw = ProcessInfo.processInfo.environment["AGENT_NOTCH_SIMULATE_NOTCH"], raw != "0" else { return nil }
+        let preset = notchPresets[raw] ?? notchPresets[defaultNotchPresetKey]!
+        let real = ScreenSnapshot(screen: screen)
+        let sideWidth = max((real.frame.width - preset.width) / 2, 0)
+        return ScreenSnapshot(
+            frame: real.frame,
+            safeAreaInsetsTop: preset.height,
+            auxiliaryTopLeftWidth: sideWidth,
+            auxiliaryTopRightWidth: sideWidth,
+            isBuiltIn: true
+        )
+    }
+
+    /// Computes `ScreenGeometry` for the given (already-selected) screen.
+    /// Reads the screen exactly once via `ScreenSnapshot`; every derived
+    /// value below is plain arithmetic over that snapshot, matching the
+    /// calculation that used to run only once, inline, in `init`.
+    private static func computeScreenGeometry(for resolvedScreen: NSScreen) -> ScreenGeometry {
+        let snapshot = simulatedNotchSnapshot(for: resolvedScreen) ?? ScreenSnapshot(screen: resolvedScreen)
+        let notchHeight: CGFloat = snapshot.safeAreaInsetsTop > 0 ? snapshot.safeAreaInsetsTop : 32
+
+        // auxiliaryTop{Left,Right}Area の測定値には稀に負値や画面幅の大半を占める
+        // ような異常値が返るケースがあるため、妥当な範囲外ならフォールバックする。
+        var notchWidth: CGFloat = 200
+        let hasAuxiliaryAreas = snapshot.auxiliaryTopLeftWidth != nil && snapshot.auxiliaryTopRightWidth != nil
+        if let leftWidth = snapshot.auxiliaryTopLeftWidth, let rightWidth = snapshot.auxiliaryTopRightWidth {
+            let measured = snapshot.frame.width - leftWidth - rightWidth
+            if measured > 0 && measured <= snapshot.frame.width * 0.5 {
+                notchWidth = measured
+            }
+        }
+
+        // 見た目のノッチサイズ（NotchViewが.closedモード時に固定描画するサイズ）
+        let visualClosedSize = computeClosedSize(notchWidth: notchWidth, notchHeight: notchHeight)
+        let mediaPreviewSize = CGSize(width: max(notchWidth + 116, 316), height: max(notchHeight, 34))
+        // hasNotch (a real physical cutout) is `safeAreaInsetsTop > 0`, the
+        // same signal `notchHeight`'s fallback branch above already keys
+        // off — not `hasAuxiliaryAreas`, which can be true without an actual
+        // notch (Apple documents the aux areas as "safe to place menu bar
+        // content", not strictly "there is a physical cutout here").
+        let hasRealNotch = snapshot.safeAreaInsetsTop > 0
+        let hoverTopClearance = computeHoverTopClearance(notchHeight: notchHeight, hasNotch: hasRealNotch)
+        let debugScreenInfo: [String: Any] = [
+            "safeAreaInsetsTop": snapshot.safeAreaInsetsTop,
+            "hasAuxiliaryAreas": hasAuxiliaryAreas,
+            "auxiliaryTopLeftWidth": snapshot.auxiliaryTopLeftWidth ?? 0,
+            "auxiliaryTopRightWidth": snapshot.auxiliaryTopRightWidth ?? 0,
+            "screenFrameWidth": snapshot.frame.width,
+            "notchWidth": notchWidth,
+            "notchHeight": notchHeight,
+            "visualClosedWidth": visualClosedSize.width,
+            "visualClosedHeight": visualClosedSize.height,
+            "isBuiltInDisplay": snapshot.isBuiltIn,
+            "hasRealNotch": hasRealNotch,
+            "hoverTopClearance": hoverTopClearance,
+            "simulatedNotchPreset": {
+                guard let raw = ProcessInfo.processInfo.environment["AGENT_NOTCH_SIMULATE_NOTCH"], raw != "0" else { return "" }
+                return notchPresets[raw] != nil ? raw : defaultNotchPresetKey
+            }(),
+        ]
+        // closedSize は実際のウィンドウフレーム（ファイルドロップの当たり判定を兼ねる）。
+        // 見た目より一回り大きくして常時ドロップを受け付けやすくする。控えめな増分に留め、
+        // 他アプリのツールバー等をブロックしすぎないようにする（幅+40, 高さ+70）。
+        let closedSize = CGSize(width: visualClosedSize.width + 40, height: visualClosedSize.height + 70)
+        let fullscreenHoverSize = CGSize(width: min(closedSize.width, 140), height: closedSize.height)
+        let closedContentSize = CGSize(
+            width: visualClosedSize.width * AppSettings.shared.uiScale,
+            height: visualClosedSize.height * AppSettings.shared.uiScale
+        )
+        let hoverSize = computeHoverSize(notchWidth: notchWidth, hasNotch: hasRealNotch)
+        let hoverContentSize = CGSize(
+            width: hoverSize.width * AppSettings.shared.uiScale,
+            height: hoverSize.height * AppSettings.shared.uiScale
+        )
+
+        return ScreenGeometry(
+            screen: resolvedScreen,
+            snapshot: snapshot,
+            closedSize: closedSize,
+            fullscreenHoverSize: fullscreenHoverSize,
+            mediaPreviewSize: mediaPreviewSize,
+            visualClosedSize: visualClosedSize,
+            closedContentSize: closedContentSize,
+            hoverSize: hoverSize,
+            hoverContentSize: hoverContentSize,
+            hoverTopClearance: hoverTopClearance,
+            hasRealNotch: hasRealNotch,
+            debugScreenInfo: debugScreenInfo
+        )
+    }
+
     init(store: SessionStore, permissions: PermissionCenter, questions: QuestionCenter, plans: PlanCenter, nativeNotifier: NativeNotifier? = nil) {
         self.store = store
         self.permissions = permissions
@@ -260,51 +600,28 @@ final class NotchWindowController: NSObject {
         self.nativeNotifier = nativeNotifier
 
         let resolvedScreen = NotchWindowController.selectScreen() ?? NSScreen()
-        self.screen = resolvedScreen
-
-        let notchHeight: CGFloat = resolvedScreen.safeAreaInsets.top > 0 ? resolvedScreen.safeAreaInsets.top : 32
-
-        // auxiliaryTop{Left,Right}Area の測定値には稀に負値や画面幅の大半を占める
-        // ような異常値が返るケースがあるため、妥当な範囲外ならフォールバックする。
-        var notchWidth: CGFloat = 200
-        let hasAuxiliaryAreas = resolvedScreen.auxiliaryTopLeftArea != nil && resolvedScreen.auxiliaryTopRightArea != nil
-        if let leftArea = resolvedScreen.auxiliaryTopLeftArea, let rightArea = resolvedScreen.auxiliaryTopRightArea {
-            let measured = resolvedScreen.frame.width - leftArea.width - rightArea.width
-            if measured > 0 && measured <= resolvedScreen.frame.width * 0.5 {
-                notchWidth = measured
-            }
-        }
-
-        // 見た目のノッチサイズ（NotchViewが.closedモード時に固定描画するサイズ）
-        let visualClosedSize = NotchWindowController.computeClosedSize(notchWidth: notchWidth, notchHeight: notchHeight)
-        self.mediaPreviewSize = CGSize(width: max(notchWidth + 116, 316), height: max(notchHeight, 34))
-        let isBuiltIn = NotchWindowController.isBuiltInDisplay(resolvedScreen)
-        self.debugScreenInfo = [
-            "safeAreaInsetsTop": resolvedScreen.safeAreaInsets.top,
-            "hasAuxiliaryAreas": hasAuxiliaryAreas,
-            "auxiliaryTopLeftWidth": resolvedScreen.auxiliaryTopLeftArea?.width ?? 0,
-            "auxiliaryTopRightWidth": resolvedScreen.auxiliaryTopRightArea?.width ?? 0,
-            "screenFrameWidth": resolvedScreen.frame.width,
-            "notchWidth": notchWidth,
-            "notchHeight": notchHeight,
-            "visualClosedWidth": visualClosedSize.width,
-            "visualClosedHeight": visualClosedSize.height,
-            "isBuiltInDisplay": isBuiltIn,
-        ]
+        let geometry = NotchWindowController.computeScreenGeometry(for: resolvedScreen)
+        self.screen = geometry.screen
+        self.screenSnapshot = geometry.snapshot
+        self.mediaPreviewSize = geometry.mediaPreviewSize
+        self.visualClosedSize = geometry.visualClosedSize
+        self.debugScreenInfo = geometry.debugScreenInfo
         // closedSize は実際のウィンドウフレーム（ファイルドロップの当たり判定を兼ねる）。
         // 見た目より一回り大きくして常時ドロップを受け付けやすくする。控えめな増分に留め、
         // 他アプリのツールバー等をブロックしすぎないようにする（幅+40, 高さ+70）。
-        self.closedSize = CGSize(width: visualClosedSize.width + 40, height: visualClosedSize.height + 70)
-        self.fullscreenHoverSize = CGSize(width: min(closedSize.width, 140), height: closedSize.height)
-        self.uiState.closedContentSize = CGSize(
-            width: visualClosedSize.width * AppSettings.shared.uiScale,
-            height: visualClosedSize.height * AppSettings.shared.uiScale
-        )
+        self.closedSize = geometry.closedSize
+        self.fullscreenHoverSize = geometry.fullscreenHoverSize
+        self.hoverSize = geometry.hoverSize
+        self.hoverTopClearance = geometry.hoverTopClearance
+        self.hasRealNotch = geometry.hasRealNotch
+        self.uiState.closedContentSize = geometry.closedContentSize
+        self.uiState.hoverContentSize = geometry.hoverContentSize
+        self.uiState.hoverTopClearance = geometry.hoverTopClearance
 
         let initialScale = AppSettings.shared.uiScale
         let initialFrame = NotchWindowController.frame(
             for: CGSize(width: closedSize.width * initialScale, height: closedSize.height * initialScale),
-            on: resolvedScreen
+            on: screenSnapshot
         )
 
         let panel = KeyableNotchPanel(
@@ -404,10 +721,59 @@ final class NotchWindowController: NSObject {
         store.$sessions
             .dropFirst()
             .sink { [weak self] _ in
-                guard let self,
-                      self.uiState.mode == .open,
+                guard let self else { return }
+                if self.uiState.mode == .hover {
+                    // Session count flipping the empty/tracked ⇄ present
+                    // boundary changes whether `.hover` draws one row or two
+                    // (see `resizeForCurrentState`'s `.hover` case).
+                    self.scheduleResize()
+                    return
+                }
+                guard self.uiState.mode == .open,
                       self.uiState.activeTab == .nook,
                       self.uiState.activeView == .agents else { return }
+                self.scheduleResize()
+            }
+            .store(in: &cancellables)
+
+        // `.hover`'s row count (one vs. two) also depends on whether media
+        // is playing — resize live if playback starts/stops mid-peek.
+        MediaController.shared.$isPlaying
+            .dropFirst()
+            .sink { [weak self] _ in
+                guard let self, self.uiState.mode == .hover else { return }
+                self.scheduleResize()
+            }
+            .store(in: &cancellables)
+
+        // `questionOpenSize(for:)` depends on which step/mode the question
+        // overlay is currently on — resize live as the user steps through a
+        // multi-question batch or toggles free-text entry.
+        uiState.$questionStepIndex
+            .dropFirst()
+            .sink { [weak self] _ in
+                guard let self, self.uiState.overlay == .question else { return }
+                self.scheduleResize()
+            }
+            .store(in: &cancellables)
+        uiState.$questionCustomMode
+            .dropFirst()
+            .sink { [weak self] _ in
+                guard let self, self.uiState.overlay == .question else { return }
+                self.scheduleResize()
+            }
+            .store(in: &cancellables)
+        uiState.$questionPromptHeight
+            .dropFirst()
+            .sink { [weak self] _ in
+                guard let self, self.uiState.overlay == .question else { return }
+                self.scheduleResize()
+            }
+            .store(in: &cancellables)
+        uiState.$approvalSummaryHeight
+            .dropFirst()
+            .sink { [weak self] _ in
+                guard let self, case .approval = self.uiState.overlay else { return }
                 self.scheduleResize()
             }
             .store(in: &cancellables)
@@ -471,6 +837,21 @@ final class NotchWindowController: NSObject {
             }
         }
 
+        // External display connect/disconnect, resolution changes, and
+        // scaling changes all fire this notification; the notch's screen
+        // selection and geometry (built at `init` time only, previously)
+        // need to be recomputed so the panel keeps tracking the right
+        // display and the right notch size.
+        screenParametersObserver = NotificationCenter.default.addObserver(
+            forName: NSApplication.didChangeScreenParametersNotification,
+            object: nil,
+            queue: .main
+        ) { [weak self] _ in
+            Task { @MainActor in
+                self?.scheduleScreenGeometryRefresh()
+            }
+        }
+
         scrollMonitor = NSEvent.addLocalMonitorForEvents(matching: .scrollWheel) { [weak self] event in
             self?.handleScroll(event)
             return event
@@ -497,11 +878,13 @@ final class NotchWindowController: NSObject {
     private func syncOverlay() {
         uiState.activeTab = .nook
         if let first = permissions.queue.first {
+            let otherAgent = permissions.queue.dropFirst().first { $0.agent != first.agent }?.agent
             uiState.overlay = .approval(
                 agent: first.agent,
                 toolName: first.toolName,
                 summary: first.summary,
-                extraCount: permissions.queue.count - 1
+                extraCount: permissions.queue.count - 1,
+                otherAgentPending: otherAgent
             )
         } else if !plans.queue.isEmpty {
             uiState.overlay = .plan
@@ -514,12 +897,16 @@ final class NotchWindowController: NSObject {
 
     deinit {
         visibilityRefreshTask?.cancel()
+        screenGeometryRefreshTask?.cancel()
         noticeAutoDismissTask?.cancel()
         if let workspaceObserver {
             NSWorkspace.shared.notificationCenter.removeObserver(workspaceObserver)
         }
         if let spaceObserver {
             NSWorkspace.shared.notificationCenter.removeObserver(spaceObserver)
+        }
+        if let screenParametersObserver {
+            NotificationCenter.default.removeObserver(screenParametersObserver)
         }
         if let scrollMonitor {
             NSEvent.removeMonitor(scrollMonitor)
@@ -532,6 +919,46 @@ final class NotchWindowController: NSObject {
         }
     }
 
+    /// Debounces `didChangeScreenParametersNotification`, which can fire
+    /// several times in quick succession while a display is connecting,
+    /// disconnecting, or changing resolution/scaling. Mirrors
+    /// `scheduleVisibilityRefresh()`'s two-step settle pattern (immediate
+    /// pass, then two follow-up passes as things finish settling).
+    private func scheduleScreenGeometryRefresh() {
+        screenGeometryRefreshTask?.cancel()
+        refreshScreenGeometry()
+        screenGeometryRefreshTask = Task { [weak self] in
+            for delay in [180_000_000, 520_000_000] as [UInt64] {
+                try? await Task.sleep(nanoseconds: delay)
+                guard !Task.isCancelled, let self else { return }
+                self.refreshScreenGeometry()
+            }
+        }
+    }
+
+    /// Re-selects the anchor screen and recomputes every screen-dependent
+    /// property (mirroring what `init` computed once), then resizes the
+    /// panel to its new frame. Safe to call repeatedly; it's a no-op beyond
+    /// re-deriving the same values when nothing actually changed.
+    private func refreshScreenGeometry() {
+        guard let resolvedScreen = NotchWindowController.selectScreen() else { return }
+        let geometry = NotchWindowController.computeScreenGeometry(for: resolvedScreen)
+        screen = geometry.screen
+        screenSnapshot = geometry.snapshot
+        closedSize = geometry.closedSize
+        fullscreenHoverSize = geometry.fullscreenHoverSize
+        mediaPreviewSize = geometry.mediaPreviewSize
+        visualClosedSize = geometry.visualClosedSize
+        hoverSize = geometry.hoverSize
+        hoverTopClearance = geometry.hoverTopClearance
+        hasRealNotch = geometry.hasRealNotch
+        debugScreenInfo = geometry.debugScreenInfo
+        uiState.closedContentSize = geometry.closedContentSize
+        uiState.hoverContentSize = geometry.hoverContentSize
+        uiState.hoverTopClearance = geometry.hoverTopClearance
+        scheduleResize()
+    }
+
     /// Applies `AppSettings.uiScale` to a base panel size immediately before
     /// it's turned into a screen frame. Base size constants (`closedSize`,
     /// `openSize`, etc.) stay untouched so they keep documenting the
@@ -541,9 +968,9 @@ final class NotchWindowController: NSObject {
         return CGSize(width: size.width * scale, height: size.height * scale)
     }
 
-    private static func frame(for size: CGSize, on screen: NSScreen) -> NSRect {
-        let x = screen.frame.midX - size.width / 2
-        let y = screen.frame.maxY - size.height
+    private static func frame(for size: CGSize, on snapshot: ScreenSnapshot) -> NSRect {
+        let x = snapshot.frame.midX - size.width / 2
+        let y = snapshot.frame.maxY - size.height
         return NSRect(x: x, y: y, width: size.width, height: size.height)
     }
 
@@ -637,14 +1064,40 @@ final class NotchWindowController: NSObject {
             } else {
                 targetSize = uiState.isMediaPreviewVisible ? mediaPreviewSize : closedSize
             }
+        case .hover:
+            let baseHeight: CGFloat
+            if hoverTopClearance > 0 {
+                // Real notched Mac: icon band (topClearance-tall) + the info
+                // text below it — media gets an extra artist line, see
+                // `HoverPeekView.primaryInfo`.
+                baseHeight = Self.computeHoverContentHeight(topClearance: hoverTopClearance, isMediaPlaying: MediaController.shared.isPlaying)
+            } else {
+                // Non-notched fallback (only reachable via the debug
+                // `--mode hover` CLI bypass, since `.hover` itself is gated
+                // to real notches — see `shouldEnterHover`). `HoverPeekView`
+                // draws a second row only when media is playing *and* a
+                // session is being tracked; otherwise it's a single row.
+                let hasTwoRows = MediaController.shared.isPlaying && !store.sessions.isEmpty
+                baseHeight = hasTwoRows ? hoverSize.height : Self.hoverCompactHeight
+            }
+            targetSize = CGSize(width: hoverSize.width, height: baseHeight)
         case .notice:
             targetSize = noticeSize
         case .open:
-            if uiState.overlay == .question {
-                targetSize = openQuestionSize
-            } else if uiState.hasOverlay {
-                targetSize = openOverlaySize
-            } else {
+            switch uiState.overlay {
+            case .question:
+                targetSize = questions.queue.first.map(questionOpenSize(for:)) ?? openQuestionSize
+            case .approval(_, let toolName, _, _, _):
+                // `ExitPlanMode` renders as `PlanApprovalOverlayView` instead
+                // (see `overlayCell(_:)`) — entirely fixed/known-height
+                // content (a header row + two 38pt `PlanChoiceButton`s), so
+                // it gets its own fixed size rather than `approvalOpenSize()`,
+                // which is driven by `uiState.approvalSummaryHeight` — a
+                // value only the *other* (regular) approval card ever writes.
+                targetSize = toolName == "ExitPlanMode" ? planApprovalOpenSize : approvalOpenSize()
+            case .plan:
+                targetSize = planOpenSize
+            case nil:
                 if uiState.activeTab == .tray {
                     targetSize = trayOpenSize
                 } else if uiState.activeView == .agents {
@@ -655,13 +1108,123 @@ final class NotchWindowController: NSObject {
             }
         }
 
-        let targetFrame = NotchWindowController.frame(for: scaled(targetSize), on: screen)
+        // `.hover`'s height varies per render (one vs. two rows, above), so
+        // unlike `closedContentSize` (fixed per screen), the explicit
+        // SwiftUI content frame it drives must be refreshed here alongside
+        // the real window frame rather than only on screen-geometry changes.
+        if uiState.mode == .hover {
+            uiState.hoverContentSize = scaled(targetSize)
+        } else if uiState.mode == .closed {
+            // Same reasoning as `.hover` above, for the media-preview case:
+            // the real window frame already grows to `mediaPreviewSize`
+            // (`targetSize = uiState.isMediaPreviewVisible ? mediaPreviewSize
+            // : closedSize` above, but only while `shouldPersistVisible` —
+            // the fullscreen-suppressed branch never uses `mediaPreviewSize`
+            // at all, see its own comment above), while `closedContentSize`
+            // was otherwise only ever recomputed on screen-geometry changes —
+            // leaving a transparent, un-rendered gap while media preview is
+            // visible. `mediaPreviewSize` is already a "visual" (unpadded)
+            // size like `visualClosedSize`, unlike `closedSize`'s
+            // `+40w/+70h` hit-test padding, so both sides use it directly.
+            // Mirror the exact same condition the switch above used, so this
+            // never disagrees with what `targetSize` actually was.
+            let previewActive = shouldPersistVisible && uiState.isMediaPreviewVisible
+            uiState.closedContentSize = scaled(previewActive ? mediaPreviewSize : visualClosedSize)
+        }
+
+        let targetFrame = NotchWindowController.frame(for: scaled(targetSize), on: screenSnapshot)
 
         NSAnimationContext.runAnimationGroup { context in
             context.duration = (uiState.mode == .closed ? 0.25 : 0.40) * AppSettings.shared.animationSpeedScale
             context.timingFunction = CAMediaTimingFunction(controlPoints: 0.20, 0.72, 0.24, 1)
             panel.animator().setFrame(targetFrame, display: true)
         }
+    }
+
+    /// Fixed chrome around `AgentQuestionView`'s content, *excluding* the
+    /// prompt text itself: the 30pt tab bar, `CellSurface`'s 7pt padding
+    /// top+bottom, the header row (agent label + header/step capsules), and
+    /// the two 7pt spacing gaps around the prompt. The prompt's own height
+    /// is added separately from `uiState.questionPromptHeight` (live-
+    /// measured — see its doc comment — since it can run to several lines
+    /// and a fixed budget either clipped long prompts or wasted space on
+    /// short ones).
+    private let questionBaseHeight: CGFloat = 98
+    /// One `QuestionChoiceButton` row (32pt, or 42pt when any option has a
+    /// `detail` line) plus the 5pt spacing before the next row.
+    private let questionOptionRowHeight: CGFloat = 37
+    private let questionOptionRowHeightWithDetail: CGFloat = 47
+    /// `customAnswerView`'s fixed-height `TextEditor` (74) + its 8pt spacing
+    /// + the "Send answer" button (32).
+    private let questionCustomAnswerHeight: CGFloat = 114
+    private let questionMinHeight: CGFloat = 150
+
+    /// Sizes the `.question` overlay to fit the *current step's* content
+    /// instead of always reserving `openQuestionSize`'s full height — a
+    /// short 2-option question left most of that height as dead space
+    /// below the buttons (reported as looking broken, not just wasteful).
+    /// Mostly mirrors `agentsOpenSize`'s "compute from known row math, cap
+    /// at a max" approach, except the prompt itself is measured live
+    /// (`uiState.questionPromptHeight`) rather than budgeted for a fixed
+    /// line count, since prompts vary from one short line to several.
+    private func questionOpenSize(for request: QuestionCenter.Request) -> CGSize {
+        let stepIndex = min(max(uiState.questionStepIndex, 0), request.questions.count - 1)
+        let question = request.questions[stepIndex]
+        let bodyHeight: CGFloat
+        if question.options.isEmpty || uiState.questionCustomMode {
+            bodyHeight = questionCustomAnswerHeight
+        } else {
+            let hasDetail = question.options.contains { !$0.detail.isEmpty }
+            let rowHeight = hasDetail ? questionOptionRowHeightWithDetail : questionOptionRowHeight
+            bodyHeight = CGFloat(question.options.count) * rowHeight - 5
+        }
+        let height = max(questionBaseHeight + uiState.questionPromptHeight + bodyHeight, questionMinHeight)
+        return CGSize(width: openQuestionSize.width, height: min(height, openQuestionSize.height))
+    }
+
+    /// Fixed chrome around `ApprovalOverlayView`'s pre-decision content,
+    /// *excluding* the summary box: 30pt tab bar, `CellSurface`'s 7pt
+    /// padding top+bottom, the request-header row (~20pt), the tool-name
+    /// row (~20pt), the outer `VStack(spacing: 8)`'s 4 gaps (header→tool→
+    /// summary→spacer→buttons), the `Spacer(minLength: 10)` before the
+    /// buttons, and the button row (`ApprovalActionButton`'s `minHeight:
+    /// 36`, not 30 — an earlier version of this budget under-counted it,
+    /// which is what made the card look cramped/pinned at the bottom: the
+    /// `Spacer` was bottoming out at its minimum with no slack left). Plus
+    /// a small extra margin so it errs toward comfortable rather than tight.
+    /// The summary box's *text* height is measured live
+    /// (`uiState.approvalSummaryHeight`) since it has no `lineLimit` — it's
+    /// a command/diff excerpt, and truncating it could hide the dangerous
+    /// part of what's being approved.
+    private let approvalBaseHeight: CGFloat = 180
+    private let approvalMinHeight: CGFloat = 195
+    /// Deliberately *not* `openOverlaySize.height` (246) — the summary box
+    /// has no `lineLimit`, so a long command/diff excerpt must be allowed to
+    /// grow well past the old fixed size rather than being clipped by the
+    /// outer frame, which would hide the dangerous part of what's being
+    /// approved. Mirrors `agentsMaxHeight`'s role as a generous safety cap.
+    private let approvalMaxHeight: CGFloat = 420
+
+    private func approvalOpenSize() -> CGSize {
+        let height = max(approvalBaseHeight + uiState.approvalSummaryHeight, approvalMinHeight)
+        return CGSize(width: openOverlaySize.width, height: min(height, approvalMaxHeight))
+    }
+
+    /// `PlanApprovalOverlayView`'s (ExitPlanMode) content is entirely fixed —
+    /// a header row plus two 38pt `PlanChoiceButton`s — so unlike the
+    /// regular approval card it needs no live measurement, just a smaller
+    /// constant than the `openOverlaySize` it used to reuse.
+    private let planApprovalOpenSize = CGSize(width: 540, height: 190)
+
+    /// `PlanReviewView`'s content is entirely fixed/`lineLimit`-capped
+    /// (title is 1 line, summary is capped at 2, the comment field and
+    /// button row are both fixed-height) — unlike question/approval, no
+    /// live measurement is needed, just a smaller constant than the shared
+    /// `openOverlaySize` it used to reuse.
+    private let planOpenHeight: CGFloat = 190
+
+    private var planOpenSize: CGSize {
+        CGSize(width: openOverlaySize.width, height: planOpenHeight)
     }
 
     /// Height budget for the Agents Nook page. Unlike the other pages
@@ -681,11 +1244,32 @@ final class NotchWindowController: NSObject {
         return CGSize(width: openSize.width, height: min(height, agentsMaxHeight))
     }
 
+    /// Whether a continued hover over the already-visible `.closed` notch
+    /// should be allowed to dwell into `.hover` (a lightweight peek). Pulled
+    /// out as a pure function, mirroring `computeClosedSize`/
+    /// `selectScreenIndex`, so the "Attention (approval/question/plan)
+    /// always wins over Hover" and "fullscreen suppresses Hover too"
+    /// invariants are testable without a live window/timers.
+    static func shouldEnterHover(
+        currentMode: IslandMode,
+        shouldPersistVisible: Bool,
+        isClickPinned: Bool,
+        hasPendingAttention: Bool,
+        hasRealNotch: Bool
+    ) -> Bool {
+        // `.hover` is a NotchNook-style peek meant specifically for real
+        // notched Macs; a non-notched screen must keep behaving exactly as
+        // it did before `.hover` existed (compact pill only, straight to
+        // Expanded on click — no intermediate hover peek).
+        hasRealNotch && currentMode == .closed && shouldPersistVisible && !isClickPinned && !hasPendingAttention
+    }
+
     func hoverChanged(_ inside: Bool) {
         guard isHovering != inside else { return }
         isHovering = inside
         hoverTask?.cancel()
         dwellTask?.cancel()
+        hoverExpandTask?.cancel()
         if inside {
             hideTask?.cancel()
             if !uiState.isVisible {
@@ -697,9 +1281,33 @@ final class NotchWindowController: NSObject {
                 }
                 return
             }
-            // Hover reveals the compact notch when hidden, but never changes
-            // its mode. Opening is an explicit click so the same pointer
-            // action always has the same result.
+            // Hover never opens the panel by itself — that stays an explicit
+            // click (`toggleOpen()`) so the same pointer action always has
+            // the same result — but a further dwell while sitting in
+            // `.closed` expands to `.hover`, a lightweight peek (song/
+            // project/status/elapsed time). `shouldEnterHover` guards
+            // against fullscreen suppression and any pending Attention item,
+            // which always takes over via `showAttention()` instead.
+            if NotchWindowController.shouldEnterHover(
+                currentMode: uiState.mode,
+                shouldPersistVisible: shouldPersistVisible,
+                isClickPinned: isClickPinned,
+                hasPendingAttention: hasPendingAttention,
+                hasRealNotch: hasRealNotch
+            ) {
+                hoverExpandTask = Task { [weak self] in
+                    try? await Task.sleep(nanoseconds: 220_000_000)
+                    guard !Task.isCancelled, let self, self.isHovering else { return }
+                    guard NotchWindowController.shouldEnterHover(
+                        currentMode: self.uiState.mode,
+                        shouldPersistVisible: self.shouldPersistVisible,
+                        isClickPinned: self.isClickPinned,
+                        hasPendingAttention: self.hasPendingAttention,
+                        hasRealNotch: self.hasRealNotch
+                    ) else { return }
+                    self.setMode(.hover)
+                }
+            }
             return
         }
         if !shouldPersistVisible, uiState.isVisible, uiState.mode == .closed {
@@ -798,20 +1406,46 @@ final class NotchWindowController: NSObject {
             uiState.activeTab = .nook
             uiState.activeView = .agents
         }
-        guard shouldPersistVisible else { return }
+        guard shouldPersistVisible else {
+            // Fullscreen suppression hides the notch UI itself, so an urgent
+            // AgentNotchSession event (attention/fail) would otherwise be
+            // silently dropped, unlike the permissions/plans/questions
+            // queues which fall back to a native notification via
+            // `notifyFallbackIfNeeded()`. That helper is queue-shaped and
+            // doesn't know about session attention/fail events, so notify
+            // directly here instead, throttled to avoid spamming repeats.
+            if urgent { notifyAgentActivityFallbackIfNeeded() }
+            return
+        }
         uiState.isVisible = true
         if urgent { showAttention() }
     }
 
-    func showFromCLI() {
+    private func notifyAgentActivityFallbackIfNeeded() {
+        guard let nativeNotifier else { return }
+        let now = Date()
+        if let last = lastAgentActivityNotifyDate,
+           now.timeIntervalSince(last) < agentActivityNotifyMinInterval {
+            return
+        }
+        lastAgentActivityNotifyDate = now
+        let title = String(localized: "notification.agentActivity.title", defaultValue: "Agent needs attention")
+        let body = String(localized: "notification.agentActivity.body", defaultValue: "Open AgentNotch to see what happened")
+        nativeNotifier.notify(title: title, body: body)
+    }
+
+    /// `mode: .hover`はテスト・デバッグ専用: フルスクリーン抑制やホバー実ジェスチャー
+    /// なしに`.hover`を直接強制表示し、`AGENT_NOTCH_SIMULATE_NOTCH`との組み合わせで
+    /// 異なるノッチ寸法でのHover外観をスクリーンショット等で目視確認できるようにする。
+    func showFromCLI(mode: IslandMode = .open) {
         // An explicit CLI command is a manual override. Automatic activity,
         // questions and hover still respect fullscreen suppression.
         dwellTask?.cancel()
         hideTask?.cancel()
-        syncOverlay()
+        if mode == .open { syncOverlay() }
         isClickPinned = true
         uiState.isVisible = true
-        uiState.mode = .open
+        uiState.mode = mode
         scheduleResize()
     }
 
@@ -991,6 +1625,7 @@ final class NotchWindowController: NSObject {
         } else {
             hoverTask?.cancel()
             dwellTask?.cancel()
+            hoverExpandTask?.cancel()
             hideTask?.cancel()
             isClickPinned = false
             uiState.isDetailExpanded = false
@@ -1020,6 +1655,7 @@ final class NotchWindowController: NSObject {
     func cancelInteractionTimers() {
         hoverTask?.cancel()
         dwellTask?.cancel()
+        hoverExpandTask?.cancel()
         hideTask?.cancel()
     }
 

@@ -17,6 +17,9 @@ final class CodexWatcher {
     private let sessionsURL: URL
     /// Tracks last-seen file size per transcript path, so unchanged files are skipped.
     private var lastSeenSize: [String: UInt64] = [:]
+    /// Tracks last-seen modification date per transcript path, paired with size to
+    /// detect content changes that don't alter the byte count.
+    private var lastSeenModDate: [String: Date] = [:]
     /// Cached parsed result per transcript path, reused when the file hasn't changed.
     private var lastResult: [String: AgentSession] = [:]
 
@@ -54,17 +57,30 @@ final class CodexWatcher {
             guard now.timeIntervalSince(modDate) <= activeWindow else { continue }
 
             let size = (attrs[.size] as? UInt64) ?? 0
-            if lastSeenSize[path] == size, let cached = lastResult[path] {
-                // Size unchanged: reuse prior parse but refresh state based on time.
+            let unchanged = !Self.needsReparse(
+                cachedSize: lastSeenSize[path], cachedModDate: lastSeenModDate[path],
+                currentSize: size, currentModDate: modDate
+            )
+            if unchanged, let cached = lastResult[path] {
+                // Size and modification date unchanged: reuse prior parse but refresh state based on time.
                 activeSessions.append(refreshState(cached, modDate: modDate, now: now))
                 continue
             }
 
             if let session = parseSession(atPath: path, modDate: modDate, now: now) {
                 lastSeenSize[path] = size
+                lastSeenModDate[path] = modDate
                 lastResult[path] = session
                 activeSessions.append(session)
             }
+        }
+
+        let currentPaths = Set(transcripts)
+        let staleKeys = lastSeenSize.keys.filter { !currentPaths.contains($0) }
+        for staleKey in staleKeys {
+            lastSeenSize.removeValue(forKey: staleKey)
+            lastSeenModDate.removeValue(forKey: staleKey)
+            lastResult.removeValue(forKey: staleKey)
         }
 
         store.replaceSessions(agent: .codex, activeSessions)
@@ -75,6 +91,14 @@ final class CodexWatcher {
         updated.lastActivity = modDate
         updated.state = now.timeIntervalSince(modDate) <= runningWindow ? .running : .idle
         return updated
+    }
+
+    /// Whether a transcript needs to be re-parsed, given its previously cached
+    /// (size, modification date) and the currently observed values. Comparing
+    /// on size alone misses same-size content edits, so both must match to
+    /// skip re-parsing.
+    static func needsReparse(cachedSize: UInt64?, cachedModDate: Date?, currentSize: UInt64, currentModDate: Date) -> Bool {
+        cachedSize != currentSize || cachedModDate != currentModDate
     }
 
     /// Finds `rollout-*.jsonl` files under `~/.codex/sessions/YYYY/MM/DD/`,
@@ -211,7 +235,8 @@ final class CodexWatcher {
 
     /// Reads the last `tailByteCount` bytes of the file and returns up to
     /// `maxTailLines` lines, split by newline, from the end.
-    private func readTailLines(atPath path: String) -> [String]? {
+    /// Internal (not `private`) so tests can exercise UTF-8 boundary handling directly.
+    func readTailLines(atPath path: String) -> [String]? {
         guard let handle = FileHandle(forReadingAtPath: path) else { return nil }
         defer { try? handle.close() }
 
@@ -231,7 +256,11 @@ final class CodexWatcher {
         }
 
         guard let data = try? handle.read(upToCount: Int(readSize)) else { return nil }
-        guard let text = String(data: data, encoding: .utf8) else { return nil }
+        // The tail read may start mid-way through a multi-byte UTF-8 character
+        // (since we cut at a fixed byte offset, not a character boundary).
+        // `String(decoding:as:)` never fails; it replaces invalid sequences at
+        // the cut point with U+FFFD instead of discarding the whole read.
+        let text = String(decoding: data, as: UTF8.self)
 
         var lines = text.components(separatedBy: "\n")
         if lines.count > maxTailLines {

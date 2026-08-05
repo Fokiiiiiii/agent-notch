@@ -32,8 +32,8 @@ struct NotchView: View {
                 content
             }
             .frame(
-                width: uiState.mode == .closed ? uiState.closedContentSize.width : nil,
-                height: uiState.mode == .closed ? uiState.closedContentSize.height : nil
+                width: uiState.mode == .closed ? uiState.closedContentSize.width : (uiState.mode == .hover ? uiState.hoverContentSize.width : nil),
+                height: uiState.mode == .closed ? uiState.closedContentSize.height : (uiState.mode == .hover ? uiState.hoverContentSize.height : nil)
             )
             // The panel's real NSWindow frame is animated separately (AppKit,
             // NSAnimationContext in NotchWindowController) on its own timing
@@ -96,6 +96,9 @@ struct NotchView: View {
         case .closed:
             compactContent
                 .transition(.opacity)
+        case .hover:
+            hoverContent
+                .transition(.opacity)
         case .notice:
             noticeContent
                 .transition(.opacity)
@@ -140,6 +143,38 @@ struct NotchView: View {
         .animation(.easeOut(duration: reduceMotion ? 0.12 : 0.24), value: shouldShowCompactMedia)
     }
 
+    // MARK: - Hover (intermediate peek)
+
+    /// `.hover` is a lightweight, read-only peek shown after a further dwell
+    /// over the already-visible `.closed` notch (see
+    /// `NotchWindowController.hoverChanged(_:)`). It surfaces the same
+    /// information a glance at Compact + a long hover on the media preview
+    /// would give — playing media and the selected session's project/task/
+    /// status/elapsed time — without taking over the full Expanded panel.
+    /// A click still opens Expanded via the same `toggleOpen()` path as
+    /// Compact.
+    /// `.topLeading` only when a real notch reserves top clearance (rows
+    /// must sit below the physical camera housing, not centered through
+    /// it); otherwise `.leading` (vertical-center), matching the
+    /// non-notched layout exactly as it was before notch-awareness existed.
+    private var hoverPeekAlignment: Alignment {
+        uiState.hoverTopClearance > 0 ? .topLeading : .leading
+    }
+
+    private var hoverContent: some View {
+        Button {
+            controller.toggleOpen()
+        } label: {
+            HoverPeekView(session: selectedSession, media: media, topClearance: uiState.hoverTopClearance)
+                .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: hoverPeekAlignment)
+                .contentShape(Rectangle())
+        }
+        .buttonStyle(NotchPressStyle(pressedScale: 0.99))
+        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: hoverPeekAlignment)
+        .accessibilityLabel(String(localized: "notch.openAgentNotch", defaultValue: "Open AgentNotch"))
+        .help(String(localized: "notch.openAgentNotch", defaultValue: "Open AgentNotch"))
+    }
+
     private var shouldShowCompactMedia: Bool {
         media.isPlaying
             && permissions.queue.isEmpty
@@ -179,10 +214,22 @@ struct NotchView: View {
             } else {
                 Spacer(minLength: 0)
             }
-            if uiState.trayItemCount > 0 {
-                compactTrayBadge
+            // The skip icon extends the pill alongside the waveform (both
+            // visible) rather than replacing it, and only on a real (or
+            // simulated) notch — `hoverTopClearance > 0` is the same signal
+            // `HoverPeekView` uses for "has a real notch"; on a non-notched
+            // Mac this must stay exactly the plain waveform it always was.
+            HStack(spacing: 4) {
+                if let direction = media.activeSkipDirection, uiState.hoverTopClearance > 0 {
+                    Image(systemName: direction == .forward ? "forward.fill" : "backward.fill")
+                        .font(.system(size: 9, weight: .semibold))
+                        .foregroundColor(Color(nsColor: media.accentColor))
+                        .frame(width: 14, height: 14)
+                        .transition(.opacity.combined(with: .scale(scale: reduceMotion ? 1 : 0.7)))
+                }
+                CompactMediaWaveform(isPlaying: media.isPlaying, color: Color(nsColor: media.accentColor))
             }
-            CompactMediaWaveform(isPlaying: media.isPlaying, color: Color(nsColor: media.accentColor))
+            .animation(.easeOut(duration: reduceMotion ? 0.12 : 0.2), value: media.activeSkipDirection)
         }
     }
 
@@ -491,7 +538,7 @@ struct NotchView: View {
     @ViewBuilder
     private func overlayCell(_ overlay: IslandOverlay) -> some View {
         switch overlay {
-        case .approval(let agent, let toolName, let summary, let extraCount):
+        case .approval(let agent, let toolName, let summary, let extraCount, let otherAgentPending):
             if toolName == "ExitPlanMode" {
                 PlanApprovalOverlayView(
                     agent: agent,
@@ -514,10 +561,12 @@ struct NotchView: View {
                 )
             } else {
                 ApprovalOverlayView(
+                    uiState: uiState,
                     agent: agent,
                     toolName: toolName,
                     summary: summary,
                     extraCount: extraCount,
+                    otherAgentPending: otherAgentPending,
                     onAllowOnce: {
                         if let id = permissions.queue.first?.id {
                             permissions.resolve(id, behavior: "allow")
@@ -546,8 +595,8 @@ struct NotchView: View {
             }
         case .question:
             if let request = questions.queue.first {
-                AgentQuestionView(request: request) { answer in
-                    questions.resolve(request.id, answer: answer)
+                AgentQuestionView(request: request, uiState: uiState) { answers in
+                    questions.resolve(request.id, answers: answers)
                     controller.finishQuestionResponse()
                 }
                 .id(request.id)
@@ -1077,6 +1126,20 @@ func elapsedString(_ session: AgentSession) -> String {
     return "\(minutes)m"
 }
 
+func cwdTail(_ cwd: String) -> String {
+    URL(fileURLWithPath: cwd).lastPathComponent
+}
+
+func sessionStateLabel(_ state: SessionState) -> String {
+    switch state {
+    case .running: return String(localized: "agents.state.running", defaultValue: "Running")
+    case .waitingApproval: return String(localized: "agents.state.needsAttention", defaultValue: "Needs attention")
+    case .done: return String(localized: "agents.state.done", defaultValue: "Done")
+    case .idle: return String(localized: "agents.state.paused", defaultValue: "Paused")
+    case .failed: return String(localized: "agents.state.failed", defaultValue: "Failed")
+    }
+}
+
 // MARK: - Glyph
 
 struct ClaudeBloomGlyph: View {
@@ -1471,6 +1534,235 @@ private extension View {
     }
 }
 
+// MARK: - Hover peek (intermediate state)
+
+/// Content for `IslandMode.hover`. Deliberately its own type rather than a
+/// reuse of `compactAgentContent`/`compactMediaContent` (both stay
+/// unchanged — Compact keeps its narrow left/right-of-notch role): Hover has
+/// room to show media *and* session info together rather than choosing one.
+private struct HoverPeekView: View {
+    let session: AgentSession?
+    @ObservedObject var media: MediaController
+    /// Extra space to leave empty above the rows on a real notched Mac —
+    /// `0` on a non-notched screen, which keeps this exactly as it was
+    /// before notch-awareness was added (see
+    /// `NotchUIState.hoverTopClearance`'s doc comment for why this exists:
+    /// the physical camera housing is opaque, not just a rendering
+    /// boundary, so content placed under it is genuinely invisible).
+    var topClearance: CGFloat = 0
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+
+    var body: some View {
+        Group {
+            if topClearance > 0 {
+                notchAwareContent
+            } else {
+                legacyContent
+            }
+        }
+        .padding(.horizontal, 14)
+        .padding(.vertical, 10)
+        // Non-notched (topClearance == 0): vertical-center, exactly as
+        // before. Notched: top-anchor — `notchAwareContent` places its own
+        // icon band flush with the top instead of relying on padding.
+        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: topClearance > 0 ? .topLeading : .leading)
+    }
+
+    private var legacyContent: some View {
+        VStack(alignment: .leading, spacing: 7) {
+            if media.isPlaying {
+                mediaRow
+            }
+            if let session {
+                sessionRow(session)
+            } else if !media.isPlaying {
+                emptyRow
+            }
+        }
+    }
+
+    // MARK: - Notch-aware content (real notch only)
+
+    /// On a real (or simulated) notch, the physical camera housing sits at
+    /// the top-center and is opaque — a small icon anchored to the pill's
+    /// left/right edge clears it (the pill is always widened well past the
+    /// notch's own width, see `computeHoverSize`), but full-width content
+    /// does not. So: a thin icon band flush with the top (icon left, a
+    /// small status accessory right, nothing in the center where the
+    /// housing sits), then the info text below it — never media and
+    /// session simultaneously, matching how little room a peek should take.
+    private var notchAwareContent: some View {
+        VStack(alignment: .leading, spacing: 6) {
+            iconBand
+            primaryInfo
+        }
+    }
+
+    /// Media gets its own title (marquee-scrolled if it overflows, matching
+    /// the previous design) + artist line, since both were legible before
+    /// this redesign and truncating the artist away entirely lost real
+    /// information. Session/idle stay a single line — there's no
+    /// second-line equivalent to a session the way there is a track's artist.
+    @ViewBuilder
+    private var primaryInfo: some View {
+        if media.isPlaying {
+            VStack(alignment: .leading, spacing: 0) {
+                MarqueeText(text: media.title, size: 12, weight: .semibold, speed: 18)
+                    .frame(height: 15)
+                Text(media.artist)
+                    .font(.system(size: 9, weight: .medium))
+                    .foregroundColor(DesignTokens.muted)
+                    .lineLimit(1)
+                    .truncationMode(.tail)
+            }
+        } else {
+            Text(session?.title ?? String(localized: "compact.idle", defaultValue: "No active session"))
+                .font(.system(size: 12, weight: .semibold))
+                .foregroundColor(.white)
+                .lineLimit(1)
+                .truncationMode(.tail)
+        }
+    }
+
+    private var iconBand: some View {
+        HStack(spacing: 0) {
+            leadingGlyph
+            Spacer(minLength: 0)
+            trailingAccessory
+        }
+        .frame(height: max(topClearance, 24))
+    }
+
+    private var leadingGlyph: some View {
+        Group {
+            if media.isPlaying, let artwork = media.artwork {
+                Image(nsImage: artwork)
+                    .resizable()
+                    .scaledToFill()
+            } else if media.isPlaying {
+                RoundedRectangle(cornerRadius: 6, style: .continuous)
+                    .fill(Color.white.opacity(0.1))
+                    .overlay(Image(systemName: "music.note").font(.system(size: 10, weight: .medium)))
+            } else {
+                GlyphBox(agent: session?.agent)
+            }
+        }
+        .frame(width: 24, height: 24)
+        .clipShape(RoundedRectangle(cornerRadius: 6, style: .continuous))
+        .overlay(alignment: .bottomTrailing) {
+            if let direction = media.activeSkipDirection {
+                skipBadge(direction)
+            }
+        }
+        .animation(.easeOut(duration: reduceMotion ? 0.12 : 0.2), value: media.activeSkipDirection)
+    }
+
+    /// A small dark circular badge flashed at the corner of the album art
+    /// on a hardware media-key/remote skip press, matching macOS's own
+    /// "Now Playing" HUD app-icon-badge convention — auto-clears itself via
+    /// `MediaController.activeSkipDirection`, no local timer needed here.
+    private func skipBadge(_ direction: SkipDirection) -> some View {
+        Image(systemName: direction == .forward ? "forward.fill" : "backward.fill")
+            .font(.system(size: 7, weight: .bold))
+            .foregroundColor(.white)
+            .frame(width: 14, height: 14)
+            .background(Circle().fill(Color.black.opacity(0.55)))
+            .overlay(Circle().stroke(Color.white.opacity(0.15), lineWidth: 0.5))
+            .offset(x: 2, y: 2)
+            .transition(.opacity.combined(with: .scale(scale: reduceMotion ? 1 : 0.6)))
+    }
+
+    @ViewBuilder
+    private var trailingAccessory: some View {
+        if media.isPlaying {
+            CompactMediaWaveform(isPlaying: true, color: Color(nsColor: media.accentColor))
+        } else if let session {
+            Circle()
+                .fill(statusColor(session.state))
+                .frame(width: 6, height: 6)
+        }
+    }
+
+    private var mediaRow: some View {
+        HStack(spacing: 8) {
+            Group {
+                if let artwork = media.artwork {
+                    Image(nsImage: artwork)
+                        .resizable()
+                        .scaledToFill()
+                } else {
+                    RoundedRectangle(cornerRadius: 6, style: .continuous)
+                        .fill(Color.white.opacity(0.1))
+                        .overlay(Image(systemName: "music.note").font(.system(size: 10, weight: .medium)))
+                }
+            }
+            .frame(width: 26, height: 26)
+            .clipShape(RoundedRectangle(cornerRadius: 6, style: .continuous))
+            .overlay(alignment: .bottomTrailing) {
+                if let direction = media.activeSkipDirection {
+                    skipBadge(direction)
+                }
+            }
+            .animation(.easeOut(duration: reduceMotion ? 0.12 : 0.2), value: media.activeSkipDirection)
+            VStack(alignment: .leading, spacing: 0) {
+                MarqueeText(text: media.title, size: 10.5, weight: .semibold, speed: 18)
+                    .frame(height: 13)
+                Text(media.artist)
+                    .font(.system(size: 8.5, weight: .medium))
+                    .foregroundColor(DesignTokens.muted)
+                    .lineLimit(1)
+                    .truncationMode(.tail)
+            }
+            Spacer(minLength: 4)
+            CompactMediaWaveform(isPlaying: media.isPlaying, color: Color(nsColor: media.accentColor))
+        }
+    }
+
+    private func sessionRow(_ session: AgentSession) -> some View {
+        HStack(spacing: 8) {
+            GlyphBox(agent: session.agent)
+                .fixedSize()
+            VStack(alignment: .leading, spacing: 1) {
+                Text(cwdTail(session.cwd))
+                    .font(.system(size: 8.5, weight: .medium))
+                    .foregroundColor(DesignTokens.muted)
+                    .lineLimit(1)
+                    .truncationMode(.tail)
+                Text(session.title)
+                    .font(.system(size: 10.5, weight: .semibold))
+                    .foregroundColor(.white)
+                    .lineLimit(1)
+                    .truncationMode(.tail)
+            }
+            Spacer(minLength: 4)
+            VStack(alignment: .trailing, spacing: 1) {
+                HStack(spacing: 5) {
+                    Circle()
+                        .fill(statusColor(session.state))
+                        .frame(width: 6, height: 6)
+                    Text(sessionStateLabel(session.state))
+                        .font(.system(size: 8.5, weight: .medium))
+                        .foregroundColor(DesignTokens.muted)
+                        .lineLimit(1)
+                }
+                Text(elapsedString(session))
+                    .font(.system(size: 8.5, design: .rounded))
+                    .foregroundColor(DesignTokens.muted)
+            }
+        }
+    }
+
+    private var emptyRow: some View {
+        HStack(spacing: 8) {
+            GlyphBox(agent: nil)
+            Text(String(localized: "compact.idle", defaultValue: "No active session"))
+                .font(.system(size: 10.5, weight: .semibold))
+                .foregroundColor(.white)
+            Spacer(minLength: 0)
+        }
+    }
+}
+
 // MARK: - Agents cell (implemented)
 
 private struct AgentsCell: View {
@@ -1717,19 +2009,6 @@ private struct AgentsCell: View {
         }
     }
 
-    private func cwdTail(_ cwd: String) -> String {
-        URL(fileURLWithPath: cwd).lastPathComponent
-    }
-
-    private func sessionStateLabel(_ state: SessionState) -> String {
-        switch state {
-        case .running: return String(localized: "agents.state.running", defaultValue: "Running")
-        case .waitingApproval: return String(localized: "agents.state.needsAttention", defaultValue: "Needs attention")
-        case .done: return String(localized: "agents.state.done", defaultValue: "Done")
-        case .idle: return String(localized: "agents.state.paused", defaultValue: "Paused")
-        case .failed: return String(localized: "agents.state.failed", defaultValue: "Failed")
-        }
-    }
 }
 
 private struct MiniButton: View {
@@ -2519,17 +2798,23 @@ private struct PlanReviewView: View {
 
 private struct AgentQuestionView: View {
     let request: QuestionCenter.Request
-    let answer: (String) -> Void
+    /// Step/mode live on `uiState` rather than local `@State` so
+    /// `NotchWindowController.questionOpenSize(for:)` can size the panel to
+    /// fit the *current* step's content instead of one fixed size for the
+    /// whole batch (see its doc comment). Reset in `.onAppear` — `.id(request.id)`
+    /// at the call site still forces a fresh view per request, but `uiState`
+    /// itself is long-lived and wouldn't otherwise reset between requests.
+    @ObservedObject var uiState: NotchUIState
+    /// Called exactly once, with every sub-question's answer collected —
+    /// `request.connection` is shared across the whole batch and can only
+    /// be responded to a single time (see `QuestionCenter.resolve(_:answers:)`).
+    let onComplete: ([String]) -> Void
+    @State private var collectedAnswers: [String] = []
     @State private var customAnswer = ""
-    @State private var customMode: Bool
     @FocusState private var customFieldFocused: Bool
     @State private var isInteractive = false
 
-    init(request: QuestionCenter.Request, answer: @escaping (String) -> Void) {
-        self.request = request
-        self.answer = answer
-        _customMode = State(initialValue: request.options.isEmpty)
-    }
+    private var currentQuestion: QuestionCenter.SubQuestion { request.questions[uiState.questionStepIndex] }
 
     var body: some View {
         CellSurface {
@@ -2538,20 +2823,29 @@ private struct AgentQuestionView: View {
                     Label(String(localized: "question.asks", defaultValue: "\(request.agent.displayName) asks"), systemImage: request.agent.symbolName)
                         .font(.system(size: 12, weight: .semibold))
                         .foregroundColor(request.agent == .codex ? .white.opacity(0.9) : DesignTokens.cyan)
-                    Text(request.header)
+                    Text(currentQuestion.header)
                         .font(.system(size: 9.5, weight: .medium))
                         .foregroundColor(DesignTokens.muted)
                         .lineLimit(1)
                         .padding(.horizontal, 6)
                         .frame(height: 20)
                         .background(Capsule().fill(Color.white.opacity(0.07)))
+                    if request.questions.count > 1 {
+                        Text("\(uiState.questionStepIndex + 1)/\(request.questions.count)")
+                            .font(.system(size: 9.5, weight: .medium))
+                            .foregroundColor(DesignTokens.muted)
+                            .lineLimit(1)
+                            .padding(.horizontal, 6)
+                            .frame(height: 20)
+                            .background(Capsule().fill(Color.white.opacity(0.07)))
+                    }
                     Spacer(minLength: 4)
-                    if !request.options.isEmpty {
-                        Button(customMode ? String(localized: "question.choices", defaultValue: "Choices") : String(localized: "question.other", defaultValue: "Other…")) {
+                    if !currentQuestion.options.isEmpty {
+                        Button(uiState.questionCustomMode ? String(localized: "question.choices", defaultValue: "Choices") : String(localized: "question.other", defaultValue: "Other…")) {
                             withAnimation(.easeOut(duration: 0.20)) {
-                                customMode.toggle()
+                                uiState.questionCustomMode.toggle()
                             }
-                            customFieldFocused = customMode
+                            customFieldFocused = uiState.questionCustomMode
                         }
                         .buttonStyle(NotchPressStyle())
                         .font(.system(size: 9.5, weight: .medium))
@@ -2559,28 +2853,36 @@ private struct AgentQuestionView: View {
                         .padding(.horizontal, 7)
                         .frame(height: 24)
                         .background(Capsule().fill(Color.white.opacity(0.07)))
-                        .help(customMode ? String(localized: "question.showChoicesHelp", defaultValue: "Show choices") : String(localized: "question.otherHelp", defaultValue: "Type another answer"))
+                        .help(uiState.questionCustomMode ? String(localized: "question.showChoicesHelp", defaultValue: "Show choices") : String(localized: "question.otherHelp", defaultValue: "Type another answer"))
                     }
                 }
-                Text(request.prompt)
+                Text(currentQuestion.prompt)
                     .font(.system(size: 14, weight: .medium))
                     .tracking(-0.1)
-                    .lineLimit(2)
+                    .lineLimit(4)
                     .fixedSize(horizontal: false, vertical: true)
-                    .help(request.prompt)
+                    .help(currentQuestion.prompt)
+                    // Measures this Text's own (unstretched) rendered height —
+                    // it can run to several lines, so the panel is sized to
+                    // fit it live instead of budgeting a fixed line count
+                    // (which either clipped long prompts or wasted space on
+                    // short ones). See `uiState.questionPromptHeight`.
+                    .onGeometryChange(for: CGFloat.self, of: { $0.size.height }) { newHeight in
+                        uiState.questionPromptHeight = newHeight
+                    }
                 Group {
-                    if customMode {
+                    if uiState.questionCustomMode {
                         customAnswerView
                             .transition(.opacity.combined(with: .offset(y: 2)))
                     } else {
                         VStack(spacing: 5) {
-                            ForEach(Array(request.options.enumerated()), id: \.element.id) { index, option in
+                            ForEach(Array(currentQuestion.options.enumerated()), id: \.element.id) { index, option in
                                 QuestionChoiceButton(
                                     shortcut: "⌘\(index + 1)",
                                     key: KeyEquivalent(Character("\(index + 1)")),
                                     title: option.label,
                                     detail: option.detail
-                                ) { answer(option.label) }
+                                ) { advance(with: option.label) }
                                 .disabled(!isInteractive)
                             }
                         }
@@ -2589,19 +2891,29 @@ private struct AgentQuestionView: View {
                 }
             }
             .foregroundColor(.white)
-            // The question card's window is a fixed openQuestionSize, but a
-            // short prompt with only 2-3 choices doesn't fill it — without a
-            // top-aligned frame here, CellSurface's plain .overlay() centers
-            // the content, leaving a large dead gap above the prompt instead
-            // of below it.
+            // Without a top-aligned frame here, CellSurface's plain
+            // .overlay() centers the content instead — the window itself is
+            // now sized to fit (`questionOpenSize(for:)`), but any rounding
+            // slack should still collect below the prompt, not above it.
             .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
         }
         .onAppear {
-            isInteractive = false
-            Task { @MainActor in
-                try? await Task.sleep(nanoseconds: 150_000_000)
-                isInteractive = true
-            }
+            uiState.questionStepIndex = 0
+            uiState.questionCustomMode = request.questions[0].options.isEmpty
+            armInteractivity()
+        }
+    }
+
+    /// Re-armed on every step transition (not just the view's initial
+    /// appearance) — the 150ms dwell guard exists to stop a fast
+    /// double-click/double-Enter from firing two answers before SwiftUI
+    /// re-renders disabled state, a hazard that's identical when moving
+    /// from one sub-question to the next within the same view instance.
+    private func armInteractivity() {
+        isInteractive = false
+        Task { @MainActor in
+            try? await Task.sleep(nanoseconds: 150_000_000)
+            isInteractive = true
         }
     }
 
@@ -2643,7 +2955,21 @@ private struct AgentQuestionView: View {
         let value = customAnswer.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !value.isEmpty else { return }
         SoundPlayer.shared.play(.approve)
-        answer(value)
+        advance(with: value)
+    }
+
+    private func advance(with value: String) {
+        var next = collectedAnswers
+        next.append(value)
+        if uiState.questionStepIndex + 1 < request.questions.count {
+            collectedAnswers = next
+            uiState.questionStepIndex += 1
+            customAnswer = ""
+            uiState.questionCustomMode = currentQuestion.options.isEmpty
+            armInteractivity()
+        } else {
+            onComplete(next)
+        }
     }
 }
 
@@ -2699,10 +3025,17 @@ private struct QuestionChoiceButton: View {
 // MARK: - Approval overlay (driven by PermissionCenter.queue)
 
 private struct ApprovalOverlayView: View {
+    @ObservedObject var uiState: NotchUIState
     let agent: AgentKind
     let toolName: String
     let summary: String
     var extraCount: Int = 0
+    /// Set when at least one of the `extraCount` queued requests behind this
+    /// one is from a different agent — see `IslandOverlay.approval`'s doc
+    /// comment for why this exists (a lingering older request from one agent
+    /// otherwise makes the shown agent's label look wrong when a different
+    /// agent's brand-new request is actually the one waiting behind it).
+    var otherAgentPending: AgentKind? = nil
     var onAllowOnce: () -> Void = {}
     var onDeny: () -> Void = {}
     var onCompactOutcome: (Bool) -> Void = { _ in }
@@ -2740,7 +3073,9 @@ private struct ApprovalOverlayView: View {
                                 .foregroundColor(DesignTokens.muted)
                             Spacer()
                             if extraCount > 0 {
-                                Text(String(localized: "approval.extraCount", defaultValue: "+\(String(extraCount))"))
+                                Text(otherAgentPending.map {
+                                    String(localized: "approval.extraCountOtherAgent", defaultValue: "+\(String(extraCount)) (\($0.displayName))")
+                                } ?? String(localized: "approval.extraCount", defaultValue: "+\(String(extraCount))"))
                                 .font(.system(size: 10.5, weight: .semibold))
                                     .padding(.horizontal, 6)
                                     .frame(height: 18)
@@ -2760,13 +3095,22 @@ private struct ApprovalOverlayView: View {
                                 .lineLimit(1)
                                 .truncationMode(.middle)
                         }
-                        Text(summary.isEmpty ? String(localized: "approval.reviewAction", defaultValue: "Review this action before Claude continues.") : summary)
+                        Text(summary.isEmpty ? String(localized: "approval.reviewAction", defaultValue: "Review this action before \(agent.displayName) continues.") : summary)
                             .font(.system(size: 11, design: .monospaced))
                             .foregroundColor(.white.opacity(0.58))
                             .padding(.horizontal, 9)
                             .frame(maxWidth: .infinity, minHeight: 34, alignment: .leading)
                             .background(RoundedRectangle(cornerRadius: 8).fill(Color.black.opacity(0.28)))
-                        Spacer(minLength: 2)
+                            // No `lineLimit` on this Text on purpose — it's a
+                            // command/diff excerpt the user must review before
+                            // approving, so it must never truncate. Measure
+                            // its real height instead, so the panel grows to
+                            // fit it exactly rather than budgeting a fixed
+                            // size. See `uiState.approvalSummaryHeight`.
+                            .onGeometryChange(for: CGFloat.self, of: { $0.size.height }) { newHeight in
+                                uiState.approvalSummaryHeight = newHeight
+                            }
+                        Spacer(minLength: 10)
                         HStack(spacing: 8) {
                             ApprovalActionButton(title: String(localized: "approval.deny", defaultValue: "Deny"), shortcut: "⌘N", icon: "xmark", role: .deny) { decide(.deny) }
                                 .disabled(!isInteractive)
@@ -2862,9 +3206,7 @@ private struct PlanApprovalOverlayView: View {
                             Spacer()
                         }
                         VStack(spacing: 5) {
-                            PlanChoiceButton(title: String(localized: "plan.yesAutoMode", defaultValue: "Yes, auto mode"), detail: String(localized: "plan.yesAutoModeDetail", defaultValue: "Approve and apply edits automatically"), isPrimary: true) { decide(.allow) }
-                                .disabled(!isInteractive)
-                            PlanChoiceButton(title: String(localized: "plan.yesManuallyApprove", defaultValue: "Yes, manually approve edits"), detail: String(localized: "plan.yesManuallyApproveDetail", defaultValue: "Approve, confirm each edit yourself"), isPrimary: true) { decide(.allow) }
+                            PlanChoiceButton(title: String(localized: "plan.yesAutoMode", defaultValue: "Yes"), detail: String(localized: "plan.yesAutoModeDetail", defaultValue: "Approve and start implementing"), isPrimary: true) { decide(.allow) }
                                 .disabled(!isInteractive)
                             PlanChoiceButton(title: String(localized: "plan.noKeepPlanning", defaultValue: "No, keep planning"), detail: String(localized: "plan.noKeepPlanningDetail", defaultValue: "Send back for more revisions"), isPrimary: false) { decide(.deny) }
                                 .disabled(!isInteractive)

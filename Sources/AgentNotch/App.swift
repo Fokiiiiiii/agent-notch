@@ -105,7 +105,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                 "version": 1,
             ])
         case "AgentNotchShow":
-            notchWindowController?.showFromCLI()
+            let mode = (event.toolInput["mode"] as? String) == "hover" ? IslandMode.hover : IslandMode.open
+            notchWindowController?.showFromCLI(mode: mode)
         case "AgentNotchHide":
             notchWindowController?.hideFromCLI()
         case "AgentNotchToggle":

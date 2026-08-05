@@ -23,7 +23,7 @@ enum Jumper {
     /// AppleScript surface can only activate the whole editor window, so
     /// tab-level precision (Tier 2) is meaningless for either — see
     /// `jumpToTab` below, which intentionally does not branch on these IDs.
-    private static let terminalBundleIDs = [
+    static nonisolated let terminalBundleIDs = [
         "com.googlecode.iterm2",
         "com.github.wez.wezterm",
         "com.mitchellh.ghostty",
@@ -33,22 +33,52 @@ enum Jumper {
         "com.microsoft.VSCode",
     ]
 
+    /// Fire-and-forget: all process-execution work (PID lookup, ancestry
+    /// walk, tty resolution, AppleScript) runs off the main thread via
+    /// `Task.detached`; only the final AppKit calls (`activate()`) hop back
+    /// to the main actor. Kept synchronous so call sites don't need to
+    /// change (mirrors the background-then-hop-to-main pattern used by
+    /// `DashboardServices`).
     static func jump(to session: AgentSession) {
-        if let processName = processName(for: session.agent),
-           let agentPID = findAgentPID(processName: processName, cwd: session.cwd),
-           let targetApp = findTerminalAncestor(startingAt: agentPID) {
-            targetApp.activate()
-            // Tier 2: best-effort tab-level precision for iTerm2/Terminal.app.
-            jumpToTab(bundleID: targetApp.bundleIdentifier, agentPID: agentPID)
-            return
+        Task.detached(priority: .userInitiated) {
+            let resolution = resolveTarget(for: session)
+            await MainActor.run {
+                switch resolution {
+                case let .resolved(targetApp, agentPID):
+                    targetApp.activate()
+                    // Tier 2: best-effort tab-level precision for iTerm2/Terminal.app.
+                    // Also process-heavy (another `ps` + AppleScript), so keep it
+                    // off the main thread too.
+                    Task.detached(priority: .userInitiated) {
+                        jumpToTab(bundleID: targetApp.bundleIdentifier, agentPID: agentPID)
+                    }
+                case .unresolved:
+                    fallbackActivateFirstKnownTerminal()
+                }
+            }
         }
+    }
 
-        fallbackActivateFirstKnownTerminal()
+    /// Result of the (off-main) Tier 1 resolution step.
+    private enum TargetResolution {
+        case resolved(NSRunningApplication, pid_t)
+        case unresolved
+    }
+
+    /// Runs entirely off the main thread: resolves the agent's PID and walks
+    /// its process ancestry to find the hosting terminal app.
+    private static nonisolated func resolveTarget(for session: AgentSession) -> TargetResolution {
+        guard let processName = processName(for: session.agent),
+              let agentPID = findAgentPID(processName: processName, cwd: session.cwd),
+              let targetApp = findTerminalAncestor(startingAt: agentPID) else {
+            return .unresolved
+        }
+        return .resolved(targetApp, agentPID)
     }
 
     // MARK: - Tier 1: locate the agent process and its hosting terminal
 
-    private static func processName(for agent: AgentKind) -> String? {
+    static nonisolated func processName(for agent: AgentKind) -> String? {
         switch agent {
         case .claude, .codex:
             return agent.rawValue
@@ -59,7 +89,7 @@ enum Jumper {
 
     /// Runs `pgrep -x <processName>` and returns the PID whose cwd (via
     /// `lsof -a -p <pid> -d cwd -Fn`) matches `cwd`.
-    private static func findAgentPID(processName: String, cwd: String) -> pid_t? {
+    private static nonisolated func findAgentPID(processName: String, cwd: String) -> pid_t? {
         guard let pgrepOutput = run(executable: "/usr/bin/pgrep", arguments: ["-x", processName]) else {
             return nil
         }
@@ -85,7 +115,7 @@ enum Jumper {
 
     /// Walks up the process ancestry (max 15 hops) looking for a running
     /// terminal app among the ancestors.
-    private static func findTerminalAncestor(startingAt pid: pid_t) -> NSRunningApplication? {
+    private static nonisolated func findTerminalAncestor(startingAt pid: pid_t) -> NSRunningApplication? {
         var currentPID = pid
         for _ in 0..<15 {
             guard let ppidOutput = run(executable: "/bin/ps", arguments: ["-o", "ppid=", "-p", String(currentPID)]),
@@ -105,7 +135,7 @@ enum Jumper {
 
     // MARK: - Tier 2: tab-level precision via AppleScript (best-effort)
 
-    private static func jumpToTab(bundleID: String?, agentPID: pid_t) {
+    private static nonisolated func jumpToTab(bundleID: String?, agentPID: pid_t) {
         guard bundleID == "com.googlecode.iterm2" || bundleID == "com.apple.Terminal" else { return }
         guard let ttyOutput = run(executable: "/bin/ps", arguments: ["-o", "tty=", "-p", String(agentPID)]) else {
             return
@@ -174,7 +204,7 @@ enum Jumper {
 
     // MARK: - Shell helper
 
-    private static func run(executable: String, arguments: [String]) -> String? {
+    private static nonisolated func run(executable: String, arguments: [String]) -> String? {
         let process = Process()
         let output = Pipe()
         process.executableURL = URL(fileURLWithPath: executable)
