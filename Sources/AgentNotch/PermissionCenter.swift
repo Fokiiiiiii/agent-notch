@@ -14,6 +14,9 @@ final class PermissionCenter: ObservableObject {
         let summary: String
         let toolInput: [String: Any]
         let connectionRef: SocketConnection
+        /// Used by `AttentionCenter` to sort/tie-break the unified attention
+        /// list — see its doc comment. Not read anywhere in this file.
+        let occurredAt: Date
     }
 
     @Published var queue: [PendingPermission] = []
@@ -29,7 +32,8 @@ final class PermissionCenter: ObservableObject {
             toolName: toolName,
             summary: Self.summarize(toolName: toolName, toolInput: event.toolInput),
             toolInput: event.toolInput,
-            connectionRef: connection
+            connectionRef: connection,
+            occurredAt: Date()
         )
         queue.append(pending)
     }

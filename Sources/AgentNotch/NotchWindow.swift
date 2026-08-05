@@ -197,6 +197,10 @@ final class NotchWindowController: NSObject {
     private let permissions: PermissionCenter
     private let questions: QuestionCenter
     private let plans: PlanCenter
+    /// Read-only derived view over the three queues above — see its own
+    /// doc comment. Built entirely from them; `App.swift` doesn't need to
+    /// know about it.
+    private let attention: AttentionCenter
     private let nativeNotifier: NativeNotifier?
     private var screen: NSScreen
     /// Geometry-only mirror of `screen`, recomputed alongside it. See
@@ -398,9 +402,22 @@ final class NotchWindowController: NSObject {
     /// Derives the visible `.closed`-mode shape size from the physically
     /// measured notch width/height. Pulled out as a pure function so the
     /// margin/floor logic can be exercised without constructing a window.
-    static func computeClosedSize(notchWidth: CGFloat, notchHeight: CGFloat) -> CGSize {
-        CGSize(
-            width: max(notchWidth + DesignTokens.notchSafeMargin, DesignTokens.compactMinContentWidth, 220),
+    ///
+    /// On a non-notched screen (`hasNotch == false`) this is byte-identical
+    /// to the original formula (generous `notchSafeMargin` + a `220`pt floor)
+    /// — non-notched Macs must keep their existing look unchanged. On a real
+    /// notched Mac, the pill hugs the physical cutout more tightly
+    /// (`notchHuggingMargin`, no `220`pt floor) so it visually merges with
+    /// the notch instead of floating wider than it needs to.
+    static func computeClosedSize(notchWidth: CGFloat, notchHeight: CGFloat, hasNotch: Bool) -> CGSize {
+        guard hasNotch else {
+            return CGSize(
+                width: max(notchWidth + DesignTokens.notchSafeMargin, DesignTokens.compactMinContentWidth, 220),
+                height: max(notchHeight, 34)
+            )
+        }
+        return CGSize(
+            width: max(notchWidth + DesignTokens.notchHuggingMargin, DesignTokens.compactMinContentWidth),
             height: max(notchHeight, 34)
         )
     }
@@ -533,15 +550,15 @@ final class NotchWindowController: NSObject {
             }
         }
 
-        // 見た目のノッチサイズ（NotchViewが.closedモード時に固定描画するサイズ）
-        let visualClosedSize = computeClosedSize(notchWidth: notchWidth, notchHeight: notchHeight)
-        let mediaPreviewSize = CGSize(width: max(notchWidth + 116, 316), height: max(notchHeight, 34))
         // hasNotch (a real physical cutout) is `safeAreaInsetsTop > 0`, the
         // same signal `notchHeight`'s fallback branch above already keys
         // off — not `hasAuxiliaryAreas`, which can be true without an actual
         // notch (Apple documents the aux areas as "safe to place menu bar
         // content", not strictly "there is a physical cutout here").
         let hasRealNotch = snapshot.safeAreaInsetsTop > 0
+        // 見た目のノッチサイズ（NotchViewが.closedモード時に固定描画するサイズ）
+        let visualClosedSize = computeClosedSize(notchWidth: notchWidth, notchHeight: notchHeight, hasNotch: hasRealNotch)
+        let mediaPreviewSize = CGSize(width: max(notchWidth + 116, 316), height: max(notchHeight, 34))
         let hoverTopClearance = computeHoverTopClearance(notchHeight: notchHeight, hasNotch: hasRealNotch)
         let debugScreenInfo: [String: Any] = [
             "safeAreaInsetsTop": snapshot.safeAreaInsetsTop,
@@ -597,6 +614,7 @@ final class NotchWindowController: NSObject {
         self.permissions = permissions
         self.questions = questions
         self.plans = plans
+        self.attention = AttentionCenter(permissions: permissions, questions: questions, plans: plans)
         self.nativeNotifier = nativeNotifier
 
         let resolvedScreen = NotchWindowController.selectScreen() ?? NSScreen()
@@ -649,7 +667,7 @@ final class NotchWindowController: NSObject {
 
         super.init()
 
-        let notchView = NotchView(store: store, controller: self, permissions: permissions, questions: questions, plans: plans)
+        let notchView = NotchView(store: store, controller: self, permissions: permissions, questions: questions, plans: plans, attention: attention)
             .environmentObject(uiState)
         let hostingView = NSHostingView(rootView: notchView)
         hostingView.frame = fileDropView.bounds
@@ -875,9 +893,21 @@ final class NotchWindowController: NSObject {
         }
     }
 
+    /// Picks which of the three queues' items shows, via `attention.items`'
+    /// urgency sort (permission > plan > question — see `AttentionUrgency`)
+    /// instead of a hand-rolled if/else chain. `extraCount`/`otherAgentPending`
+    /// stay scoped to the permission queue alone, exactly as before this
+    /// unification — generalizing them to "other items of any type" would
+    /// change what `ApprovalOverlayView`'s `+N (Codex)` badge means, which
+    /// is out of scope here.
     private func syncOverlay() {
         uiState.activeTab = .nook
-        if let first = permissions.queue.first {
+        guard let top = attention.items.first else {
+            uiState.overlay = nil
+            return
+        }
+        switch top.source {
+        case .permission(let first):
             let otherAgent = permissions.queue.dropFirst().first { $0.agent != first.agent }?.agent
             uiState.overlay = .approval(
                 agent: first.agent,
@@ -886,12 +916,10 @@ final class NotchWindowController: NSObject {
                 extraCount: permissions.queue.count - 1,
                 otherAgentPending: otherAgent
             )
-        } else if !plans.queue.isEmpty {
+        case .plan:
             uiState.overlay = .plan
-        } else if !questions.queue.isEmpty {
+        case .question:
             uiState.overlay = .question
-        } else {
-            uiState.overlay = nil
         }
     }
 

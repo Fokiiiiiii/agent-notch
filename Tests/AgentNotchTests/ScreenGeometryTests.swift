@@ -9,11 +9,11 @@ import XCTest
 @MainActor
 final class ScreenGeometryTests: XCTestCase {
 
-    // MARK: - computeClosedSize
+    // MARK: - computeClosedSize (hasNotch: false — non-notched Macs must be byte-identical to before)
 
     func testComputeClosedSizeForTypicalNotch() {
         // A MacBook Pro-class notch: ~200pt wide, ~32pt safe-area height.
-        let size = NotchWindowController.computeClosedSize(notchWidth: 200, notchHeight: 32)
+        let size = NotchWindowController.computeClosedSize(notchWidth: 200, notchHeight: 32, hasNotch: false)
         // width = max(200 + notchSafeMargin(32), compactMinContentWidth(160), 220) = 232
         XCTAssertEqual(size.width, 232)
         // height = max(32, 34) = 34
@@ -22,7 +22,7 @@ final class ScreenGeometryTests: XCTestCase {
 
     func testComputeClosedSizeForNoNotchDisplay() {
         // A display with no notch reports 0 for both measurements.
-        let size = NotchWindowController.computeClosedSize(notchWidth: 0, notchHeight: 0)
+        let size = NotchWindowController.computeClosedSize(notchWidth: 0, notchHeight: 0, hasNotch: false)
         // width floors at the larger of compactMinContentWidth(160)/220 => 220
         XCTAssertEqual(size.width, 220)
         // height floors at 34
@@ -30,7 +30,7 @@ final class ScreenGeometryTests: XCTestCase {
     }
 
     func testComputeClosedSizeForWideNotchAndTallSafeArea() {
-        let size = NotchWindowController.computeClosedSize(notchWidth: 300, notchHeight: 40)
+        let size = NotchWindowController.computeClosedSize(notchWidth: 300, notchHeight: 40, hasNotch: false)
         XCTAssertEqual(size.width, 332)
         XCTAssertEqual(size.height, 40)
     }
@@ -40,9 +40,37 @@ final class ScreenGeometryTests: XCTestCase {
         // measurement" case `init` already guards against upstream: even if
         // a negative value slipped through, the result must never go below
         // the documented floors.
-        let size = NotchWindowController.computeClosedSize(notchWidth: -50, notchHeight: -10)
+        let size = NotchWindowController.computeClosedSize(notchWidth: -50, notchHeight: -10, hasNotch: false)
         XCTAssertEqual(size.width, 220)
         XCTAssertEqual(size.height, 34)
+    }
+
+    // MARK: - computeClosedSize (hasNotch: true — hugs the physical cutout)
+
+    func testComputeClosedSizeHugsRealNotchTighterThanNonNotchedFallback() {
+        // Typical 14"/16" MBP notch: 200×37.
+        let size = NotchWindowController.computeClosedSize(notchWidth: 200, notchHeight: 37, hasNotch: true)
+        // width = max(200 + notchHuggingMargin(16), compactMinContentWidth(160)) = 216 — no 220 floor.
+        XCTAssertEqual(size.width, 216)
+        XCTAssertEqual(size.height, 37)
+    }
+
+    func testComputeClosedSizeForAirNotchIsNarrowerThanNonNotchedFloor() {
+        // Air-class notch: 180×37. Pins down that the two branches really are
+        // different formulas, not just different inputs into the same one —
+        // this width must fall *below* the non-notched fallback's 220pt floor.
+        let hugging = NotchWindowController.computeClosedSize(notchWidth: 180, notchHeight: 37, hasNotch: true)
+        let nonNotchedFloor = NotchWindowController.computeClosedSize(notchWidth: 180, notchHeight: 37, hasNotch: false)
+        XCTAssertEqual(hugging.width, 196)
+        XCTAssertLessThan(hugging.width, nonNotchedFloor.width)
+    }
+
+    func testComputeClosedSizeHugsStillRespectsMinContentWidthFloor() {
+        // An implausibly narrow virtual notch must still floor at
+        // compactMinContentWidth so compact-mode content never clips.
+        let size = NotchWindowController.computeClosedSize(notchWidth: 100, notchHeight: 37, hasNotch: true)
+        XCTAssertEqual(size.width, 160)
+        XCTAssertEqual(size.height, 37)
     }
 
     // MARK: - selectScreenIndex(from:) — mockable stand-in for isBuiltInDisplay-driven selection

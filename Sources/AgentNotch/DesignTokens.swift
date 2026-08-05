@@ -27,6 +27,20 @@ enum DesignTokens {
     /// leave more headroom for content around the physical notch cutout.
     static let notchSafeMargin: CGFloat = 32
 
+    /// Tighter margin used only when a real physical notch is present
+    /// (`hasNotch == true` in `NotchWindowController.computeClosedSize`), so
+    /// the `.closed` pill hugs the camera-housing cutout instead of reusing
+    /// the generic virtual-notch margin. Approximate — tune after visual QA
+    /// via `AGENT_NOTCH_SIMULATE_NOTCH` (no physical-notch dev machine to
+    /// measure against directly).
+    static let notchHuggingMargin: CGFloat = 16
+
+    /// Bottom-corner radius used for `.closed`/`.hover`/`.notice` only when a
+    /// real notch is present, approximating the physical camera housing's own
+    /// corner curvature so the virtual shell's edge continues it rather than
+    /// visibly diverging from it. Approximate — tune after visual QA.
+    static let notchHuggingRadius: CGFloat = 10
+
     /// Minimum width `compactAgentContent` (see `NotchView.swift`) needs to
     /// avoid clipping: 22pt icon + spacing + status text + horizontal padding
     /// (12pt each side), estimated conservatively.
@@ -52,6 +66,12 @@ extension DesignTokens {
     @MainActor
     static func scaledOpenRadius(_ settings: AppSettings = .shared) -> CGFloat {
         openRadius * settings.cornerRadiusScale
+    }
+
+    /// `notchHuggingRadius` scaled by `AppSettings.cornerRadiusScale`.
+    @MainActor
+    static func scaledNotchHuggingRadius(_ settings: AppSettings = .shared) -> CGFloat {
+        notchHuggingRadius * settings.cornerRadiusScale
     }
 
     /// `spring` scaled by `AppSettings.animationSpeedScale`. A larger scale

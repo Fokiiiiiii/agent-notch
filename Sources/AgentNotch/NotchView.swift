@@ -7,6 +7,7 @@ struct NotchView: View {
     @ObservedObject var permissions: PermissionCenter
     @ObservedObject var questions: QuestionCenter
     @ObservedObject var plans: PlanCenter
+    @ObservedObject var attention: AttentionCenter
     @EnvironmentObject var uiState: NotchUIState
     @StateObject private var media = MediaController.shared
     @StateObject private var usageStore = AgentUsageStore.shared
@@ -75,8 +76,25 @@ struct NotchView: View {
         .environment(\.colorScheme, .dark)
     }
 
+    /// `true` on a real (or simulated) physical notch. `hoverTopClearance` is
+    /// `0` exactly when `computeHoverTopClearance`'s `hasNotch` guard is
+    /// false, and positive exactly when it's true — so this is an equivalent
+    /// read of the same signal without adding a second `@Published` property.
+    private var hasRealNotch: Bool { uiState.hoverTopClearance > 0 }
+
     private var shellShape: UnevenRoundedRectangle {
-        let radius = uiState.mode == .open ? DesignTokens.scaledOpenRadius() : DesignTokens.scaledClosedRadius()
+        let radius: CGFloat
+        if uiState.mode == .open {
+            radius = DesignTokens.scaledOpenRadius()
+        } else if hasRealNotch {
+            // .closed/.hover/.notice on a real notch: hug the physical
+            // camera-housing's own corner curvature instead of the generic
+            // (wider) closed radius, so the shell reads as a continuation of
+            // the cutout rather than an unrelated floating pill.
+            radius = DesignTokens.scaledNotchHuggingRadius()
+        } else {
+            radius = DesignTokens.scaledClosedRadius()
+        }
         return UnevenRoundedRectangle(
             topLeadingRadius: 0,
             bottomLeadingRadius: radius,
@@ -87,7 +105,16 @@ struct NotchView: View {
     }
 
     private var shapeBackground: some View {
-        shellShape.fill(Color.black)
+        // `.hover` alone gets a faint edge + drop shadow — `.closed`/`.notice`
+        // stay a flat fill (unchanged look) since they're meant to read as
+        // part of the notch itself, not a floating card. `.open`'s own cells
+        // already carry their own depth treatment, so this only ever applies
+        // while `uiState.mode == .hover`.
+        let isHover = uiState.mode == .hover
+        return shellShape
+            .fill(Color.black)
+            .overlay(shellShape.strokeBorder(Color.white.opacity(isHover ? 0.05 : 0), lineWidth: 0.75))
+            .shadow(color: .black.opacity(isHover ? 0.35 : 0), radius: isHover ? 12 : 0, y: isHover ? 6 : 0)
     }
 
     @ViewBuilder
@@ -158,7 +185,7 @@ struct NotchView: View {
     /// it); otherwise `.leading` (vertical-center), matching the
     /// non-notched layout exactly as it was before notch-awareness existed.
     private var hoverPeekAlignment: Alignment {
-        uiState.hoverTopClearance > 0 ? .topLeading : .leading
+        hasRealNotch ? .topLeading : .leading
     }
 
     private var hoverContent: some View {
@@ -216,11 +243,10 @@ struct NotchView: View {
             }
             // The skip icon extends the pill alongside the waveform (both
             // visible) rather than replacing it, and only on a real (or
-            // simulated) notch — `hoverTopClearance > 0` is the same signal
-            // `HoverPeekView` uses for "has a real notch"; on a non-notched
-            // Mac this must stay exactly the plain waveform it always was.
+            // simulated) notch; on a non-notched Mac this must stay exactly
+            // the plain waveform it always was.
             HStack(spacing: 4) {
-                if let direction = media.activeSkipDirection, uiState.hoverTopClearance > 0 {
+                if let direction = media.activeSkipDirection, hasRealNotch {
                     Image(systemName: direction == .forward ? "forward.fill" : "backward.fill")
                         .font(.system(size: 9, weight: .semibold))
                         .foregroundColor(Color(nsColor: media.accentColor))
@@ -256,42 +282,25 @@ struct NotchView: View {
         }
     }
 
+    /// Shows only an unaddressed *count* from the unified attention list,
+    /// not per-type text — the three call sites this replaced each had
+    /// their own distinct title/subtitle ("Approval required" / "Plan ready
+    /// for review" / "Agent has a question"), which duplicated the same
+    /// priority logic `syncOverlay()` also hand-rolled. Only the icon still
+    /// hints at the top item's type; `overlayCell(_:)` in Expanded mode is
+    /// unaffected and still shows full per-type detail.
     private var compactAgentContent: some View {
         HStack(spacing: 9) {
-            if !permissions.queue.isEmpty {
-                Image(systemName: "exclamationmark.shield.fill")
+            if let top = attention.items.first {
+                Image(systemName: attentionGlyph(for: top.urgency))
                     .font(.system(size: 12, weight: .medium))
-                    .foregroundColor(DesignTokens.orange)
+                    .foregroundColor(attentionColor(for: top.urgency))
                     .frame(width: 22, height: 22)
-                Text(String(localized: "compact.approvalRequired", defaultValue: "Approval required"))
+                Text(String(localized: "compact.attentionPending", defaultValue: "\(attention.items.count) pending"))
                     .font(.system(size: 10.5, weight: .semibold))
                     .foregroundColor(.white)
                 Spacer(minLength: 4)
                 Text(String(localized: "compact.clickToReview", defaultValue: "Click to review"))
-                    .font(.system(size: 8))
-                    .foregroundColor(DesignTokens.muted)
-            } else if !plans.queue.isEmpty {
-                Image(systemName: "list.bullet.clipboard.fill")
-                    .font(.system(size: 12, weight: .medium))
-                    .foregroundColor(.white.opacity(0.88))
-                    .frame(width: 22, height: 22)
-                Text(String(localized: "compact.planReadyForReview", defaultValue: "Plan ready for review"))
-                    .font(.system(size: 10.5, weight: .semibold))
-                    .foregroundColor(.white)
-                Spacer(minLength: 4)
-                Text(String(localized: "compact.clickToReview", defaultValue: "Click to review"))
-                    .font(.system(size: 8))
-                    .foregroundColor(DesignTokens.muted)
-            } else if !questions.queue.isEmpty {
-                Image(systemName: "questionmark.bubble.fill")
-                    .font(.system(size: 12, weight: .medium))
-                    .foregroundColor(DesignTokens.cyan)
-                    .frame(width: 22, height: 22)
-                Text(String(localized: "compact.agentHasQuestion", defaultValue: "Agent has a question"))
-                    .font(.system(size: 10.5, weight: .semibold))
-                    .foregroundColor(.white)
-                Spacer(minLength: 4)
-                Text(String(localized: "compact.clickToAnswer", defaultValue: "Click to answer"))
                     .font(.system(size: 8))
                     .foregroundColor(DesignTokens.muted)
             } else {
@@ -328,12 +337,33 @@ struct NotchView: View {
                         .layoutPriority(1)
                 }
             }
-            if uiState.trayItemCount > 0,
-               permissions.queue.isEmpty,
-               questions.queue.isEmpty,
-               plans.queue.isEmpty {
+            if uiState.trayItemCount > 0, attention.items.isEmpty {
                 compactTrayBadge
             }
+        }
+    }
+
+    /// Same SF Symbol each type's compact/expanded card already used before
+    /// unification — only the container (`compactAgentContent`) changed.
+    /// Matches the icon each type's own Expanded card actually uses
+    /// (`ApprovalOverlayView`'s header at `exclamationmark.triangle.fill`,
+    /// `PlanReviewView`'s `list.bullet.clipboard`) rather than the
+    /// pre-existing Compact-only icons, which had drifted from them (most
+    /// visibly permission: a shield vs. the triangle Expanded shows for the
+    /// exact same "requests permission" concept).
+    private func attentionGlyph(for urgency: AttentionUrgency) -> String {
+        switch urgency {
+        case .permission: return "exclamationmark.triangle.fill"
+        case .plan: return "list.bullet.clipboard.fill"
+        case .question: return "questionmark.bubble.fill"
+        }
+    }
+
+    private func attentionColor(for urgency: AttentionUrgency) -> Color {
+        switch urgency {
+        case .permission: return DesignTokens.orange
+        case .plan: return .white.opacity(0.88)
+        case .question: return DesignTokens.cyan
         }
     }
 
@@ -1615,8 +1645,21 @@ private struct HoverPeekView: View {
                     .lineLimit(1)
                     .truncationMode(.tail)
             }
+        } else if let session {
+            HStack(alignment: .firstTextBaseline, spacing: 6) {
+                Text(session.title)
+                    .font(.system(size: 12, weight: .semibold))
+                    .foregroundColor(.white)
+                    .lineLimit(1)
+                    .truncationMode(.tail)
+                Spacer(minLength: 4)
+                Text(elapsedString(session))
+                    .font(.system(size: 9, design: .rounded))
+                    .foregroundColor(DesignTokens.muted)
+                    .lineLimit(1)
+            }
         } else {
-            Text(session?.title ?? String(localized: "compact.idle", defaultValue: "No active session"))
+            Text(String(localized: "compact.idle", defaultValue: "No active session"))
                 .font(.system(size: 12, weight: .semibold))
                 .foregroundColor(.white)
                 .lineLimit(1)
@@ -1647,8 +1690,11 @@ private struct HoverPeekView: View {
                 GlyphBox(agent: session?.agent)
             }
         }
-        .frame(width: 24, height: 24)
-        .clipShape(RoundedRectangle(cornerRadius: 6, style: .continuous))
+        // Matches `GlyphBox`'s own dimensions (22×22, cornerRadius 7)
+        // exactly, instead of re-wrapping it in a differently-sized/rounded
+        // frame — avoids a ~1pt double-clip mismatch on the idle path.
+        .frame(width: 22, height: 22)
+        .clipShape(RoundedRectangle(cornerRadius: 7, style: .continuous))
         .overlay(alignment: .bottomTrailing) {
             if let direction = media.activeSkipDirection {
                 skipBadge(direction)
@@ -1679,6 +1725,12 @@ private struct HoverPeekView: View {
         } else if let session {
             Circle()
                 .fill(statusColor(session.state))
+                .frame(width: 6, height: 6)
+        } else {
+            // Fully idle (no media, no session): keep the icon band
+            // left/right-balanced instead of leaving the right side empty.
+            Circle()
+                .fill(DesignTokens.muted)
                 .frame(width: 6, height: 6)
         }
     }
@@ -2939,15 +2991,10 @@ private struct AgentQuestionView: View {
             }
             .background(RoundedRectangle(cornerRadius: 11).fill(Color.white.opacity(0.06)))
             .overlay(RoundedRectangle(cornerRadius: 11).stroke(customFieldFocused ? Color.white.opacity(0.28) : Color.white.opacity(0.05), lineWidth: 1))
-            Button { submitCustomAnswer() } label: {
-                Label(String(localized: "question.sendAnswer", defaultValue: "Send answer"), systemImage: "arrow.up")
-                    .font(.system(size: 10.5, weight: .semibold))
-                    .frame(maxWidth: .infinity, minHeight: 32)
-                    .background(RoundedRectangle(cornerRadius: 8).fill(Color.white.opacity(0.92)))
-                    .foregroundColor(.black)
-            }
-            .buttonStyle(NotchPressStyle())
-            .disabled(!isInteractive || customAnswer.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
+            SendAnswerButton(
+                isEnabled: isInteractive && !customAnswer.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty,
+                action: submitCustomAnswer
+            )
         }
     }
 
@@ -3019,6 +3066,38 @@ private struct QuestionChoiceButton: View {
         .animation(.easeOut(duration: 0.18), value: hovering)
         .keyboardShortcut(key, modifiers: .command)
         .help(detail.isEmpty ? String(localized: "question.chooseHelp", defaultValue: "Choose \(title)") : String(localized: "question.choiceHelpWithDetail", defaultValue: "\(title)\n\(detail)"))
+    }
+}
+
+/// The free-text answer's submit button. Pulled out of `customAnswerView` so
+/// it can carry its own hover state. Reported as blending into the
+/// background: the fill/foreground (`white.opacity(0.92)`/black) is high
+/// contrast on paper, but it sat directly against `CellSurface`'s
+/// `.ultraThinMaterial` — a live, backdrop-dependent blur whose rendered
+/// brightness isn't fixed by this code. A dark stroke plus a shadow keeps the
+/// button's own edge legible regardless of what the material renders behind
+/// it, and the hover brighten now matches `ApprovalActionButton`'s allow role
+/// (`0.92 → 1.0`) instead of having no hover feedback at all.
+private struct SendAnswerButton: View {
+    let isEnabled: Bool
+    let action: () -> Void
+    @State private var hovering = false
+
+    var body: some View {
+        Button(action: action) {
+            Label(String(localized: "question.sendAnswer", defaultValue: "Send answer"), systemImage: "arrow.up")
+                .font(.system(size: 10.5, weight: .semibold))
+                .frame(maxWidth: .infinity, minHeight: 32)
+                .foregroundColor(.black)
+                .background(RoundedRectangle(cornerRadius: 8).fill(Color.white.opacity(hovering ? 1 : 0.92)))
+                .overlay(RoundedRectangle(cornerRadius: 8).strokeBorder(Color.black.opacity(0.16), lineWidth: 1))
+                .shadow(color: .black.opacity(0.25), radius: 3, y: 1)
+        }
+        .buttonStyle(NotchPressStyle())
+        .onHover { hovering = $0 }
+        .animation(.easeOut(duration: 0.18), value: hovering)
+        .disabled(!isEnabled)
+        .help(String(localized: "question.sendAnswer", defaultValue: "Send answer"))
     }
 }
 

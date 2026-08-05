@@ -31,6 +31,9 @@ final class QuestionCenter: ObservableObject {
         /// must be answered as one unit rather than per sub-question.
         let questions: [SubQuestion]
         let connection: SocketConnection?
+        /// Used by `AttentionCenter` to sort/tie-break the unified attention
+        /// list — see its doc comment. Not read anywhere in this file.
+        let occurredAt: Date
 
         var prompt: String { questions.first?.prompt ?? "" }
     }
@@ -53,7 +56,7 @@ final class QuestionCenter: ObservableObject {
                 header: String(localized: "question.fallbackHeader", defaultValue: "Agent asks"),
                 options: []
             )
-            let request = Request(agent: agent, sessionID: event.sessionId, questions: [sub], connection: event.connection)
+            let request = Request(agent: agent, sessionID: event.sessionId, questions: [sub], connection: event.connection, occurredAt: Date())
             queue = queue + [request]
             return
         }
@@ -73,7 +76,7 @@ final class QuestionCenter: ObservableObject {
                 ?? String(index)
             return SubQuestion(sourceQuestionID: sourceID, prompt: prompt, header: header, options: options)
         }
-        let request = Request(agent: agent, sessionID: event.sessionId, questions: subQuestions, connection: event.connection)
+        let request = Request(agent: agent, sessionID: event.sessionId, questions: subQuestions, connection: event.connection, occurredAt: Date())
         queue = queue + [request]
     }
 

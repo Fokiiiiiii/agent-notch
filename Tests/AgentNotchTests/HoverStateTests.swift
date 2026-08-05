@@ -117,7 +117,7 @@ final class HoverStateTests: XCTestCase {
         // typical built-in notch (see `ScreenGeometryTests`) and the fixed
         // `openSize` (540×206) declared alongside `hoverSize` in
         // `NotchWindowController`.
-        let closedFloor = NotchWindowController.computeClosedSize(notchWidth: 200, notchHeight: 32)
+        let closedFloor = NotchWindowController.computeClosedSize(notchWidth: 200, notchHeight: 32, hasNotch: false)
         let openSize = CGSize(width: 540, height: 206)
         let hoverSize = NotchWindowController.computeHoverSize(notchWidth: 200, hasNotch: false)
 
@@ -167,7 +167,7 @@ final class HoverStateTests: XCTestCase {
     }
 
     func testHoverCompactHeightIsStillTallerThanClosed() {
-        let closedFloor = NotchWindowController.computeClosedSize(notchWidth: 200, notchHeight: 32)
+        let closedFloor = NotchWindowController.computeClosedSize(notchWidth: 200, notchHeight: 32, hasNotch: false)
         XCTAssertGreaterThan(NotchWindowController.hoverCompactHeight, closedFloor.height)
     }
 
