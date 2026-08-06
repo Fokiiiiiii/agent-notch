@@ -120,7 +120,11 @@ struct NotchView: View {
         return shellShape
             .fill(Color.black)
             .overlay(shellShape.strokeBorder(edgeColor.opacity(edgeOpacity), lineWidth: 0.75))
-            .shadow(color: (isHover && media.isPlaying ? edgeColor : .black).opacity(isHover ? 0.35 : 0), radius: isHover ? 12 : 0, y: isHover ? 6 : 0)
+            .shadow(
+                color: (isHover && media.isPlaying ? edgeColor : .black).opacity(isHover ? DesignTokens.cardShadowOpacity : 0),
+                radius: isHover ? DesignTokens.cardShadowRadius : 0,
+                y: isHover ? DesignTokens.cardShadowY : 0
+            )
     }
 
     @ViewBuilder
@@ -1909,7 +1913,7 @@ private struct AgentsCell: View {
             // row) overflows the card's rounded-rect visually instead of
             // being contained/scrolled, which is what produced the
             // "floating Terminal button" bug report.
-            .clipShape(RoundedRectangle(cornerRadius: 14))
+            .clipShape(RoundedRectangle(cornerRadius: DesignTokens.cellRadius))
     }
 
     /// Full vertical list of every tracked session, most-recent/selected
@@ -1984,11 +1988,11 @@ private struct AgentsCell: View {
     }
 
     private var cellShape: some View {
-        RoundedRectangle(cornerRadius: 14)
+        RoundedRectangle(cornerRadius: DesignTokens.cellRadius)
             .fill(.ultraThinMaterial)
-            .overlay(RoundedRectangle(cornerRadius: 14).fill(Color.black.opacity(0.34)))
+            .overlay(RoundedRectangle(cornerRadius: DesignTokens.cellRadius).fill(Color.black.opacity(0.34)))
             .overlay(
-                RoundedRectangle(cornerRadius: 14)
+                RoundedRectangle(cornerRadius: DesignTokens.cellRadius)
                     .stroke(Color.white.opacity(0.055), lineWidth: 1)
             )
     }
@@ -2171,12 +2175,12 @@ private struct CellSurface<Content: View>: View {
     }
 
     var body: some View {
-        RoundedRectangle(cornerRadius: 14)
+        RoundedRectangle(cornerRadius: DesignTokens.cellRadius)
             .fill(reduceTransparency ? AnyShapeStyle(Color(white: 0.075)) : AnyShapeStyle(.ultraThinMaterial))
-            .overlay(RoundedRectangle(cornerRadius: 14).fill(Color.black.opacity(reduceTransparency ? 0 : 0.32)))
-            .overlay(RoundedRectangle(cornerRadius: 14).stroke(Color.white.opacity(0.065), lineWidth: 0.75))
+            .overlay(RoundedRectangle(cornerRadius: DesignTokens.cellRadius).fill(Color.black.opacity(reduceTransparency ? 0 : 0.32)))
+            .overlay(RoundedRectangle(cornerRadius: DesignTokens.cellRadius).stroke(Color.white.opacity(0.065), lineWidth: 0.75))
             .overlay(content.padding(7))
-            .clipShape(RoundedRectangle(cornerRadius: 14, style: .continuous))
+            .clipShape(RoundedRectangle(cornerRadius: DesignTokens.cellRadius, style: .continuous))
     }
 }
 
