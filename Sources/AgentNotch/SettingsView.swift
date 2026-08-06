@@ -7,9 +7,16 @@ import SwiftUI
 /// only persisted but not yet consumed anywhere (`languageOverride`,
 /// `tabLayouts`) get no control here on purpose, per the Phase 7 roadmap
 /// note: "未実装・未接続の項目はUIに表示しない" (don't surface controls for
-/// unimplemented/unwired settings).
+/// unimplemented/unwired settings). The one exception is the notification
+/// status section below: it doesn't bind to an `AppSettings` property at
+/// all — it surfaces `NativeNotifier.shared`'s live authorization state
+/// (previously visible only via `agent-notch ping`'s debug JSON) plus a
+/// link out to System Settings, since a denied/unauthorized notification
+/// permission otherwise fails completely silently (see `NativeNotifier`'s
+/// own "best-effort only" doc comment).
 struct SettingsView: View {
     @ObservedObject var settings: AppSettings
+    @ObservedObject private var notifier = NativeNotifier.shared
 
     var body: some View {
         Form {
@@ -26,6 +33,30 @@ struct SettingsView: View {
             Section(String(localized: "settings.section.general", defaultValue: "General")) {
                 Toggle(String(localized: "settings.soundEffects", defaultValue: "Sound effects"), isOn: $settings.soundEnabled)
                     .help(String(localized: "settings.soundEffectsHelp", defaultValue: "Plays a short tone for approvals, questions, and other notch events."))
+            }
+
+            // Only shown once authorization has actually been requested and
+            // came back denied — never on cold start, where `isAuthorized`
+            // is still `false` simply because the async system prompt
+            // hasn't resolved yet (that transient state would otherwise
+            // flash a false warning on every launch).
+            if notifier.didRequestAuthorization, !notifier.isAuthorized {
+                Section(String(localized: "settings.section.notifications", defaultValue: "Notifications")) {
+                    VStack(alignment: .leading, spacing: 4) {
+                        Text(String(localized: "settings.notificationsDenied", defaultValue: "Notifications are off. AgentNotch can't alert you when the notch itself isn't visible (e.g. while in full screen)."))
+                            .font(.callout)
+                        if let error = notifier.lastAuthorizationError {
+                            Text(error)
+                                .font(.caption)
+                                .foregroundColor(.secondary)
+                        }
+                        Button(String(localized: "settings.openNotificationSettings", defaultValue: "Open Notification Settings…")) {
+                            openSystemSettings("x-apple.systempreferences:com.apple.Notifications-Settings.extension")
+                        }
+                        .buttonStyle(.link)
+                    }
+                    .padding(.vertical, 2)
+                }
             }
 
             Section(String(localized: "settings.section.appearance", defaultValue: "Appearance")) {
@@ -88,5 +119,13 @@ struct SettingsView: View {
         }
         .help(help)
         .padding(.vertical, 2)
+    }
+
+    /// Same `NSWorkspace.shared.open` pattern as `SystemCell.openSystemSettings`
+    /// in `NotchView.swift` — duplicated locally rather than shared because
+    /// that one is `private` to its own file.
+    private func openSystemSettings(_ rawURL: String) {
+        guard let url = URL(string: rawURL) else { return }
+        NSWorkspace.shared.open(url)
     }
 }

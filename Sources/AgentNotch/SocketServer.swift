@@ -153,6 +153,7 @@ private final class IncomingConnection: @unchecked Sendable {
 final class SocketServer {
     private let onEvent: (HookEvent) -> Void
     private let onCancel: (SocketConnection) -> Void
+    private let onStartupFailure: (() -> Void)?
 
     private let queue = DispatchQueue(label: "com.chaos.agent-notch.socket")
     private let socketPath: String
@@ -167,9 +168,10 @@ final class SocketServer {
     /// temporary path so they never touch the real socket a live app (or
     /// other concurrent Claude Code/Codex sessions on the same Mac) might
     /// be using.
-    init(socketPath: String? = nil, onEvent: @escaping (HookEvent) -> Void, onCancel: @escaping (SocketConnection) -> Void = { _ in }) {
+    init(socketPath: String? = nil, onEvent: @escaping (HookEvent) -> Void, onCancel: @escaping (SocketConnection) -> Void = { _ in }, onStartupFailure: (() -> Void)? = nil) {
         self.onEvent = onEvent
         self.onCancel = onCancel
+        self.onStartupFailure = onStartupFailure
         if let socketPath {
             self.socketPath = socketPath
         } else {
@@ -191,6 +193,29 @@ final class SocketServer {
         queue.sync { connections.count }
     }
 
+    /// Cancels the listening socket's accept source and every open
+    /// connection's read source. Not called by production code today — the
+    /// real app is a menu-bar-resident process with no shutdown moment, so
+    /// `acceptSource`'s existing `setCancelHandler { Darwin.close(fd) }`
+    /// (see `start()`) would otherwise never actually fire. Exists so
+    /// `SocketServerTests` can deterministically tear a server down between
+    /// test methods instead of leaking listener/read sources for the life
+    /// of the `xctest` process. `queue.sync` (not `.async`) so the caller
+    /// can rely on teardown having fully happened by the time this returns
+    /// — same pattern as `debugConnectionCount()`; do not call this from
+    /// `queue` itself for the same deadlock reason.
+    func stop() {
+        queue.sync {
+            acceptSource?.cancel()
+            acceptSource = nil
+            for incoming in connections.values {
+                incoming.source?.cancel()
+                incoming.source = nil
+            }
+            connections.removeAll()
+        }
+    }
+
     func start() {
         let fm = FileManager.default
         let dirPath = (socketPath as NSString).deletingLastPathComponent
@@ -201,7 +226,7 @@ final class SocketServer {
 
         let fd = socket(AF_UNIX, SOCK_STREAM, 0)
         guard fd >= 0 else {
-            logError("socket() failed")
+            failStartup("socket() failed")
             return
         }
 
@@ -209,7 +234,7 @@ final class SocketServer {
         addr.sun_family = sa_family_t(AF_UNIX)
         let pathBytes = Array(socketPath.utf8CString)
         guard pathBytes.count <= MemoryLayout.size(ofValue: addr.sun_path) else {
-            logError("socket path too long")
+            failStartup("socket path too long")
             Darwin.close(fd)
             return
         }
@@ -226,13 +251,13 @@ final class SocketServer {
             }
         }
         guard bindResult == 0 else {
-            logError("bind() failed")
+            failStartup("bind() failed")
             Darwin.close(fd)
             return
         }
 
         guard listen(fd, 16) == 0 else {
-            logError("listen() failed")
+            failStartup("listen() failed")
             Darwin.close(fd)
             return
         }
@@ -451,5 +476,18 @@ final class SocketServer {
 
     private func logError(_ message: String) {
         FileHandle.standardError.write("agent-notch: \(message)\n".data(using: .utf8)!)
+    }
+
+    /// Common failure path for every early-return in `start()`. Previously
+    /// these four cases (`socket()`, path-too-long, `bind()`, `listen()`)
+    /// only ever wrote to stderr — invisible in a GUI app the user launched
+    /// via Finder/Login Items, so a bind conflict (e.g. another AgentNotch
+    /// process already holding the socket) left the app looking like it
+    /// started fine while silently never receiving a single hook event.
+    /// `onStartupFailure` is best-effort notification only, same policy as
+    /// `NativeNotifier` itself — no retry, no fallback transport.
+    private func failStartup(_ message: String) {
+        logError(message)
+        onStartupFailure?()
     }
 }

@@ -156,4 +156,78 @@ final class SocketServerTests: XCTestCase {
             Darwin.close(fd)
         }
     }
+
+    func testStopCancelsAcceptSourceAndClosesConnections() async throws {
+        let path = makeTempSocketPath()
+        defer { Darwin.unlink(path) }
+        let receivedEvent = expectation(description: "received AgentNotchPing event")
+
+        let server = SocketServer(socketPath: path, onEvent: { event in
+            // Deliberately never respond — testing that stop() tears the
+            // connection down even while a response is still pending,
+            // not just the already-covered "respond() cleans up" path.
+            receivedEvent.fulfill()
+        })
+        server.start()
+
+        let clientFD = connectClient(to: path)
+        defer { Darwin.close(clientFD) }
+        sendPing(on: clientFD)
+        await fulfillment(of: [receivedEvent], timeout: 2.0)
+        XCTAssertGreaterThan(server.debugConnectionCount(), 0, "connection should be tracked before stop()")
+
+        server.stop()
+        XCTAssertEqual(server.debugConnectionCount(), 0, "stop() must synchronously clear every tracked connection")
+
+        // The listening socket itself should be gone too: a fresh connect()
+        // attempt must fail (nothing left accepting on this path).
+        let secondFD = Darwin.socket(AF_UNIX, SOCK_STREAM, 0)
+        defer { Darwin.close(secondFD) }
+        var addr = sockaddr_un()
+        addr.sun_family = sa_family_t(AF_UNIX)
+        let pathBytes = Array(path.utf8CString)
+        withUnsafeMutableBytes(of: &addr.sun_path) { raw in
+            let ptr = raw.bindMemory(to: CChar.self)
+            for (i, b) in pathBytes.enumerated() { ptr[i] = b }
+        }
+        // `connect()` on a Unix domain socket can briefly still succeed
+        // against the kernel's backlog even after the listener stops
+        // accepting, so poll a few times rather than asserting on the
+        // first attempt alone.
+        var stillConnectable = true
+        for _ in 0..<10 {
+            let result = withUnsafePointer(to: &addr) { ptr -> Int32 in
+                ptr.withMemoryRebound(to: sockaddr.self, capacity: 1) { sockPtr in
+                    Darwin.connect(secondFD, sockPtr, socklen_t(MemoryLayout<sockaddr_un>.size))
+                }
+            }
+            if result != 0 {
+                stillConnectable = false
+                break
+            }
+            try? await Task.sleep(nanoseconds: 20_000_000) // 20ms
+        }
+        XCTAssertFalse(stillConnectable, "a new connect() should fail once stop() has torn down the listening socket")
+    }
+
+    /// `socket()`/`bind()`/`listen()` failures are hard to trigger
+    /// deterministically without environment-dependent setup (racing
+    /// another process for the same path, permission tricks). The
+    /// path-too-long guard is the one startup failure this test suite can
+    /// hit reliably and portably: `sockaddr_un.sun_path` is capped at 104
+    /// bytes on macOS, and a path built from a long-enough string always
+    /// exceeds it regardless of filesystem state.
+    func testStartupFailureCallbackFiresOnceForOversizedSocketPath() {
+        let oversizedPath = "/tmp/" + String(repeating: "a", count: 200) + ".sock"
+        var failureCount = 0
+
+        let server = SocketServer(
+            socketPath: oversizedPath,
+            onEvent: { _ in },
+            onStartupFailure: { failureCount += 1 }
+        )
+        server.start()
+
+        XCTAssertEqual(failureCount, 1, "onStartupFailure must fire exactly once when start() can't bind an oversized path")
+    }
 }

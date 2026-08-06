@@ -41,7 +41,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         let planCenter = PlanCenter()
         store.permissionCenter = permissionCenter
         let soundPlayer = SoundPlayer.shared
-        let nativeNotifier = NativeNotifier()
+        let nativeNotifier = NativeNotifier.shared
         nativeNotifier.requestAuthorizationIfNeeded()
 
         let controller = NotchWindowController(store: store, permissions: permissionCenter, questions: questionCenter, plans: planCenter, nativeNotifier: nativeNotifier)
@@ -75,6 +75,17 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                 self?.permissionCenter?.cancel(connection: connection)
                 self?.questionCenter?.cancel(connection: connection)
                 self?.planCenter?.cancel(connection: connection)
+            },
+            onStartupFailure: { [weak self] in
+                // Best-effort only, same as every other `nativeNotifier`
+                // call in this file: if `isAuthorized` hasn't resolved yet
+                // (this can fire moments after `requestAuthorizationIfNeeded()`,
+                // before its async callback returns), `notify()` silently
+                // no-ops. No retry — matches NativeNotifier's own policy.
+                self?.nativeNotifier?.notify(
+                    title: String(localized: "notification.socketServerFailure.title", defaultValue: "AgentNotch can't receive events"),
+                    body: String(localized: "notification.socketServerFailure.body", defaultValue: "The local socket failed to start. Hook events from Claude/Codex won't reach the notch until AgentNotch is restarted.")
+                )
             }
         )
         server.start()
