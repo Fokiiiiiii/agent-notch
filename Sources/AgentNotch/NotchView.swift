@@ -574,7 +574,7 @@ struct NotchView: View {
     @ViewBuilder
     private func overlayCell(_ overlay: IslandOverlay) -> some View {
         switch overlay {
-        case .approval(let agent, let toolName, let summary, let extraCount, let otherAgentPending):
+        case .approval(let agent, let toolName, let summary, let extraCount, let otherAgentPending, let cwd, let isDangerous):
             if toolName == "ExitPlanMode" {
                 PlanApprovalOverlayView(
                     agent: agent,
@@ -603,6 +603,8 @@ struct NotchView: View {
                     summary: summary,
                     extraCount: extraCount,
                     otherAgentPending: otherAgentPending,
+                    cwd: cwd,
+                    isDangerous: isDangerous,
                     onAllowOnce: {
                         if let id = permissions.queue.first?.id {
                             permissions.resolve(id, behavior: "allow")
@@ -3126,6 +3128,12 @@ private struct ApprovalOverlayView: View {
     /// otherwise makes the shown agent's label look wrong when a different
     /// agent's brand-new request is actually the one waiting behind it).
     var otherAgentPending: AgentKind? = nil
+    var cwd: String = ""
+    /// Best-effort heuristic flag from `DangerousCommandDetector` — see its
+    /// doc comment. Escalates the command box's border/caption, not the
+    /// header icon (which stays orange for every permission request, so the
+    /// color language doesn't collide with `.deny`'s red).
+    var isDangerous: Bool = false
     var onAllowOnce: () -> Void = {}
     var onDeny: () -> Void = {}
     var onCompactOutcome: (Bool) -> Void = { _ in }
@@ -3133,6 +3141,12 @@ private struct ApprovalOverlayView: View {
     @State private var decision: ApprovalDecision?
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @State private var isInteractive = false
+
+    /// Caps how tall the command/diff box grows before it becomes
+    /// internally scrollable — keeps `approvalOpenSize()`'s height budget
+    /// (see `NotchWindowController`) bounded even for very long commands,
+    /// instead of the box (and the whole panel) growing without limit.
+    private static let summaryBoxMaxHeight: CGFloat = 140
 
     var body: some View {
         CellSurface {
@@ -3185,21 +3199,47 @@ private struct ApprovalOverlayView: View {
                                 .lineLimit(1)
                                 .truncationMode(.middle)
                         }
-                        Text(summary.isEmpty ? String(localized: "approval.reviewAction", defaultValue: "Review this action before \(agent.displayName) continues.") : summary)
-                            .font(.system(size: 11, design: .monospaced))
-                            .foregroundColor(.white.opacity(0.58))
-                            .padding(.horizontal, 9)
-                            .frame(maxWidth: .infinity, minHeight: 34, alignment: .leading)
-                            .background(RoundedRectangle(cornerRadius: 8).fill(Color.black.opacity(0.28)))
-                            // No `lineLimit` on this Text on purpose — it's a
-                            // command/diff excerpt the user must review before
-                            // approving, so it must never truncate. Measure
-                            // its real height instead, so the panel grows to
-                            // fit it exactly rather than budgeting a fixed
-                            // size. See `uiState.approvalSummaryHeight`.
-                            .onGeometryChange(for: CGFloat.self, of: { $0.size.height }) { newHeight in
-                                uiState.approvalSummaryHeight = newHeight
+                        if !cwd.isEmpty {
+                            HStack(spacing: 5) {
+                                Image(systemName: "folder")
+                                    .font(.system(size: 9))
+                                    .foregroundColor(DesignTokens.muted)
+                                Text(cwdTail(cwd))
+                                    .font(.system(size: 10, design: .monospaced))
+                                    .foregroundColor(DesignTokens.muted)
+                                    .lineLimit(1)
+                                    .truncationMode(.head)
+                                Spacer(minLength: 6)
+                                if isDangerous {
+                                    Label(String(localized: "approval.dangerousCommand", defaultValue: "Review carefully"), systemImage: "exclamationmark.triangle.fill")
+                                        .font(.system(size: 9, weight: .semibold))
+                                        .foregroundColor(DesignTokens.red)
+                                        .lineLimit(1)
+                                }
                             }
+                        }
+                        ScrollView {
+                            Text(summary.isEmpty ? String(localized: "approval.reviewAction", defaultValue: "Review this action before \(agent.displayName) continues.") : summary)
+                                .font(.system(size: 11, design: .monospaced))
+                                .foregroundColor(isDangerous ? DesignTokens.red.opacity(0.85) : .white.opacity(0.58))
+                                .padding(.horizontal, 9)
+                                .padding(.vertical, 8)
+                                .frame(maxWidth: .infinity, minHeight: 34, alignment: .leading)
+                                // No `lineLimit` on this Text on purpose — it's
+                                // a command/diff excerpt the user must review
+                                // before approving, so it must never truncate.
+                                // Measure its real (unbounded) height so long
+                                // content that exceeds the box's own capped
+                                // `.frame(maxHeight:)` below stays reachable by
+                                // scrolling instead of being silently clipped
+                                // by the panel's own `approvalMaxHeight` cap.
+                                .onGeometryChange(for: CGFloat.self, of: { $0.size.height }) { newHeight in
+                                    uiState.approvalSummaryHeight = min(newHeight, Self.summaryBoxMaxHeight)
+                                }
+                        }
+                        .frame(maxHeight: Self.summaryBoxMaxHeight)
+                        .background(RoundedRectangle(cornerRadius: 8).fill(Color.black.opacity(0.28)))
+                        .overlay(RoundedRectangle(cornerRadius: 8).strokeBorder(isDangerous ? DesignTokens.red.opacity(0.45) : .clear, lineWidth: 1))
                         Spacer(minLength: 10)
                         HStack(spacing: 8) {
                             ApprovalActionButton(title: String(localized: "approval.deny", defaultValue: "Deny"), shortcut: "⌘N", icon: "xmark", role: .deny) { decide(.deny) }
