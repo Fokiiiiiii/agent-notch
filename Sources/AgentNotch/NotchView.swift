@@ -49,7 +49,7 @@ struct NotchView: View {
             .compositingGroup()
             .opacity(uiState.isVisible ? 1 : 0)
             .allowsHitTesting(uiState.isVisible)
-            .animation(DesignTokens.scaledSpring(), value: uiState.mode)
+            .animation(reduceMotion ? .easeOut(duration: 0.12) : DesignTokens.scaledSpring(), value: uiState.mode)
         }
         .contentShape(Rectangle())
         .onHover {
@@ -664,6 +664,7 @@ struct NotchView: View {
                 .buttonStyle(NotchPressStyle(pressedScale: 0.9))
                 .hoverLift(cornerRadius: 9, strength: 0.08)
                 .accessibilityLabel(view.title)
+                .accessibilityAddTraits(uiState.activeView == view ? [.isSelected] : [])
                 .accessibilityIdentifier("notch.view.\(view.title.lowercased())")
                 .help(uiState.activeView == view ? String(localized: "nook.tab.currentView", defaultValue: "Current view") : String(localized: "nook.tab.showView", defaultValue: "Show \(view.title)"))
             }
@@ -1910,6 +1911,7 @@ private struct AgentsCell: View {
     @ObservedObject private var usageStore = AgentUsageStore.shared
     @State private var actionFeedback: String?
     @Environment(\.accessibilityReduceTransparency) private var reduceTransparency
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
     private var selected: AgentSession? {
         if let id = uiState.selectedSessionId, let match = store.sessions.first(where: { $0.id == id }) {
@@ -2089,17 +2091,41 @@ private struct AgentsCell: View {
         .contentShape(Rectangle())
         .hoverLift(cornerRadius: 10, strength: 0.04)
         .onTapGesture(count: 2) {
-            SoundPlayer.shared.play(.navigation)
-            Jumper.jump(to: session)
+            jumpToSession(session)
         }
         .onTapGesture(count: 1) {
-            guard !isSelected else { return }
-            SoundPlayer.shared.play(.navigation)
-            withAnimation(DesignTokens.scaledContentTransition()) {
-                uiState.selectedSessionId = session.id
-            }
+            selectSession(session, isSelected: isSelected)
         }
         .help(String(localized: "agents.doubleClickToReturn", defaultValue: "Double-click to return to \(session.agent.displayName)"))
+        // The tap gestures above are invisible to VoiceOver, unlike every
+        // other interactive element in this file (all `Button`-based). This
+        // row has two distinct actions on one control — select (default
+        // activation) and jump-to-Terminal (a named custom action) — the
+        // standard VoiceOver idiom for "primary action on activate,
+        // secondary action via the Actions rotor".
+        .accessibilityElement(children: .ignore)
+        .accessibilityLabel(String(localized: "agents.sessionAccessibilityLabel", defaultValue: "\(session.title), \(session.agent.displayName)"))
+        .accessibilityAddTraits(isSelected ? [.isButton, .isSelected] : [.isButton])
+        .accessibilityHint(String(localized: "agents.sessionAccessibilityHint", defaultValue: "Double-tap to select. Use the actions rotor to jump to Terminal."))
+        .accessibilityAction {
+            selectSession(session, isSelected: isSelected)
+        }
+        .accessibilityAction(named: String(localized: "agents.jumpToTerminalAction", defaultValue: "Jump to Terminal")) {
+            jumpToSession(session)
+        }
+    }
+
+    private func jumpToSession(_ session: AgentSession) {
+        SoundPlayer.shared.play(.navigation)
+        Jumper.jump(to: session)
+    }
+
+    private func selectSession(_ session: AgentSession, isSelected: Bool) {
+        guard !isSelected else { return }
+        SoundPlayer.shared.play(.navigation)
+        withAnimation(reduceMotion ? .easeOut(duration: 0.12) : DesignTokens.scaledContentTransition()) {
+            uiState.selectedSessionId = session.id
+        }
     }
 
     /// Rounded-pill agent-name badge, matching the reference design's
@@ -2454,6 +2480,7 @@ private struct MediaControlButton: View {
         .buttonStyle(NotchPressStyle())
         .hoverLift(cornerRadius: 11, strength: 0.08)
         .help(help)
+        .accessibilityLabel(help)
     }
 }
 
@@ -2779,6 +2806,7 @@ private struct TrayCell: View {
                         .menuStyle(.borderlessButton)
                         .menuIndicator(.hidden)
                         .help(String(localized: "tray.moreFileActionsHelp", defaultValue: "More file actions"))
+                        .accessibilityLabel(String(localized: "tray.moreFileActionsHelp", defaultValue: "More file actions"))
                     }
                 }
             }.foregroundColor(.white)
@@ -2879,6 +2907,7 @@ private struct TrayCell: View {
                             .frame(width: 22, height: 22)
                             .contentShape(Circle())
                             .help(String(localized: "tray.removeItemHelp", defaultValue: "Remove \(item.url.lastPathComponent) from Tray"))
+                            .accessibilityLabel(String(localized: "tray.removeItemHelp", defaultValue: "Remove \(item.url.lastPathComponent) from Tray"))
                         }
                     }
                     Button { action(.choose) } label: {
@@ -2889,6 +2918,7 @@ private struct TrayCell: View {
                     }
                     .buttonStyle(NotchPressStyle())
                     .help(String(localized: "tray.addMoreFiles", defaultValue: "Add more files"))
+                    .accessibilityLabel(String(localized: "tray.addMoreFiles", defaultValue: "Add more files"))
                 }
                 .padding(.horizontal, 2)
             }
@@ -2964,6 +2994,19 @@ private struct PlanReviewView: View {
     )
     .frame(width: 540, height: 190)
     .background(Color.black)
+}
+
+/// Arms an "interactive" binding after `DesignTokens.dwellGuardDelay`
+/// (150ms), starting from `false`. Shared by `AgentQuestionView`,
+/// `ApprovalOverlayView`, and `PlanApprovalOverlayView` — the dwell guard
+/// against a fast double-click/double-Enter firing two actions before
+/// SwiftUI re-renders disabled state.
+private func armDwellGuard(_ isInteractive: Binding<Bool>) {
+    isInteractive.wrappedValue = false
+    Task { @MainActor in
+        try? await Task.sleep(nanoseconds: UInt64(DesignTokens.dwellGuardDelay * 1_000_000_000))
+        isInteractive.wrappedValue = true
+    }
 }
 
 private struct AgentQuestionView: View {
@@ -3070,11 +3113,7 @@ private struct AgentQuestionView: View {
     /// re-renders disabled state, a hazard that's identical when moving
     /// from one sub-question to the next within the same view instance.
     private func armInteractivity() {
-        isInteractive = false
-        Task { @MainActor in
-            try? await Task.sleep(nanoseconds: 150_000_000)
-            isInteractive = true
-        }
+        armDwellGuard($isInteractive)
     }
 
     private var headerRow: some View {
@@ -3184,11 +3223,12 @@ private struct AgentQuestionView: View {
     /// comma-joined answer and advances.
     private var multiSelectView: some View {
         VStack(spacing: 5) {
-            ForEach(currentQuestion.options) { option in
+            ForEach(Array(currentQuestion.options.enumerated()), id: \.element.id) { index, option in
                 MultiSelectChoiceRow(
                     title: option.label,
                     detail: option.detail,
-                    isSelected: multiSelectedOptionIDs.contains(option.id)
+                    isSelected: multiSelectedOptionIDs.contains(option.id),
+                    key: index < 9 ? KeyEquivalent(Character("\(index + 1)")) : nil
                 ) {
                     if multiSelectedOptionIDs.contains(option.id) {
                         multiSelectedOptionIDs.remove(option.id)
@@ -3207,6 +3247,7 @@ private struct AgentQuestionView: View {
             }
             .buttonStyle(NotchPressStyle())
             .disabled(!isInteractive || multiSelectedOptionIDs.isEmpty)
+            .keyboardShortcut(.return, modifiers: .command)
         }
     }
 
@@ -3243,6 +3284,7 @@ private struct AgentQuestionView: View {
             }
             .buttonStyle(NotchPressStyle())
             .disabled(!isInteractive)
+            .keyboardShortcut(.return, modifiers: .command)
         }
     }
 
@@ -3400,11 +3442,17 @@ private struct MultiSelectChoiceRow: View {
     let title: String
     let detail: String
     let isSelected: Bool
+    /// `nil` for the 10th+ option — `KeyEquivalent(Character(...))` can only
+    /// hold a single grapheme cluster, so a two-digit index has no valid
+    /// shortcut to assign (unlike `QuestionChoiceButton`'s existing
+    /// `⌘1`-`⌘9` callers, which don't guard this; this row's own callers do,
+    /// so it never sees an out-of-range index in the first place).
+    var key: KeyEquivalent?
     let action: () -> Void
     @State private var hovering = false
 
     var body: some View {
-        Button(action: action) {
+        let button = Button(action: action) {
             HStack(spacing: 9) {
                 Image(systemName: isSelected ? "checkmark.square.fill" : "square")
                     .font(.system(size: 14))
@@ -3436,6 +3484,12 @@ private struct MultiSelectChoiceRow: View {
         .accessibilityLabel(title)
         .accessibilityHint(detail)
         .accessibilityAddTraits(isSelected ? [.isSelected] : [])
+
+        if let key {
+            button.keyboardShortcut(key, modifiers: .command)
+        } else {
+            button
+        }
     }
 }
 
@@ -3473,6 +3527,7 @@ private struct SendAnswerButton: View {
         .animation(.easeOut(duration: 0.18), value: hovering)
         .disabled(!isEnabled)
         .help(String(localized: "question.sendAnswer", defaultValue: "Send answer"))
+        .keyboardShortcut(.return, modifiers: .command)
     }
 }
 
@@ -3555,6 +3610,8 @@ private struct ApprovalOverlayView: View {
                             Text(toolName)
                                 .font(.system(size: 14, weight: .semibold, design: .rounded))
                                 .tracking(-0.1)
+                                .lineLimit(1)
+                                .truncationMode(.middle)
                             Text(summary)
                                 .font(.system(size: 11.5, design: .monospaced))
                                 .foregroundColor(.white.opacity(0.72))
@@ -3616,11 +3673,7 @@ private struct ApprovalOverlayView: View {
             .animation(reduceMotion ? .easeOut(duration: 0.12) : DesignTokens.scaledSpring(), value: decision)
         }
         .onAppear {
-            isInteractive = false
-            Task { @MainActor in
-                try? await Task.sleep(nanoseconds: 150_000_000)
-                isInteractive = true
-            }
+            armDwellGuard($isInteractive)
         }
     }
 
@@ -3738,11 +3791,7 @@ private struct PlanApprovalOverlayView: View {
             .animation(reduceMotion ? .easeOut(duration: 0.12) : DesignTokens.scaledSpring(), value: decision)
         }
         .onAppear {
-            isInteractive = false
-            Task { @MainActor in
-                try? await Task.sleep(nanoseconds: 150_000_000)
-                isInteractive = true
-            }
+            armDwellGuard($isInteractive)
         }
     }
 
