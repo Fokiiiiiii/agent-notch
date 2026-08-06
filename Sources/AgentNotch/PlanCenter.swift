@@ -10,6 +10,9 @@ final class PlanCenter: ObservableObject {
         let title: String
         let summary: String
         let connection: SocketConnection?
+        /// Used by `AttentionCenter` to sort/tie-break the unified attention
+        /// list — see its doc comment. Not read anywhere in this file.
+        let occurredAt: Date
     }
 
     @Published private(set) var queue: [Request] = []
@@ -21,7 +24,8 @@ final class PlanCenter: ObservableObject {
             cwd: event.cwd,
             title: (event.toolInput["title"] as? String) ?? String(localized: "plan.fallbackTitle", defaultValue: "Plan Review"),
             summary: (event.toolInput["summary"] as? String) ?? String(localized: "plan.fallbackSummary", defaultValue: "Review the proposed implementation plan."),
-            connection: event.connection
+            connection: event.connection,
+            occurredAt: Date()
         ))
     }
 

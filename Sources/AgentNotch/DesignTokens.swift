@@ -8,6 +8,11 @@ enum DesignTokens {
     static let orange = Color(red: 0xF0 / 255, green: 0xA4 / 255, blue: 0x51 / 255)
     static let red = Color(red: 0xED / 255, green: 0x77 / 255, blue: 0x71 / 255)
     static let cyan = Color(red: 0x68 / 255, green: 0xCC / 255, blue: 0xE3 / 255)
+    /// Same pastel family/saturation as the other four accents. Gives a plan
+    /// review its own identity in `attentionColor(for:)` instead of a flat
+    /// near-white, without colliding with green (approve/done), red (deny),
+    /// orange (permission), or cyan (question).
+    static let purple = Color(red: 0xB1 / 255, green: 0x8A / 255, blue: 0xF0 / 255)
 
     // Neutral text/surface colors
     static let muted = Color.white.opacity(0.48)
@@ -26,6 +31,20 @@ enum DesignTokens {
     /// the visible `.closed`-mode shape. Wider than the old fixed `+20pt` to
     /// leave more headroom for content around the physical notch cutout.
     static let notchSafeMargin: CGFloat = 32
+
+    /// Tighter margin used only when a real physical notch is present
+    /// (`hasNotch == true` in `NotchWindowController.computeClosedSize`), so
+    /// the `.closed` pill hugs the camera-housing cutout instead of reusing
+    /// the generic virtual-notch margin. Approximate — tune after visual QA
+    /// via `AGENT_NOTCH_SIMULATE_NOTCH` (no physical-notch dev machine to
+    /// measure against directly).
+    static let notchHuggingMargin: CGFloat = 16
+
+    /// Bottom-corner radius used for `.closed`/`.hover`/`.notice` only when a
+    /// real notch is present, approximating the physical camera housing's own
+    /// corner curvature so the virtual shell's edge continues it rather than
+    /// visibly diverging from it. Approximate — tune after visual QA.
+    static let notchHuggingRadius: CGFloat = 10
 
     /// Minimum width `compactAgentContent` (see `NotchView.swift`) needs to
     /// avoid clipping: 22pt icon + spacing + status text + horizontal padding
@@ -52,6 +71,12 @@ extension DesignTokens {
     @MainActor
     static func scaledOpenRadius(_ settings: AppSettings = .shared) -> CGFloat {
         openRadius * settings.cornerRadiusScale
+    }
+
+    /// `notchHuggingRadius` scaled by `AppSettings.cornerRadiusScale`.
+    @MainActor
+    static func scaledNotchHuggingRadius(_ settings: AppSettings = .shared) -> CGFloat {
+        notchHuggingRadius * settings.cornerRadiusScale
     }
 
     /// `spring` scaled by `AppSettings.animationSpeedScale`. A larger scale

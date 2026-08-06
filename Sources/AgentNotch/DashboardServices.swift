@@ -21,11 +21,28 @@ final class TodayModel: ObservableObject {
     @Published private(set) var errorMessage: String?
 
     private let store = EKEventStore()
+    private var timer: AnyCancellable?
+    private var storeChangeObserver: AnyCancellable?
 
     init() {
         if authorizationStatus == .fullAccess {
             refresh()
         }
+        // Periodic refresh so the day's events stay current across midnight
+        // rollovers even if no calendar change notification fires.
+        timer = Timer.publish(every: 300, on: .main, in: .common)
+            .autoconnect()
+            .sink { [weak self] _ in
+                self?.refresh()
+            }
+        // EventKit posts this whenever calendar data changes (new/edited/
+        // deleted events, account sync, etc.) so we can reflect edits
+        // immediately instead of waiting for the next timer tick.
+        storeChangeObserver = NotificationCenter.default
+            .publisher(for: .EKEventStoreChanged, object: store)
+            .sink { [weak self] _ in
+                self?.refresh()
+            }
     }
 
     var canReadCalendar: Bool {
@@ -82,12 +99,18 @@ final class MediaController: ObservableObject {
     @Published private(set) var hasMedia = false
     @Published private(set) var artwork: NSImage?
     @Published private(set) var accentColor = NSColor.white
+    /// Briefly non-nil right after a hardware media-key/remote skip press,
+    /// for `HoverPeekView`/`compactMediaContent` to flash a directional SF
+    /// Symbol as feedback — auto-clears itself, see `handleSkip(_:)`.
+    @Published private(set) var activeSkipDirection: SkipDirection?
 
     private var timer: AnyCancellable?
     private var refreshInFlight = false
     private var artworkIdentifier: String?
     private let adapterScriptPath: String?
     private let adapterLibraryPath: String?
+    private let mediaKeyMonitor = MediaKeyMonitor()
+    private var skipIndicatorTask: Task<Void, Never>?
 
     init() {
         adapterScriptPath = Bundle.main.resourceURL?
@@ -102,6 +125,23 @@ final class MediaController: ObservableObject {
             .sink { [weak self] _ in
                 self?.refresh()
             }
+        mediaKeyMonitor.onSkip = { [weak self] direction in self?.handleSkip(direction) }
+        mediaKeyMonitor.start()
+    }
+
+    /// Feedback-only: macOS has already routed the actual skip to whichever
+    /// app is the current Now Playing target by the time this fires, so
+    /// this must never call `previous()`/`next()`/`send(command:)` itself —
+    /// doing so would double the skip.
+    private func handleSkip(_ direction: SkipDirection) {
+        guard isPlaying else { return }
+        skipIndicatorTask?.cancel()
+        activeSkipDirection = direction
+        skipIndicatorTask = Task { [weak self] in
+            try? await Task.sleep(nanoseconds: 1_100_000_000)
+            guard !Task.isCancelled, let self else { return }
+            self.activeSkipDirection = nil
+        }
     }
 
     var progress: Double {
@@ -140,6 +180,7 @@ final class MediaController: ObservableObject {
             artwork = nil
             artworkIdentifier = nil
             accentColor = .white
+            clearSkipIndicatorIfStopped()
             return
         }
 
@@ -159,6 +200,16 @@ final class MediaController: ObservableObject {
             artwork = snapshot.artworkData.flatMap(NSImage.init(data:))
             accentColor = artwork.flatMap(Self.averageArtworkColor) ?? .white
         }
+        clearSkipIndicatorIfStopped()
+    }
+
+    /// A stale skip badge/waveform-swap must not resurface if playback
+    /// resumes with `skipIndicatorTask`'s auto-clear timer still pending.
+    private func clearSkipIndicatorIfStopped() {
+        guard !isPlaying else { return }
+        skipIndicatorTask?.cancel()
+        skipIndicatorTask = nil
+        activeSkipDirection = nil
     }
 
     private func send(command: Int) {

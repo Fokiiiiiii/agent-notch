@@ -11,7 +11,7 @@ BACKUP_KEEP="${AGENT_NOTCH_BACKUP_KEEP:-5}"
 
 prune_backups() {
   local target="$1" keep="${2:-5}"
-  ls -1t "${target}".backup.agent-notch.* 2>/dev/null | tail -n +"$((keep + 1))" | xargs rm -- 2>/dev/null
+  { ls -1t "${target}".backup.agent-notch.* 2>/dev/null || true; } | tail -n +"$((keep + 1))" | xargs rm -- 2>/dev/null || true
   return 0
 }
 
@@ -26,13 +26,15 @@ mkdir -p "$HOME/.local/bin"
 ln -sfn "$BIN_DIR/agent-notch" "$HOME/.local/bin/agent-notch"
 
 SETTINGS="$HOME/.claude/settings.json"
+mkdir -p "$(dirname "$SETTINGS")"
+[[ -f "$SETTINGS" ]] || printf '{}\n' > "$SETTINGS"
 BACKUP="$SETTINGS.backup.agent-notch.$(date +%Y%m%dT%H%M%S)"
 cp "$SETTINGS" "$BACKUP"
 echo "backup: $BACKUP"
 prune_backups "$SETTINGS" "$BACKUP_KEEP"
 
 python3 - "$SETTINGS" <<'EOF'
-import json, sys
+import json, os, sys
 
 path = sys.argv[1]
 with open(path) as f:
@@ -77,9 +79,11 @@ add("SessionStart", None)
 add("SessionEnd", None)
 
 settings["hooks"] = hooks
-with open(path, "w") as f:
+tmp_path = path + ".agent-notch.tmp"
+with open(tmp_path, "w") as f:
     json.dump(settings, f, indent=2, ensure_ascii=False)
     f.write("\n")
+os.replace(tmp_path, path)
 print("hooks installed:", ", ".join(sorted(hooks.keys())))
 EOF
 
@@ -92,7 +96,7 @@ echo "backup: $CODEX_BACKUP"
 prune_backups "$CODEX_HOOKS" "$BACKUP_KEEP"
 
 python3 - "$CODEX_HOOKS" <<'EOF'
-import json, sys
+import json, os, sys
 
 path = sys.argv[1]
 with open(path) as f:
@@ -128,8 +132,10 @@ def add(event, matcher):
 add("PreToolUse", "^request_user_input$")
 add("PermissionRequest", "*")
 
-with open(path, "w") as f:
+tmp_path = path + ".agent-notch.tmp"
+with open(tmp_path, "w") as f:
     json.dump(settings, f, indent=2, ensure_ascii=False)
     f.write("\n")
+os.replace(tmp_path, path)
 print("Codex hooks installed: PermissionRequest, request_user_input")
 EOF

@@ -5,7 +5,7 @@ BACKUP_KEEP="${AGENT_NOTCH_BACKUP_KEEP:-5}"
 
 prune_backups() {
   local target="$1" keep="${2:-5}"
-  ls -1t "${target}".backup.agent-notch.* 2>/dev/null | tail -n +"$((keep + 1))" | xargs rm -- 2>/dev/null
+  { ls -1t "${target}".backup.agent-notch.* 2>/dev/null || true; } | tail -n +"$((keep + 1))" | xargs rm -- 2>/dev/null || true
   return 0
 }
 
@@ -56,7 +56,7 @@ configure_gemini() {
   [[ -f "$settings" ]] || printf '{}\n' > "$settings"
   backup "$settings"
   python3 - "$settings" "$BRIDGE" <<'PY'
-import json, sys
+import json, os, sys
 path, bridge = sys.argv[1:]
 with open(path) as f:
     settings = json.load(f)
@@ -70,9 +70,11 @@ for event in ("SessionStart", "AfterAgent", "Notification", "SessionEnd"):
         group["hooks"] = [h for h in group.get("hooks", []) if "--agent-hook gemini" not in h.get("command", "")]
     groups[:] = [g for g in groups if g.get("hooks")]
     groups.append({"hooks": [{"type": "command", "command": cmd, "name": "AgentNotch", "timeout": 5000}]})
-with open(path, "w") as f:
+tmp_path = path + ".agent-notch.tmp"
+with open(tmp_path, "w") as f:
     json.dump(settings, f, indent=2, ensure_ascii=False)
     f.write("\n")
+os.replace(tmp_path, path)
 PY
   echo "configured: Gemini CLI"
 }
@@ -84,7 +86,7 @@ configure_copilot() {
   mkdir -p "$(dirname "$file")"
   backup "$file"
   python3 - "$file" "$BRIDGE" <<'PY'
-import json, sys
+import json, os, sys
 path, bridge = sys.argv[1:]
 cmd = f'"{bridge}" --agent-hook copilot'
 item = {"type": "command", "bash": cmd, "timeoutSec": 5}
@@ -96,9 +98,11 @@ data = {"version": 1, "hooks": {
     "errorOccurred": [item],
     "notification": [item],
 }}
-with open(path, "w") as f:
+tmp_path = path + ".agent-notch.tmp"
+with open(tmp_path, "w") as f:
     json.dump(data, f, indent=2)
     f.write("\n")
+os.replace(tmp_path, path)
 PY
   echo "configured: GitHub Copilot CLI"
 }

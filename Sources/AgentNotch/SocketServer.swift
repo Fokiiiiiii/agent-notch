@@ -61,6 +61,12 @@ final class SocketConnection {
     }
 }
 
+/// Upper bound on bytes buffered per connection before the client is
+/// treated as malformed/malicious and disconnected. Legitimate NDJSON hook
+/// envelopes are a few KB at most; 1 MiB gives generous headroom without
+/// letting an unbounded client grow memory indefinitely.
+private let maxIncomingBufferBytes = 1 * 1024 * 1024
+
 /// Per-connection read state. Only touched from `queue`.
 private final class IncomingConnection {
     let fd: Int32
@@ -222,6 +228,14 @@ final class SocketServer {
         }
 
         incoming.buffer.append(contentsOf: chunk[0..<n])
+
+        if incoming.buffer.count > maxIncomingBufferBytes {
+            // Client sent more than a well-formed hook envelope ever should
+            // without a newline: treat it as malformed/malicious and drop it.
+            incoming.source?.cancel()
+            incoming.connection.closeWithoutResponse()
+            return
+        }
 
         guard !incoming.eventDelivered, let newlineIndex = incoming.buffer.firstIndex(of: 0x0A) else {
             return

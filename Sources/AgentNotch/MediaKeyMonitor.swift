@@ -1,0 +1,85 @@
+import AppKit
+import ApplicationServices
+
+/// Which way a hardware media-key/remote skip moved — used only to pick
+/// which SF Symbol to flash as feedback, never to trigger playback control
+/// ourselves (macOS has already routed the actual skip to whichever app is
+/// the current Now Playing target by the time this fires).
+enum SkipDirection: Equatable, Sendable {
+    case forward
+    case backward
+}
+
+/// Global media-key monitoring, split into a pure decoder (testable without
+/// a real `NSEvent`) and a thin class that wires it to `NSEvent`'s global
+/// monitor. `NX_KEYTYPE_*` values come from `<IOKit/hidsystem/ev_keymap.h>`;
+/// hardcoded here (with the header's names in comments) since these are C
+/// `#define` macros with no Swift-visible import in this SwiftPM package.
+enum MediaKeyDecoder {
+    /// The `NSEvent.subtype.rawValue` macOS reports for media-key
+    /// `.systemDefined` events (there is no dedicated `NSEvent.EventSubtype`
+    /// case for this — AppKit reuses the same raw value `.screenChanged`
+    /// happens to have).
+    private static let mediaKeySubtype: Int16 = 8
+    private static let keyDownState = 0xA
+
+    private static let nxKeyTypePlay: Int32 = 16
+    private static let nxKeyTypeNext: Int32 = 17
+    private static let nxKeyTypePrevious: Int32 = 18
+    private static let nxKeyTypeFast: Int32 = 19
+    private static let nxKeyTypeRewind: Int32 = 20
+
+    static func decodeSkipDirection(subtypeRawValue: Int16, data1: Int) -> SkipDirection? {
+        guard subtypeRawValue == mediaKeySubtype else { return nil }
+        let keyCode = Int32((data1 & 0xFFFF0000) >> 16)
+        let keyState = (data1 & 0x0000FF00) >> 8
+        guard keyState == keyDownState else { return nil }
+        switch keyCode {
+        case nxKeyTypeNext, nxKeyTypeFast:
+            return .forward
+        case nxKeyTypePrevious, nxKeyTypeRewind:
+            return .backward
+        case nxKeyTypePlay:
+            return nil
+        default:
+            return nil
+        }
+    }
+}
+
+/// Wraps `NSEvent.addGlobalMonitorForEvents(matching: .systemDefined)` to
+/// observe hardware media-key/remote skip presses. Passive observer only —
+/// `onSkip` must never call back into playback control (see call site).
+final class MediaKeyMonitor {
+    var onSkip: ((SkipDirection) -> Void)?
+
+    private var monitor: Any?
+
+    func start() {
+        guard monitor == nil else { return }
+        // Global `.systemDefined` media-key delivery is gated behind
+        // Accessibility trust; requesting it (rather than silently relying
+        // on whatever trust state already exists) prompts the user the
+        // first time this runs, matching how any well-behaved app using
+        // this API is expected to ask.
+        _ = AXIsProcessTrustedWithOptions([kAXTrustedCheckOptionPrompt.takeUnretainedValue(): true] as CFDictionary)
+        monitor = NSEvent.addGlobalMonitorForEvents(matching: .systemDefined) { [weak self] event in
+            guard let self,
+                  let direction = MediaKeyDecoder.decodeSkipDirection(subtypeRawValue: event.subtype.rawValue, data1: event.data1)
+            else { return }
+            let callback = self.onSkip
+            Task { @MainActor in callback?(direction) }
+        }
+    }
+
+    func stop() {
+        if let monitor {
+            NSEvent.removeMonitor(monitor)
+        }
+        monitor = nil
+    }
+
+    deinit {
+        stop()
+    }
+}

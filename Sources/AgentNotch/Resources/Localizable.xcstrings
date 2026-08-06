@@ -3506,7 +3506,7 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Review this action before Claude continues."
+            "value": "Review this action before %@ continues."
           }
         },
         "zh-Hans": {

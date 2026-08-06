@@ -115,6 +115,10 @@ struct AgentSession: Identifiable {
     var lastMessage: String  // 例 "Writing middleware.ts"
     var processID: Int32? = nil
     var isManagedProcess: Bool = false
+    /// managed process のPIDを記録した時点の起動時刻。PID再利用検知に使用。取得不可の場合はnil。
+    var processStartedAt: Date? = nil
+    /// managed process のPIDを記録した時点の実行ファイルパス。PID再利用検知に使用。取得不可の場合はnil。
+    var processExecutablePath: String? = nil
     /// 現在のセッション会話がコンテキストウィンドウの何%を使用しているか（0-100）。取得不可の場合はnil。
     var contextUsedPercent: Double? = nil
 }
