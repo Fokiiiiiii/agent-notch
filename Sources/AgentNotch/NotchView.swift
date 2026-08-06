@@ -693,17 +693,36 @@ struct NotchView: View {
         }
     }
 
-    /// Agents and Media have no detail panel: their metadata is fully
-    /// covered by the always-visible main content, so a separate panel
-    /// would only repeat it. System and Today surface additional data here.
+    /// Media has no detail panel: its metadata is fully covered by the
+    /// always-visible main content, so a separate panel would only repeat
+    /// it. Agents gained one in Phase 5 (context-usage%, moved out of the
+    /// always-visible row) — System and Today already had one.
     private func hasDetailPanel(for view: NookView) -> Bool {
-        view == .system || view == .today
+        view == .system || view == .today || view == .agents
+    }
+
+    /// Mirrors `AgentsCell.selected`'s "explicitly selected, else first"
+    /// logic at the `NotchView` level, since `expandedDetail` (unlike
+    /// `AgentsCell` itself) doesn't have its own local session-selection
+    /// state to read from.
+    private var selectedAgentSession: AgentSession? {
+        if let id = uiState.selectedSessionId, let match = store.sessions.first(where: { $0.id == id }) {
+            return match
+        }
+        return store.sessions.first
     }
 
     @ViewBuilder
     private var expandedDetail: some View {
         switch uiState.activeView {
-        case .agents, .media:
+        case .agents:
+            if let session = selectedAgentSession {
+                DetailStrip(items: orderedDetailItems(tabId: "agents", items: [
+                    ("agents.project", String(localized: "detail.agents.project", defaultValue: "Project"), cwdTail(session.cwd)),
+                    ("agents.context", String(localized: "detail.agents.context", defaultValue: "Context used"), session.contextUsedPercent.map(contextUsedPercentValue) ?? String(localized: "detail.agents.contextUnavailable", defaultValue: "—")),
+                ]))
+            }
+        case .media:
             EmptyView()
         case .today:
             DetailStrip(items: orderedDetailItems(tabId: "today", items: [
@@ -1166,6 +1185,34 @@ func elapsedString(_ session: AgentSession) -> String {
 
 func cwdTail(_ cwd: String) -> String {
     URL(fileURLWithPath: cwd).lastPathComponent
+}
+
+/// Buckets `sessions` by `cwd` (project), preserving `sessions`' own
+/// ordering (most-recent-first, per `SessionStore`) — the first occurrence
+/// of each `cwd` anchors that group's position, so a newly-active
+/// session's project still surfaces near the top rather than group order
+/// being alphabetical or otherwise disconnected from recency. Pulled out
+/// as a pure function so the ordering logic is testable without
+/// constructing a `SessionStore`/view — see `AgentsCell.groupedSessions`.
+func groupSessionsByProject(_ sessions: [AgentSession]) -> [(cwd: String, sessions: [AgentSession])] {
+    var order: [String] = []
+    var buckets: [String: [AgentSession]] = [:]
+    for session in sessions {
+        if buckets[session.cwd] == nil {
+            order.append(session.cwd)
+        }
+        buckets[session.cwd, default: []].append(session)
+    }
+    return order.map { (cwd: $0, sessions: buckets[$0] ?? []) }
+}
+
+/// Plain "NN%" value string for the Agents detail panel (`DetailStrip`
+/// only takes label/value strings). Context-usage percentage moved out of
+/// the always-visible session row into the detail panel as part of
+/// Phase 5's "row shows agent/project/activity/state/elapsed only" pass.
+func contextUsedPercentValue(_ percent: Double) -> String {
+    let clamped = min(max(percent, 0), 100)
+    return "\(Int(clamped.rounded()))%"
 }
 
 func sessionStateLabel(_ state: SessionState) -> String {
@@ -1869,14 +1916,42 @@ private struct AgentsCell: View {
     /// first. Only the selected row expands to show the last user message
     /// and current activity; the rest stay single-line so several sessions
     /// fit without crowding the notch. Scrolls when they don't all fit.
+    /// Sessions from the same project (`cwd`) are grouped together — e.g.
+    /// Claude and Codex both running against the same repo read as one
+    /// project instead of two unrelated rows.
     private var sessionList: some View {
         ScrollView(.vertical, showsIndicators: false) {
             VStack(alignment: .leading, spacing: 4) {
-                ForEach(store.sessions) { session in
-                    sessionRow(session, isSelected: session.id == selected?.id)
+                ForEach(groupedSessions, id: \.cwd) { group in
+                    if groupedSessions.count > 1 {
+                        projectHeader(group.cwd)
+                    }
+                    ForEach(group.sessions) { session in
+                        sessionRow(session, isSelected: session.id == selected?.id)
+                    }
                 }
             }
         }
+    }
+
+    private var groupedSessions: [(cwd: String, sessions: [AgentSession])] {
+        groupSessionsByProject(store.sessions)
+    }
+
+    /// Only shown when there's more than one distinct project — a single
+    /// header for the common (one-project) case would just repeat what's
+    /// already implied by context without adding information.
+    private func projectHeader(_ cwd: String) -> some View {
+        Text(cwdTail(cwd))
+            .font(.system(size: 8.5, weight: .semibold))
+            .foregroundColor(DesignTokens.muted)
+            .textCase(.uppercase)
+            .tracking(0.3)
+            .lineLimit(1)
+            .truncationMode(.head)
+            .padding(.leading, 2)
+            .padding(.top, 2)
+            .accessibilityAddTraits(.isHeader)
     }
 
     private var emptyState: some View {
@@ -1940,9 +2015,6 @@ private struct AgentsCell: View {
                     .truncationMode(.tail)
                     .layoutPriority(1)
                 Spacer(minLength: 4)
-                if !isSelected, let percent = session.contextUsedPercent {
-                    compactContextBadge(percent)
-                }
                 agentBadge(session.agent)
                 Text(elapsedString(session))
                     .font(.system(size: 9, design: .rounded))
@@ -1956,10 +2028,6 @@ private struct AgentsCell: View {
                         .foregroundColor(DesignTokens.muted)
                         .lineLimit(1)
                         .truncationMode(.tail)
-                    if let percent = session.contextUsedPercent {
-                        Spacer(minLength: 4)
-                        contextUsageLabel(percent)
-                    }
                 }
                 .padding(.leading, 34)
                 HStack(spacing: 6) {
@@ -2005,35 +2073,6 @@ private struct AgentsCell: View {
     /// per-row "Claude"/"Codex"/"Gemini" pill. Terminal-app badges are
     /// omitted: `AgentSession` doesn't currently carry which terminal a
     /// session is running in, so adding that pairing is left for later.
-    /// Color for a context-window usage percentage, matching `UsageBar`'s
-    /// green/orange/red thresholds elsewhere in the notch.
-    private func contextUsageColor(_ percent: Double) -> Color {
-        let clamped = min(max(percent, 0), 100)
-        if clamped >= 95 { return DesignTokens.red }
-        if clamped >= 80 { return DesignTokens.orange }
-        return DesignTokens.green
-    }
-
-    /// Tiny "NN%" tag shown on compact (non-selected) session rows when
-    /// `contextUsedPercent` is available, kept minimal to avoid crowding
-    /// the single-line layout.
-    private func compactContextBadge(_ percent: Double) -> some View {
-        let clamped = min(max(percent, 0), 100)
-        return Text("\(Int(clamped.rounded()))%")
-            .font(.system(size: 7.5, weight: .semibold, design: .rounded))
-            .foregroundColor(contextUsageColor(percent))
-            .frame(minWidth: 18, alignment: .trailing)
-            .accessibilityLabel(String(localized: "agents.contextUsedPercentAccessibility", defaultValue: "Context window \(Int(clamped.rounded())) percent used"))
-    }
-
-    /// "Context NN%" label shown in the expanded selected-session row.
-    private func contextUsageLabel(_ percent: Double) -> some View {
-        let clamped = min(max(percent, 0), 100)
-        return Text(String(localized: "agents.contextUsedPercent", defaultValue: "Context \(Int(clamped.rounded()))%"))
-            .font(.system(size: 8.5, weight: .medium))
-            .foregroundColor(contextUsageColor(percent))
-            .lineLimit(1)
-    }
 
     private func agentBadge(_ agent: AgentKind) -> some View {
         Text(agent.displayName)
