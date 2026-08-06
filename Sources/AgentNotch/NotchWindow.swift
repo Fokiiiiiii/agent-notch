@@ -524,7 +524,11 @@ final class NotchWindowController: NSObject {
     /// 通常起動・配布物や既存の実機検出には一切影響しない。
     private static func simulatedNotchSnapshot(for screen: NSScreen) -> ScreenSnapshot? {
         guard let raw = ProcessInfo.processInfo.environment["AGENT_NOTCH_SIMULATE_NOTCH"], raw != "0" else { return nil }
-        let preset = notchPresets[raw] ?? notchPresets[defaultNotchPresetKey]!
+        // Falls back to a hardcoded literal (not `notchPresets[defaultNotchPresetKey]!`)
+        // so a future edit that renames/removes the "14" preset entry can't
+        // turn this debug-only path into a crash — it would just silently
+        // stop matching `defaultNotchPresetKey`'s intended values instead.
+        let preset = notchPresets[raw] ?? notchPresets[defaultNotchPresetKey] ?? (width: 200, height: 37)
         let real = ScreenSnapshot(screen: screen)
         let sideWidth = max((real.frame.width - preset.width) / 2, 0)
         return ScreenSnapshot(
@@ -1363,7 +1367,7 @@ final class NotchWindowController: NSObject {
                 hasRealNotch: hasRealNotch
             ) {
                 hoverExpandTask = Task { [weak self] in
-                    try? await Task.sleep(nanoseconds: 220_000_000)
+                    try? await Task.sleep(nanoseconds: UInt64(DesignTokens.hoverExpandDelay * 1_000_000_000))
                     guard !Task.isCancelled, let self, self.isHovering else { return }
                     guard NotchWindowController.shouldEnterHover(
                         currentMode: self.uiState.mode,
@@ -1387,7 +1391,7 @@ final class NotchWindowController: NSObject {
         if uiState.mode == .closed, uiState.trayHasItems { return }
         guard !isClickPinned else { return }
         hoverTask = Task { [weak self] in
-            try? await Task.sleep(nanoseconds: 140_000_000)
+            try? await Task.sleep(nanoseconds: UInt64(DesignTokens.hoverCollapseDelay * 1_000_000_000))
             guard !Task.isCancelled, let self, !self.isHovering else { return }
             guard self.permissions.queue.isEmpty, self.questions.queue.isEmpty, self.plans.queue.isEmpty else { return }
             if self.uiState.mode == .closed, self.uiState.trayHasItems { return }

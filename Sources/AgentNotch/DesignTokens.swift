@@ -16,8 +16,6 @@ enum DesignTokens {
 
     // Neutral text/surface colors
     static let muted = Color.white.opacity(0.48)
-    static let surface = Color.white.opacity(0.075)
-    static let surface2 = Color.white.opacity(0.045)
     static let line = Color.white.opacity(0.085)
 
     /// "done" status dot color (`#AEB4BF` in the mock).
@@ -56,19 +54,6 @@ enum DesignTokens {
     static let spring = Animation.spring(response: 0.42, dampingFraction: 0.92)
     static let contentTransition = Animation.easeInOut(duration: 0.30)
 
-    // MARK: - Spacing scale
-    //
-    // A generic 4pt-step scale for call sites that don't already have a
-    // purpose-specific spacing constant. Existing hand-tuned spacing
-    // throughout NotchView.swift (much of it calibrated against live-measured
-    // content, per this session's approval/question-card sizing work) is
-    // intentionally left as-is rather than swept onto this scale wholesale —
-    // see this token group's introducing commit for why.
-    static let spacingXS: CGFloat = 4
-    static let spacingS: CGFloat = 8
-    static let spacingM: CGFloat = 12
-    static let spacingL: CGFloat = 16
-
     /// Corner radius shared by `CellSurface` and `AgentsCell.cellShape` — was
     /// the literal `14` duplicated in both places (and not routed through
     /// `AppSettings.cornerRadiusScale` the way `closedRadius`/`openRadius`
@@ -83,49 +68,58 @@ enum DesignTokens {
 
     // MARK: - Hover dwell timing
     //
-    // Mirrors the values already hand-tuned and documented in
-    // `NotchWindowController` (`hoverExpandTask`/`hoverTask`) — reproduced
-    // here as named constants for a future settings UI to reference, not yet
-    // wired into `NotchWindowController` itself (its own inline values carry
-    // more specific tuning context in their doc comments than duplicating
-    // them here would preserve).
+    // Read by `NotchWindowController`'s `hoverExpandTask`/`hoverTask` —
+    // values are the same hand-tuned 220ms/140ms this session settled on
+    // before these were pulled out into named constants (see those two
+    // call sites for the dwell-guard logic these delays gate).
     static let hoverExpandDelay: TimeInterval = 0.22
     static let hoverCollapseDelay: TimeInterval = 0.14
 }
 
 extension DesignTokens {
-    /// `closedRadius` scaled by `AppSettings.cornerRadiusScale`. Not yet wired
-    /// into `shellShape`'s callers — added ahead of time so a future settings
-    /// UI change only needs to switch call sites over.
+    // Every function below takes `settings: AppSettings? = nil` rather than
+    // `= .shared` directly: a default-argument expression referencing
+    // `AppSettings.shared` (a @MainActor-isolated static property) from a
+    // parameter default is evaluated in a context Swift's default-argument
+    // synthesis doesn't treat as @MainActor-isolated, which is a warning
+    // today and a hard error under the Swift 6 language mode. `nil` is a
+    // plain, isolation-free literal; `.shared` is only touched inside the
+    // (already @MainActor) function body via `settings ?? .shared`. Every
+    // call site stays the same zero-argument syntax (`scaledClosedRadius()`
+    // etc.) — passing `nil` explicitly is equivalent to omitting it.
+
+    /// `closedRadius` scaled by `AppSettings.cornerRadiusScale`. Used by
+    /// `NotchView.shellShape` for `.closed`/`.hover`/`.notice`'s corner
+    /// radius (`.open` uses `scaledOpenRadius` instead).
     @MainActor
-    static func scaledClosedRadius(_ settings: AppSettings = .shared) -> CGFloat {
-        closedRadius * settings.cornerRadiusScale
+    static func scaledClosedRadius(_ settings: AppSettings? = nil) -> CGFloat {
+        closedRadius * (settings ?? .shared).cornerRadiusScale
     }
 
-    /// `openRadius` scaled by `AppSettings.cornerRadiusScale`. See
-    /// `scaledClosedRadius` for why call sites aren't switched over yet.
+    /// `openRadius` scaled by `AppSettings.cornerRadiusScale`. Used by
+    /// `NotchView.shellShape` for `.open`'s corner radius.
     @MainActor
-    static func scaledOpenRadius(_ settings: AppSettings = .shared) -> CGFloat {
-        openRadius * settings.cornerRadiusScale
+    static func scaledOpenRadius(_ settings: AppSettings? = nil) -> CGFloat {
+        openRadius * (settings ?? .shared).cornerRadiusScale
     }
 
     /// `notchHuggingRadius` scaled by `AppSettings.cornerRadiusScale`.
     @MainActor
-    static func scaledNotchHuggingRadius(_ settings: AppSettings = .shared) -> CGFloat {
-        notchHuggingRadius * settings.cornerRadiusScale
+    static func scaledNotchHuggingRadius(_ settings: AppSettings? = nil) -> CGFloat {
+        notchHuggingRadius * (settings ?? .shared).cornerRadiusScale
     }
 
     /// `spring` scaled by `AppSettings.animationSpeedScale`. A larger scale
     /// lengthens `response` (slower settle); a smaller scale shortens it.
     /// `dampingFraction` is left untouched since it's a ratio, not a duration.
     @MainActor
-    static func scaledSpring(_ settings: AppSettings = .shared) -> Animation {
-        .spring(response: 0.42 * settings.animationSpeedScale, dampingFraction: 0.92)
+    static func scaledSpring(_ settings: AppSettings? = nil) -> Animation {
+        .spring(response: 0.42 * (settings ?? .shared).animationSpeedScale, dampingFraction: 0.92)
     }
 
     /// `contentTransition` scaled by `AppSettings.animationSpeedScale`.
     @MainActor
-    static func scaledContentTransition(_ settings: AppSettings = .shared) -> Animation {
-        .easeInOut(duration: 0.30 * settings.animationSpeedScale)
+    static func scaledContentTransition(_ settings: AppSettings? = nil) -> Animation {
+        .easeInOut(duration: 0.30 * (settings ?? .shared).animationSpeedScale)
     }
 }

@@ -1590,12 +1590,14 @@ private struct NotchPressedBody: View {
     let configuration: ButtonStyle.Configuration
     let pressedScale: CGFloat
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    @Environment(\.isEnabled) private var isEnabled
 
     var body: some View {
         configuration.label
             .scaleEffect(configuration.isPressed && !reduceMotion ? pressedScale : 1)
-            .opacity(configuration.isPressed ? 0.82 : 1)
+            .opacity(isEnabled ? (configuration.isPressed ? 0.82 : 1) : 0.4)
             .animation(.easeOut(duration: reduceMotion ? 0.01 : 0.11), value: configuration.isPressed)
+            .animation(.easeOut(duration: reduceMotion ? 0.01 : 0.11), value: isEnabled)
     }
 }
 
@@ -1907,6 +1909,7 @@ private struct AgentsCell: View {
     @ObservedObject var uiState: NotchUIState
     @ObservedObject private var usageStore = AgentUsageStore.shared
     @State private var actionFeedback: String?
+    @Environment(\.accessibilityReduceTransparency) private var reduceTransparency
 
     private var selected: AgentSession? {
         if let id = uiState.selectedSessionId, let match = store.sessions.first(where: { $0.id == id }) {
@@ -2015,8 +2018,8 @@ private struct AgentsCell: View {
 
     private var cellShape: some View {
         RoundedRectangle(cornerRadius: DesignTokens.cellRadius)
-            .fill(.ultraThinMaterial)
-            .overlay(RoundedRectangle(cornerRadius: DesignTokens.cellRadius).fill(Color.black.opacity(0.34)))
+            .fill(reduceTransparency ? AnyShapeStyle(Color(white: 0.075)) : AnyShapeStyle(.ultraThinMaterial))
+            .overlay(RoundedRectangle(cornerRadius: DesignTokens.cellRadius).fill(Color.black.opacity(reduceTransparency ? 0 : 0.34)))
             .overlay(
                 RoundedRectangle(cornerRadius: DesignTokens.cellRadius)
                     .stroke(Color.white.opacity(0.055), lineWidth: 1)
@@ -2683,21 +2686,6 @@ private struct SystemCell: View {
     }
 }
 
-private struct SystemStatus: View {
-    let icon: String, title: String, value: String
-    var body: some View {
-        HStack(spacing: 7) {
-            Image(systemName: icon).font(.system(size: 9.5)).foregroundColor(.white.opacity(0.7))
-            Text(title).font(.system(size: 8)).foregroundColor(DesignTokens.muted)
-            Spacer()
-            Text(value).font(.system(size: 8.5, weight: .medium)).lineLimit(1)
-        }
-        .padding(.horizontal, 8)
-        .frame(height: 25)
-        .background(RoundedRectangle(cornerRadius: 8).fill(Color.white.opacity(0.045)))
-    }
-}
-
 private struct SystemActionCard: View {
     let icon: String, title: String, value: String, detail: String
     let action: () -> Void
@@ -2725,20 +2713,6 @@ private struct SystemActionCard: View {
         .buttonStyle(NotchPressStyle())
         .hoverLift(cornerRadius: 10)
         .help(String(localized: "system.openDetailsHelp", defaultValue: "Open \(title) details"))
-    }
-}
-
-private struct TaskProgress: View {
-    let icon: String, title: String, progress: Double, detail: String
-    var body: some View {
-        HStack(spacing: 7) {
-            Image(systemName: icon).font(.system(size: 9.5)).frame(width: 14).foregroundColor(.white.opacity(0.72))
-            VStack(alignment: .leading, spacing: 2) {
-                HStack { Text(title).font(.system(size: 8.5, weight: .medium)).lineLimit(1); Spacer(); Text(detail).font(.system(size: 6.5)).foregroundColor(DesignTokens.muted) }
-                ProgressView(value: progress).progressViewStyle(.linear).tint(.white.opacity(0.72))
-            }
-        }
-        .frame(height: 25)
     }
 }
 
@@ -3229,7 +3203,7 @@ private struct AgentQuestionView: View {
                     .font(.system(size: 11, weight: .semibold))
                     .frame(maxWidth: .infinity, minHeight: 32)
                     .foregroundColor(.black)
-                    .background(RoundedRectangle(cornerRadius: 8).fill(DesignTokens.cyan.opacity(multiSelectedOptionIDs.isEmpty ? 0.4 : 0.92)))
+                    .background(RoundedRectangle(cornerRadius: 8).fill(DesignTokens.cyan.opacity((!isInteractive || multiSelectedOptionIDs.isEmpty) ? 0.4 : 0.92)))
             }
             .buttonStyle(NotchPressStyle())
             .disabled(!isInteractive || multiSelectedOptionIDs.isEmpty)
