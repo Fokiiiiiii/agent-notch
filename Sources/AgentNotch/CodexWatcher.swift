@@ -98,7 +98,7 @@ final class CodexWatcher {
     /// on size alone misses same-size content edits, so both must match to
     /// skip re-parsing.
     static func needsReparse(cachedSize: UInt64?, cachedModDate: Date?, currentSize: UInt64, currentModDate: Date) -> Bool {
-        cachedSize != currentSize || cachedModDate != currentModDate
+        TranscriptTailReading.needsReparse(cachedSize: cachedSize, cachedModDate: cachedModDate, currentSize: currentSize, currentModDate: currentModDate)
     }
 
     /// Finds `rollout-*.jsonl` files under `~/.codex/sessions/YYYY/MM/DD/`,
@@ -237,35 +237,6 @@ final class CodexWatcher {
     /// `maxTailLines` lines, split by newline, from the end.
     /// Internal (not `private`) so tests can exercise UTF-8 boundary handling directly.
     func readTailLines(atPath path: String) -> [String]? {
-        guard let handle = FileHandle(forReadingAtPath: path) else { return nil }
-        defer { try? handle.close() }
-
-        let fileSize: UInt64
-        do {
-            fileSize = try handle.seekToEnd()
-        } catch {
-            return nil
-        }
-
-        let readSize = min(UInt64(tailByteCount), fileSize)
-        let offset = fileSize - readSize
-        do {
-            try handle.seek(toOffset: offset)
-        } catch {
-            return nil
-        }
-
-        guard let data = try? handle.read(upToCount: Int(readSize)) else { return nil }
-        // The tail read may start mid-way through a multi-byte UTF-8 character
-        // (since we cut at a fixed byte offset, not a character boundary).
-        // `String(decoding:as:)` never fails; it replaces invalid sequences at
-        // the cut point with U+FFFD instead of discarding the whole read.
-        let text = String(decoding: data, as: UTF8.self)
-
-        var lines = text.components(separatedBy: "\n")
-        if lines.count > maxTailLines {
-            lines = Array(lines.suffix(maxTailLines))
-        }
-        return lines
+        TranscriptTailReading.readTailLines(atPath: path, tailByteCount: tailByteCount, maxTailLines: maxTailLines)
     }
 }

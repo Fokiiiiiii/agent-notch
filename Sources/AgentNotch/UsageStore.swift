@@ -152,7 +152,10 @@ final class AgentUsageStore: ObservableObject {
         )
     }
 
-    private nonisolated static func agent(for provider: String) -> AgentKind? {
+    // Internal (not `private`) so tests can exercise the provider-string ->
+    // AgentKind mapping directly — same pattern as ClaudeWatcher/CodexWatcher's
+    // `readTailLines`/`needsReparse`.
+    nonisolated static func agent(for provider: String) -> AgentKind? {
         switch provider.lowercased() {
         case "codex": return .codex
         case "claude": return .claude
