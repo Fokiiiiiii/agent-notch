@@ -109,12 +109,18 @@ struct NotchView: View {
         // stay a flat fill (unchanged look) since they're meant to read as
         // part of the notch itself, not a floating card. `.open`'s own cells
         // already carry their own depth treatment, so this only ever applies
-        // while `uiState.mode == .hover`.
+        // while `uiState.mode == .hover`. While media is playing, the edge
+        // and shadow borrow the track's own accent color (same source
+        // `mediaRow`'s waveform already uses) instead of staying plain
+        // white/black — a small, low-risk echo of the album-art-driven glow
+        // macOS's own Now Playing surfaces use.
         let isHover = uiState.mode == .hover
+        let edgeColor: Color = (isHover && media.isPlaying) ? Color(nsColor: media.accentColor) : .white
+        let edgeOpacity: Double = isHover ? (media.isPlaying ? 0.22 : 0.09) : 0
         return shellShape
             .fill(Color.black)
-            .overlay(shellShape.strokeBorder(Color.white.opacity(isHover ? 0.05 : 0), lineWidth: 0.75))
-            .shadow(color: .black.opacity(isHover ? 0.35 : 0), radius: isHover ? 12 : 0, y: isHover ? 6 : 0)
+            .overlay(shellShape.strokeBorder(edgeColor.opacity(edgeOpacity), lineWidth: 0.75))
+            .shadow(color: (isHover && media.isPlaying ? edgeColor : .black).opacity(isHover ? 0.35 : 0), radius: isHover ? 12 : 0, y: isHover ? 6 : 0)
     }
 
     @ViewBuilder
@@ -362,7 +368,7 @@ struct NotchView: View {
     private func attentionColor(for urgency: AttentionUrgency) -> Color {
         switch urgency {
         case .permission: return DesignTokens.orange
-        case .plan: return .white.opacity(0.88)
+        case .plan: return DesignTokens.purple
         case .question: return DesignTokens.cyan
         }
     }
@@ -3089,9 +3095,14 @@ private struct SendAnswerButton: View {
                 .font(.system(size: 10.5, weight: .semibold))
                 .frame(maxWidth: .infinity, minHeight: 32)
                 .foregroundColor(.black)
-                .background(RoundedRectangle(cornerRadius: 8).fill(Color.white.opacity(hovering ? 1 : 0.92)))
+                // Tinted with the question flow's own accent (DesignTokens.cyan,
+                // matching attentionColor(for: .question)) instead of plain
+                // white — ties the CTA to the card it lives in rather than
+                // reading as a generic OS-style button. Still light enough for
+                // black text to stay high-contrast.
+                .background(RoundedRectangle(cornerRadius: 8).fill(DesignTokens.cyan.opacity(hovering ? 1 : 0.92)))
                 .overlay(RoundedRectangle(cornerRadius: 8).strokeBorder(Color.black.opacity(0.16), lineWidth: 1))
-                .shadow(color: .black.opacity(0.25), radius: 3, y: 1)
+                .shadow(color: DesignTokens.cyan.opacity(0.35), radius: 4, y: 1)
         }
         .buttonStyle(NotchPressStyle())
         .onHover { hovering = $0 }

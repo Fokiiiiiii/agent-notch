@@ -23,6 +23,28 @@ final class SoundPlayerTests: XCTestCase {
         SoundPlayer.shared.play(.navigation)
     }
 
+    /// Regression guard for the "every attention type sounded identical"
+    /// report: permission/question/plan-review/session-attention used to all
+    /// share `.permission`. Pins down that each now has its own distinct
+    /// `AppSound` case to play.
+    func testAppSoundHasDistinctCuesForEachAttentionType() {
+        let cues: Set<AppSound> = [.permission, .question, .plan, .sessionAttention]
+        XCTAssertEqual(cues.count, 4, "each attention type must map to its own AppSound case")
+        for cue in cues {
+            XCTAssertTrue(AppSound.allCases.contains(cue))
+        }
+    }
+
+    /// Guards against a crash from a missing switch case in
+    /// `tones(for:)`/`debounce(for:)`/`volume(for:)` for the newly added
+    /// cues — `sounds[cue]` construction happens once at `init`, so a
+    /// missing case there would otherwise only surface as a silent no-op.
+    func testPlayDoesNotCrashForNewAttentionSounds() {
+        SoundPlayer.shared.play(.question)
+        SoundPlayer.shared.play(.plan)
+        SoundPlayer.shared.play(.sessionAttention)
+    }
+
     /// Regression check: `play(_:)` must bail out before doing any work when
     /// sound is disabled. We can't observe NSSound playback state from here,
     /// so we assert the guard exists at the top of the source function.

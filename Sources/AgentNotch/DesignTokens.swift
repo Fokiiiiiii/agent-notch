@@ -8,6 +8,11 @@ enum DesignTokens {
     static let orange = Color(red: 0xF0 / 255, green: 0xA4 / 255, blue: 0x51 / 255)
     static let red = Color(red: 0xED / 255, green: 0x77 / 255, blue: 0x71 / 255)
     static let cyan = Color(red: 0x68 / 255, green: 0xCC / 255, blue: 0xE3 / 255)
+    /// Same pastel family/saturation as the other four accents. Gives a plan
+    /// review its own identity in `attentionColor(for:)` instead of a flat
+    /// near-white, without colliding with green (approve/done), red (deny),
+    /// orange (permission), or cyan (question).
+    static let purple = Color(red: 0xB1 / 255, green: 0x8A / 255, blue: 0xF0 / 255)
 
     // Neutral text/surface colors
     static let muted = Color.white.opacity(0.48)

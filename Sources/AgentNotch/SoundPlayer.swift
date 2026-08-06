@@ -1,7 +1,12 @@
 import AppKit
 
 enum AppSound: String, CaseIterable {
-    case done, permission, approve, deny, navigation, action
+    // `permission`/`question`/`plan`/`sessionAttention` used to all share
+    // `.permission` — every kind of "please look at this" event sounded
+    // identical. Split out so each is distinguishable by ear alone, mirroring
+    // the color split in `NotchView.attentionColor(for:)`
+    // (permission=orange, question=cyan, plan=purple).
+    case done, permission, question, plan, sessionAttention, approve, deny, navigation, action
 }
 
 /// A tiny local sound studio. Each cue is synthesized once at launch, so the
@@ -52,7 +57,7 @@ final class SoundPlayer {
 
     private func debounce(for sound: AppSound) -> TimeInterval {
         switch sound {
-        case .done, .permission: return 0.9
+        case .done, .permission, .question, .plan, .sessionAttention: return 0.9
         case .approve, .deny: return 0.18
         case .navigation: return 0.08
         case .action: return 0.12
@@ -63,6 +68,9 @@ final class SoundPlayer {
         switch sound {
         case .done: return 0.34
         case .permission: return 0.28
+        case .question: return 0.28
+        case .plan: return 0.26
+        case .sessionAttention: return 0.32
         case .approve: return 0.30
         case .deny: return 0.22
         case .navigation: return 0.12
@@ -76,6 +84,28 @@ final class SoundPlayer {
             return [
                 Tone(0.00, 0.12, 587, 659, 0.50),
                 Tone(0.075, 0.17, 880, 988, 0.42)
+            ]
+        case .question:
+            // A single long upward glide (rising intonation, like a spoken
+            // question) rather than permission's crisp two-note chirp —
+            // meant to read as distinctly different by ear alone.
+            return [Tone(0.00, 0.22, 660, 990, 0.46)]
+        case .plan:
+            // A mellower, lower-register two-note pattern (B4 held, then a
+            // gentle rise to D#5) — calmer than permission's brighter
+            // 587-988Hz range, fitting a "review when ready" cue.
+            return [
+                Tone(0.00, 0.13, 494, 494, 0.40),
+                Tone(0.11, 0.20, 622, 659, 0.36)
+            ]
+        case .sessionAttention:
+            // Two flat pulses at the same pitch ("ping-ping") instead of a
+            // melodic sweep — reads as an alert distinct from the other
+            // three, appropriate for a session that failed or needs
+            // attention outside the normal permission/question/plan flow.
+            return [
+                Tone(0.00, 0.08, 830, 830, 0.46),
+                Tone(0.13, 0.08, 830, 830, 0.46)
             ]
         case .approve:
             return [

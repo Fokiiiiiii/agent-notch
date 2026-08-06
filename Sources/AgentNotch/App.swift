@@ -116,7 +116,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             let action = event.toolInput["action"] as? String ?? "update"
             let urgent = action == "attention" || action == "fail"
             notchWindowController?.showAgentActivity(urgent: urgent)
-            soundPlayer?.play(action == "done" ? .done : urgent ? .permission : .action)
+            soundPlayer?.play(action == "done" ? .done : urgent ? .sessionAttention : .action)
         case "AgentNotchPlanWaiting":
             notchWindowController?.showNotification(title: "Plan ready", message: "Approve in the terminal to continue")
             soundPlayer?.play(.action)
@@ -126,21 +126,21 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             notchWindowController?.showAttention()
         case "PreToolUse" where event.toolName == "AskUserQuestion" || event.toolName == "request_user_input":
             questionCenter?.enqueue(event)
-            soundPlayer?.play(.permission)
+            soundPlayer?.play(.question)
             notchWindowController?.showAttention()
         case "AgentNotchQuestion":
             questionCenter?.enqueue(event)
-            soundPlayer?.play(.permission)
+            soundPlayer?.play(.question)
             notchWindowController?.showAttention()
         case "AgentNotchPlanReview":
             planCenter?.enqueue(event)
-            soundPlayer?.play(.permission)
+            soundPlayer?.play(.plan)
             notchWindowController?.showAttention()
         case "Notification":
             let message = (event.toolInput["message"] as? String) ?? "Notification"
             if event.toolInput["notification_type"] as? String == "agent_needs_input" {
                 questionCenter?.enqueue(event)
-                soundPlayer?.play(.permission)
+                soundPlayer?.play(.question)
                 notchWindowController?.showAttention()
             } else {
                 notchWindowController?.showNotification(title: "Agent", message: message)
