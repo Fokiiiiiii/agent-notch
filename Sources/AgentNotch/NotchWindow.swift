@@ -173,6 +173,11 @@ final class NotchUIState: ObservableObject {
     /// whole batch (see `questionOpenSize(for:)`).
     @Published var questionStepIndex: Int = 0
     @Published var questionCustomMode: Bool = false
+    /// `true` once every sub-question in the current batch has been
+    /// answered and `AgentQuestionView` is showing the read-only
+    /// review-before-send screen instead of a question step — see
+    /// `questionOpenSize(for:)`'s `questionReviewHeight` branch.
+    @Published var questionReviewMode: Bool = false
     /// Live-measured heights of the two genuinely variable-length text
     /// elements in the question/approval overlays (the question prompt can
     /// run to several lines; the approval summary is a full command/diff
@@ -781,6 +786,13 @@ final class NotchWindowController: NSObject {
                 self.scheduleResize()
             }
             .store(in: &cancellables)
+        uiState.$questionReviewMode
+            .dropFirst()
+            .sink { [weak self] _ in
+                guard let self, self.uiState.overlay == .question else { return }
+                self.scheduleResize()
+            }
+            .store(in: &cancellables)
         uiState.$questionPromptHeight
             .dropFirst()
             .sink { [weak self] _ in
@@ -1187,6 +1199,20 @@ final class NotchWindowController: NSObject {
     /// `customAnswerView`'s fixed-height `TextEditor` (74) + its 8pt spacing
     /// + the "Send answer" button (32).
     private let questionCustomAnswerHeight: CGFloat = 114
+    /// One `MultiSelectChoiceRow` (34pt checkbox row) plus 5pt spacing, plus
+    /// a fixed 40pt for the "Continue" confirm button + its own spacing —
+    /// mirrors `questionOptionRowHeight`'s single-select math but budgets
+    /// extra for the explicit confirm step multi-select needs (there's no
+    /// single tap that unambiguously means "done" the way single-select
+    /// has).
+    private let questionMultiSelectRowHeight: CGFloat = 39
+    private let questionMultiSelectConfirmHeight: CGFloat = 40
+    /// The review-before-send screen's content is a capped, internally
+    /// scrollable list (mirrors `ApprovalOverlayView.summaryBoxMaxHeight`'s
+    /// pattern) plus a fixed "Send answers" button row, so — unlike the
+    /// other branches — this doesn't need to grow with the number of
+    /// questions in the batch.
+    private let questionReviewHeight: CGFloat = 190
     private let questionMinHeight: CGFloat = 150
 
     /// Sizes the `.question` overlay to fit the *current step's* content
@@ -1198,11 +1224,20 @@ final class NotchWindowController: NSObject {
     /// (`uiState.questionPromptHeight`) rather than budgeted for a fixed
     /// line count, since prompts vary from one short line to several.
     private func questionOpenSize(for request: QuestionCenter.Request) -> CGSize {
+        if uiState.questionReviewMode {
+            // Self-contained: no per-question prompt row here, just the
+            // fixed header + capped scrollable answer list + send button —
+            // see `questionReviewHeight`'s doc comment.
+            let height = max(questionReviewHeight, questionMinHeight)
+            return CGSize(width: openQuestionSize.width, height: min(height, openQuestionSize.height))
+        }
         let stepIndex = min(max(uiState.questionStepIndex, 0), request.questions.count - 1)
         let question = request.questions[stepIndex]
         let bodyHeight: CGFloat
         if question.options.isEmpty || uiState.questionCustomMode {
             bodyHeight = questionCustomAnswerHeight
+        } else if question.isMultiSelect {
+            bodyHeight = CGFloat(question.options.count) * questionMultiSelectRowHeight - 5 + questionMultiSelectConfirmHeight
         } else {
             let hasDetail = question.options.contains { !$0.detail.isEmpty }
             let rowHeight = hasDetail ? questionOptionRowHeightWithDetail : questionOptionRowHeight

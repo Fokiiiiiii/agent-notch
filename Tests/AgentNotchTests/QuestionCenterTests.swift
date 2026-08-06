@@ -179,4 +179,29 @@ final class QuestionCenterTests: XCTestCase {
         let json = try XCTUnwrap((try? JSONSerialization.jsonObject(with: Data(line.utf8))) as? [String: Any])
         XCTAssertEqual(json["answer"] as? String, "ok")
     }
+
+    // MARK: - multiSelect (Phase 4)
+
+    func testEnqueueParsesMultiSelectFlagPerQuestion() {
+        let toolInput: [String: Any] = [
+            "questions": [
+                ["header": "Q1", "question": "Pick any", "options": [], "multiSelect": true],
+                ["header": "Q2", "question": "Pick one", "options": []],
+            ],
+        ]
+
+        let center = QuestionCenter()
+        center.enqueue(makeEvent(toolInput: toolInput))
+
+        XCTAssertEqual(center.queue.first?.questions[0].isMultiSelect, true)
+        // Missing "multiSelect" defaults to false — the common (single-select) case.
+        XCTAssertEqual(center.queue.first?.questions[1].isMultiSelect, false)
+    }
+
+    func testFallbackSyntheticQuestionIsNeverMultiSelect() {
+        let center = QuestionCenter()
+        center.enqueue(makeEvent(toolInput: ["message": "Need input"]))
+
+        XCTAssertEqual(center.queue.first?.questions.first?.isMultiSelect, false)
+    }
 }

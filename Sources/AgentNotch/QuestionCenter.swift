@@ -20,6 +20,11 @@ final class QuestionCenter: ObservableObject {
         let prompt: String
         let header: String
         let options: [Option]
+        /// From the source question's own `"multiSelect"` field
+        /// (`AskUserQuestion`'s schema). When true, `AgentQuestionView`
+        /// renders toggleable checkboxes instead of single-shot choice
+        /// buttons — see its `multiSelectView`.
+        let isMultiSelect: Bool
     }
 
     struct Request: Identifiable {
@@ -54,7 +59,8 @@ final class QuestionCenter: ObservableObject {
                 prompt: (event.toolInput["message"] as? String)
                     ?? String(localized: "question.fallbackPrompt", defaultValue: "Agent needs your input"),
                 header: String(localized: "question.fallbackHeader", defaultValue: "Agent asks"),
-                options: []
+                options: [],
+                isMultiSelect: false
             )
             let request = Request(agent: agent, sessionID: event.sessionId, questions: [sub], connection: event.connection, occurredAt: Date())
             queue = queue + [request]
@@ -74,7 +80,8 @@ final class QuestionCenter: ObservableObject {
             let sourceID = (question["id"] as? String)
                 ?? (question["id"] as? Int).map(String.init)
                 ?? String(index)
-            return SubQuestion(sourceQuestionID: sourceID, prompt: prompt, header: header, options: options)
+            let isMultiSelect = (question["multiSelect"] as? Bool) ?? false
+            return SubQuestion(sourceQuestionID: sourceID, prompt: prompt, header: header, options: options, isMultiSelect: isMultiSelect)
         }
         let request = Request(agent: agent, sessionID: event.sessionId, questions: subQuestions, connection: event.connection, occurredAt: Date())
         queue = queue + [request]

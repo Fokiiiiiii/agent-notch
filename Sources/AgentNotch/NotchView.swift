@@ -633,7 +633,7 @@ struct NotchView: View {
             }
         case .question:
             if let request = questions.queue.first {
-                AgentQuestionView(request: request, uiState: uiState) { answers in
+                AgentQuestionView(request: request, uiState: uiState, extraCount: questions.queue.count - 1) { answers in
                     questions.resolve(request.id, answers: answers)
                     controller.finishQuestionResponse()
                 }
@@ -2865,12 +2865,18 @@ private struct AgentQuestionView: View {
     /// at the call site still forces a fresh view per request, but `uiState`
     /// itself is long-lived and wouldn't otherwise reset between requests.
     @ObservedObject var uiState: NotchUIState
+    /// Other question batches waiting behind this one — mirrors
+    /// `ApprovalOverlayView`'s `extraCount`/`+N` badge so a second queued
+    /// batch (e.g. from a different agent) doesn't sit invisibly behind the
+    /// one currently shown.
+    var extraCount: Int = 0
     /// Called exactly once, with every sub-question's answer collected —
     /// `request.connection` is shared across the whole batch and can only
     /// be responded to a single time (see `QuestionCenter.resolve(_:answers:)`).
     let onComplete: ([String]) -> Void
     @State private var collectedAnswers: [String] = []
     @State private var customAnswer = ""
+    @State private var multiSelectedOptionIDs: Set<UUID> = []
     @FocusState private var customFieldFocused: Bool
     @State private var isInteractive = false
 
@@ -2879,74 +2885,46 @@ private struct AgentQuestionView: View {
     var body: some View {
         CellSurface {
             VStack(alignment: .leading, spacing: 7) {
-                HStack(spacing: 6) {
-                    Label(String(localized: "question.asks", defaultValue: "\(request.agent.displayName) asks"), systemImage: request.agent.symbolName)
-                        .font(.system(size: 12, weight: .semibold))
-                        .foregroundColor(request.agent == .codex ? .white.opacity(0.9) : DesignTokens.cyan)
-                    Text(currentQuestion.header)
-                        .font(.system(size: 9.5, weight: .medium))
-                        .foregroundColor(DesignTokens.muted)
-                        .lineLimit(1)
-                        .padding(.horizontal, 6)
-                        .frame(height: 20)
-                        .background(Capsule().fill(Color.white.opacity(0.07)))
-                    if request.questions.count > 1 {
-                        Text("\(uiState.questionStepIndex + 1)/\(request.questions.count)")
-                            .font(.system(size: 9.5, weight: .medium))
-                            .foregroundColor(DesignTokens.muted)
-                            .lineLimit(1)
-                            .padding(.horizontal, 6)
-                            .frame(height: 20)
-                            .background(Capsule().fill(Color.white.opacity(0.07)))
-                    }
-                    Spacer(minLength: 4)
-                    if !currentQuestion.options.isEmpty {
-                        Button(uiState.questionCustomMode ? String(localized: "question.choices", defaultValue: "Choices") : String(localized: "question.other", defaultValue: "Other…")) {
-                            withAnimation(.easeOut(duration: 0.20)) {
-                                uiState.questionCustomMode.toggle()
-                            }
-                            customFieldFocused = uiState.questionCustomMode
+                headerRow
+                if uiState.questionReviewMode {
+                    reviewView
+                } else {
+                    Text(currentQuestion.prompt)
+                        .font(.system(size: 14, weight: .medium))
+                        .tracking(-0.1)
+                        .lineLimit(4)
+                        .fixedSize(horizontal: false, vertical: true)
+                        .help(currentQuestion.prompt)
+                        // Measures this Text's own (unstretched) rendered
+                        // height — it can run to several lines, so the panel
+                        // is sized to fit it live instead of budgeting a
+                        // fixed line count (which either clipped long
+                        // prompts or wasted space on short ones). See
+                        // `uiState.questionPromptHeight`.
+                        .onGeometryChange(for: CGFloat.self, of: { $0.size.height }) { newHeight in
+                            uiState.questionPromptHeight = newHeight
                         }
-                        .buttonStyle(NotchPressStyle())
-                        .font(.system(size: 9.5, weight: .medium))
-                        .foregroundColor(.white.opacity(0.66))
-                        .padding(.horizontal, 7)
-                        .frame(height: 24)
-                        .background(Capsule().fill(Color.white.opacity(0.07)))
-                        .help(uiState.questionCustomMode ? String(localized: "question.showChoicesHelp", defaultValue: "Show choices") : String(localized: "question.otherHelp", defaultValue: "Type another answer"))
-                    }
-                }
-                Text(currentQuestion.prompt)
-                    .font(.system(size: 14, weight: .medium))
-                    .tracking(-0.1)
-                    .lineLimit(4)
-                    .fixedSize(horizontal: false, vertical: true)
-                    .help(currentQuestion.prompt)
-                    // Measures this Text's own (unstretched) rendered height —
-                    // it can run to several lines, so the panel is sized to
-                    // fit it live instead of budgeting a fixed line count
-                    // (which either clipped long prompts or wasted space on
-                    // short ones). See `uiState.questionPromptHeight`.
-                    .onGeometryChange(for: CGFloat.self, of: { $0.size.height }) { newHeight in
-                        uiState.questionPromptHeight = newHeight
-                    }
-                Group {
-                    if uiState.questionCustomMode {
-                        customAnswerView
+                    Group {
+                        if uiState.questionCustomMode {
+                            customAnswerView
+                                .transition(.opacity.combined(with: .offset(y: 2)))
+                        } else if currentQuestion.isMultiSelect {
+                            multiSelectView
+                                .transition(.opacity.combined(with: .offset(y: 2)))
+                        } else {
+                            VStack(spacing: 5) {
+                                ForEach(Array(currentQuestion.options.enumerated()), id: \.element.id) { index, option in
+                                    QuestionChoiceButton(
+                                        shortcut: "⌘\(index + 1)",
+                                        key: KeyEquivalent(Character("\(index + 1)")),
+                                        title: option.label,
+                                        detail: option.detail
+                                    ) { advance(with: option.label) }
+                                    .disabled(!isInteractive)
+                                }
+                            }
                             .transition(.opacity.combined(with: .offset(y: 2)))
-                    } else {
-                        VStack(spacing: 5) {
-                            ForEach(Array(currentQuestion.options.enumerated()), id: \.element.id) { index, option in
-                                QuestionChoiceButton(
-                                    shortcut: "⌘\(index + 1)",
-                                    key: KeyEquivalent(Character("\(index + 1)")),
-                                    title: option.label,
-                                    detail: option.detail
-                                ) { advance(with: option.label) }
-                                .disabled(!isInteractive)
-                            }
                         }
-                        .transition(.opacity.combined(with: .offset(y: 2)))
                     }
                 }
             }
@@ -2960,6 +2938,8 @@ private struct AgentQuestionView: View {
         .onAppear {
             uiState.questionStepIndex = 0
             uiState.questionCustomMode = request.questions[0].options.isEmpty
+            uiState.questionReviewMode = false
+            multiSelectedOptionIDs = []
             armInteractivity()
         }
     }
@@ -2974,6 +2954,78 @@ private struct AgentQuestionView: View {
         Task { @MainActor in
             try? await Task.sleep(nanoseconds: 150_000_000)
             isInteractive = true
+        }
+    }
+
+    private var headerRow: some View {
+        HStack(spacing: 6) {
+            Label(
+                uiState.questionReviewMode
+                    ? String(localized: "question.reviewHeader", defaultValue: "Review your answers")
+                    : String(localized: "question.asks", defaultValue: "\(request.agent.displayName) asks"),
+                systemImage: request.agent.symbolName
+            )
+            .font(.system(size: 12, weight: .semibold))
+            .foregroundColor(request.agent == .codex ? .white.opacity(0.9) : DesignTokens.cyan)
+            if !uiState.questionReviewMode {
+                Text(currentQuestion.header)
+                    .font(.system(size: 9.5, weight: .medium))
+                    .foregroundColor(DesignTokens.muted)
+                    .lineLimit(1)
+                    .padding(.horizontal, 6)
+                    .frame(height: 20)
+                    .background(Capsule().fill(Color.white.opacity(0.07)))
+                if request.questions.count > 1 {
+                    HStack(spacing: 5) {
+                        Text("\(uiState.questionStepIndex + 1)/\(request.questions.count)")
+                            .font(.system(size: 9.5, weight: .medium))
+                            .foregroundColor(DesignTokens.muted)
+                            .lineLimit(1)
+                        // Which sub-questions are already answered vs. still
+                        // ahead — the plain "N/M" text alone doesn't make
+                        // that legible at a glance.
+                        HStack(spacing: 3) {
+                            ForEach(0..<request.questions.count, id: \.self) { index in
+                                Circle()
+                                    .fill(
+                                        index < uiState.questionStepIndex ? DesignTokens.cyan
+                                        : index == uiState.questionStepIndex ? Color.white.opacity(0.8)
+                                        : Color.white.opacity(0.18)
+                                    )
+                                    .frame(width: 5, height: 5)
+                            }
+                        }
+                    }
+                    .padding(.horizontal, 6)
+                    .frame(height: 20)
+                    .background(Capsule().fill(Color.white.opacity(0.07)))
+                }
+            }
+            Spacer(minLength: 4)
+            if !uiState.questionReviewMode {
+                if extraCount > 0 {
+                    Text(String(localized: "question.extraCount", defaultValue: "+\(String(extraCount))"))
+                        .font(.system(size: 10.5, weight: .semibold))
+                        .padding(.horizontal, 6)
+                        .frame(height: 18)
+                        .background(Capsule().fill(Color.white.opacity(0.09)))
+                }
+                if !currentQuestion.options.isEmpty {
+                    Button(uiState.questionCustomMode ? String(localized: "question.choices", defaultValue: "Choices") : String(localized: "question.other", defaultValue: "Other…")) {
+                        withAnimation(.easeOut(duration: 0.20)) {
+                            uiState.questionCustomMode.toggle()
+                        }
+                        customFieldFocused = uiState.questionCustomMode
+                    }
+                    .buttonStyle(NotchPressStyle())
+                    .font(.system(size: 9.5, weight: .medium))
+                    .foregroundColor(.white.opacity(0.66))
+                    .padding(.horizontal, 7)
+                    .frame(height: 24)
+                    .background(Capsule().fill(Color.white.opacity(0.07)))
+                    .help(uiState.questionCustomMode ? String(localized: "question.showChoicesHelp", defaultValue: "Show choices") : String(localized: "question.otherHelp", defaultValue: "Type another answer"))
+                }
+            }
         }
     }
 
@@ -3006,6 +3058,74 @@ private struct AgentQuestionView: View {
         }
     }
 
+    /// Toggleable checkbox-style rows for a `multiSelect` sub-question —
+    /// unlike single-select, no single tap unambiguously means "done", so a
+    /// separate confirm button combines the current selection into one
+    /// comma-joined answer and advances.
+    private var multiSelectView: some View {
+        VStack(spacing: 5) {
+            ForEach(currentQuestion.options) { option in
+                MultiSelectChoiceRow(
+                    title: option.label,
+                    detail: option.detail,
+                    isSelected: multiSelectedOptionIDs.contains(option.id)
+                ) {
+                    if multiSelectedOptionIDs.contains(option.id) {
+                        multiSelectedOptionIDs.remove(option.id)
+                    } else {
+                        multiSelectedOptionIDs.insert(option.id)
+                    }
+                }
+                .disabled(!isInteractive)
+            }
+            Button(action: confirmMultiSelect) {
+                Text(String(localized: "question.continueButton", defaultValue: "Continue"))
+                    .font(.system(size: 11, weight: .semibold))
+                    .frame(maxWidth: .infinity, minHeight: 32)
+                    .foregroundColor(.black)
+                    .background(RoundedRectangle(cornerRadius: 8).fill(DesignTokens.cyan.opacity(multiSelectedOptionIDs.isEmpty ? 0.4 : 0.92)))
+            }
+            .buttonStyle(NotchPressStyle())
+            .disabled(!isInteractive || multiSelectedOptionIDs.isEmpty)
+        }
+    }
+
+    /// The read-only screen shown after the last sub-question is answered —
+    /// every answer is visible together before it's actually sent back to
+    /// the (blocked) agent, since `resolve(_:answers:)` can only respond
+    /// once. No per-answer editing here (that would need backward step
+    /// navigation); the user can only confirm-send as a whole.
+    private var reviewView: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            ScrollView {
+                VStack(alignment: .leading, spacing: 8) {
+                    ForEach(Array(zip(request.questions, collectedAnswers)), id: \.0.id) { question, answer in
+                        VStack(alignment: .leading, spacing: 2) {
+                            Text(question.header)
+                                .font(.system(size: 9.5, weight: .semibold))
+                                .foregroundColor(DesignTokens.muted)
+                            Text(answer)
+                                .font(.system(size: 11.5))
+                                .foregroundColor(.white.opacity(0.85))
+                                .fixedSize(horizontal: false, vertical: true)
+                        }
+                    }
+                }
+                .padding(.vertical, 4)
+            }
+            .frame(maxHeight: 108)
+            Button(action: confirmSend) {
+                Text(String(localized: "question.sendAllAnswers", defaultValue: "Send answers"))
+                    .font(.system(size: 11, weight: .semibold))
+                    .frame(maxWidth: .infinity, minHeight: 32)
+                    .foregroundColor(.black)
+                    .background(RoundedRectangle(cornerRadius: 8).fill(DesignTokens.cyan.opacity(0.92)))
+            }
+            .buttonStyle(NotchPressStyle())
+            .disabled(!isInteractive)
+        }
+    }
+
     private func submitCustomAnswer() {
         let value = customAnswer.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !value.isEmpty else { return }
@@ -3013,9 +3133,23 @@ private struct AgentQuestionView: View {
         advance(with: value)
     }
 
+    private func confirmMultiSelect() {
+        let labels = currentQuestion.options.filter { multiSelectedOptionIDs.contains($0.id) }.map(\.label)
+        guard !labels.isEmpty else { return }
+        SoundPlayer.shared.play(.approve)
+        advance(with: labels.joined(separator: ", "))
+    }
+
+    private func confirmSend() {
+        guard isInteractive else { return }
+        isInteractive = false
+        onComplete(collectedAnswers)
+    }
+
     private func advance(with value: String) {
         var next = collectedAnswers
         next.append(value)
+        multiSelectedOptionIDs = []
         if uiState.questionStepIndex + 1 < request.questions.count {
             collectedAnswers = next
             uiState.questionStepIndex += 1
@@ -3023,7 +3157,9 @@ private struct AgentQuestionView: View {
             uiState.questionCustomMode = currentQuestion.options.isEmpty
             armInteractivity()
         } else {
-            onComplete(next)
+            collectedAnswers = next
+            uiState.questionReviewMode = true
+            armInteractivity()
         }
     }
 }
@@ -3074,6 +3210,50 @@ private struct QuestionChoiceButton: View {
         .animation(.easeOut(duration: 0.18), value: hovering)
         .keyboardShortcut(key, modifiers: .command)
         .help(detail.isEmpty ? String(localized: "question.chooseHelp", defaultValue: "Choose \(title)") : String(localized: "question.choiceHelpWithDetail", defaultValue: "\(title)\n\(detail)"))
+    }
+}
+
+/// A toggleable row for `multiSelect` sub-questions — same visual family as
+/// `QuestionChoiceButton` (same padding/row-height/hover pattern) but with a
+/// persistent checkbox glyph instead of a one-shot chevron, since selecting
+/// this option doesn't advance the question by itself.
+private struct MultiSelectChoiceRow: View {
+    let title: String
+    let detail: String
+    let isSelected: Bool
+    let action: () -> Void
+    @State private var hovering = false
+
+    var body: some View {
+        Button(action: action) {
+            HStack(spacing: 9) {
+                Image(systemName: isSelected ? "checkmark.square.fill" : "square")
+                    .font(.system(size: 14))
+                    .foregroundColor(isSelected ? DesignTokens.cyan : .white.opacity(0.35))
+                    .frame(width: 20)
+                VStack(alignment: .leading, spacing: 1) {
+                    Text(title)
+                        .font(.system(size: 12, weight: .medium))
+                        .lineLimit(1)
+                        .truncationMode(.tail)
+                    if !detail.isEmpty {
+                        Text(detail)
+                            .font(.system(size: 10))
+                            .foregroundColor(DesignTokens.muted)
+                            .lineLimit(1)
+                            .truncationMode(.tail)
+                    }
+                }
+                Spacer()
+            }
+            .padding(.horizontal, 10)
+            .frame(minHeight: detail.isEmpty ? 32 : 42)
+            .background(RoundedRectangle(cornerRadius: 9).fill(Color.white.opacity(hovering ? 0.12 : (isSelected ? 0.09 : 0.065))))
+        }
+        .buttonStyle(NotchPressStyle())
+        .onHover { hovering = $0 }
+        .animation(.easeOut(duration: 0.18), value: hovering)
+        .help(String(localized: "question.toggleSelectionHelp", defaultValue: "Toggle \(title)"))
     }
 }
 
