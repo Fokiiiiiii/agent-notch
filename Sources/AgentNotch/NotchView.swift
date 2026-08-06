@@ -2114,6 +2114,11 @@ private struct AgentsCell: View {
             .lineLimit(1)
     }
 
+    /// Stop (SIGTERM, irreversible) is deliberately placed apart from
+    /// Pause/Terminal — both a real gap and a non-destructive button
+    /// (Terminal) between them — instead of sitting immediately next to
+    /// Pause where a hurried click could hit the wrong one. It also carries
+    /// `requiresConfirmation` (arm-then-confirm, see `MiniButton`).
     private var footerRow: some View {
         HStack(spacing: 4) {
             Spacer(minLength: 4)
@@ -2126,13 +2131,22 @@ private struct AgentsCell: View {
                     let action: ManagedSessionAction = selected.state == .idle ? .resume : .pause
                     actionFeedback = store.controlManagedSession(id: selected.id, action: action) ? nil : String(localized: "agents.action.controlFailed", defaultValue: "Could not control process")
                 }
-                MiniButton(title: String(localized: "agents.action.stop", defaultValue: "Stop"), icon: "stop.fill", isDanger: true, helpText: String(localized: "agents.action.stopHelp", defaultValue: "Stop the managed process")) {
-                    actionFeedback = store.controlManagedSession(id: selected.id, action: .stop) ? String(localized: "agents.action.stopping", defaultValue: "Stopping…") : String(localized: "agents.action.stopFailed", defaultValue: "Could not stop process")
-                }
             }
             MiniButton(title: String(localized: "agents.action.terminal", defaultValue: "Terminal"), icon: "terminal", helpText: String(localized: "agents.action.terminalHelp", defaultValue: "Return to Terminal")) {
                 if let selected {
                     Jumper.jump(to: selected)
+                }
+            }
+            if let selected, selected.isManagedProcess {
+                Spacer(minLength: 8)
+                MiniButton(
+                    title: String(localized: "agents.action.stop", defaultValue: "Stop"),
+                    icon: "stop.fill",
+                    isDanger: true,
+                    helpText: String(localized: "agents.action.stopHelp", defaultValue: "Stop the managed process"),
+                    requiresConfirmation: true
+                ) {
+                    actionFeedback = store.controlManagedSession(id: selected.id, action: .stop) ? String(localized: "agents.action.stopping", defaultValue: "Stopping…") : String(localized: "agents.action.stopFailed", defaultValue: "Could not stop process")
                 }
             }
         }
@@ -2147,34 +2161,70 @@ private struct MiniButton: View {
     var isDanger: Bool = false
     var isPrimary: Bool = false
     var helpText: String? = nil
+    /// When true, the first tap arms a "Confirm?" state instead of firing
+    /// `action()` immediately — a second tap within `confirmWindow` actually
+    /// confirms it; the arm auto-reverts if that second tap doesn't come.
+    /// Used for irreversible actions (Stop sends SIGTERM to the managed
+    /// process) so a stray or hurried tap can't silently trigger them.
+    var requiresConfirmation: Bool = false
     let action: () -> Void
     @State private var hovering = false
+    @State private var isArmed = false
+    @State private var armTask: Task<Void, Never>?
+    /// Debounces rapid repeated taps regardless of `requiresConfirmation` —
+    /// covers the general "no double-fire" case, not just the confirm flow.
+    @State private var isCoolingDown = false
+
+    private static let confirmWindow: UInt64 = 3_000_000_000
+    private static let tapCooldown: UInt64 = 400_000_000
 
     var body: some View {
         Button {
+            guard !isCoolingDown else { return }
+            isCoolingDown = true
+            Task { @MainActor in
+                try? await Task.sleep(nanoseconds: Self.tapCooldown)
+                isCoolingDown = false
+            }
+            if requiresConfirmation && !isArmed {
+                SoundPlayer.shared.play(.navigation)
+                armTask?.cancel()
+                isArmed = true
+                armTask = Task { @MainActor in
+                    try? await Task.sleep(nanoseconds: Self.confirmWindow)
+                    if !Task.isCancelled { isArmed = false }
+                }
+                return
+            }
+            armTask?.cancel()
+            isArmed = false
             SoundPlayer.shared.play(.action)
             action()
         } label: {
             HStack(spacing: 4) {
-                if let icon { Image(systemName: icon).font(.system(size: 8, weight: .semibold)) }
-                Text(title)
-                if let shortcut {
+                if let icon { Image(systemName: isArmed ? "exclamationmark.triangle.fill" : icon).font(.system(size: 8, weight: .semibold)) }
+                Text(isArmed ? String(localized: "miniButton.confirmPrompt", defaultValue: "Confirm \(title)?") : title)
+                if let shortcut, !isArmed {
                     Text(shortcut).foregroundColor(textColor.opacity(0.55))
                 }
             }
-            .font(.system(size: 10.5, weight: isPrimary ? .semibold : .regular))
-            .foregroundColor(textColor)
+            .font(.system(size: 10.5, weight: isPrimary || isArmed ? .semibold : .regular))
+            .foregroundColor(isArmed ? DesignTokens.red : textColor)
             .padding(.horizontal, 8)
             .frame(height: 30)
             .background(
                 RoundedRectangle(cornerRadius: 8)
-                    .fill(backgroundColor)
+                    .fill(isArmed ? DesignTokens.red.opacity(0.22) : backgroundColor)
             )
         }
         .buttonStyle(NotchPressStyle())
         .onHover { hovering = $0 }
         .animation(.easeOut(duration: 0.18), value: hovering)
-        .help(helpText ?? title)
+        .animation(.easeOut(duration: 0.15), value: isArmed)
+        .help(isArmed ? String(localized: "miniButton.confirmPromptHelp", defaultValue: "Tap again to confirm") : (helpText ?? title))
+        .accessibilityLabel(isArmed ? String(localized: "miniButton.confirmPrompt", defaultValue: "Confirm \(title)?") : title)
+        .accessibilityHint(isArmed ? String(localized: "miniButton.confirmPromptHelp", defaultValue: "Tap again to confirm") : (helpText ?? ""))
+        .onDisappear { armTask?.cancel() }
     }
 
     private var textColor: Color {
@@ -2965,8 +3015,18 @@ private struct AgentQuestionView: View {
     @State private var multiSelectedOptionIDs: Set<UUID> = []
     @FocusState private var customFieldFocused: Bool
     @State private var isInteractive = false
+    /// Every other overlay (`ApprovalOverlayView`/`PlanApprovalOverlayView`)
+    /// already reads this; AgentQuestionView's step/mode transitions didn't.
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
     private var currentQuestion: QuestionCenter.SubQuestion { request.questions[uiState.questionStepIndex] }
+
+    /// Drops the `.offset(y:)` component under Reduce Motion — a vertical
+    /// slide is exactly the kind of motion that setting asks apps to avoid;
+    /// a plain opacity crossfade still communicates the step changed.
+    private var stepTransition: AnyTransition {
+        reduceMotion ? .opacity : .opacity.combined(with: .offset(y: 2))
+    }
 
     var body: some View {
         CellSurface {
@@ -2993,10 +3053,10 @@ private struct AgentQuestionView: View {
                     Group {
                         if uiState.questionCustomMode {
                             customAnswerView
-                                .transition(.opacity.combined(with: .offset(y: 2)))
+                                .transition(stepTransition)
                         } else if currentQuestion.isMultiSelect {
                             multiSelectView
-                                .transition(.opacity.combined(with: .offset(y: 2)))
+                                .transition(stepTransition)
                         } else {
                             VStack(spacing: 5) {
                                 ForEach(Array(currentQuestion.options.enumerated()), id: \.element.id) { index, option in
@@ -3009,7 +3069,7 @@ private struct AgentQuestionView: View {
                                     .disabled(!isInteractive)
                                 }
                             }
-                            .transition(.opacity.combined(with: .offset(y: 2)))
+                            .transition(stepTransition)
                         }
                     }
                 }
@@ -3098,7 +3158,7 @@ private struct AgentQuestionView: View {
                 }
                 if !currentQuestion.options.isEmpty {
                     Button(uiState.questionCustomMode ? String(localized: "question.choices", defaultValue: "Choices") : String(localized: "question.other", defaultValue: "Other…")) {
-                        withAnimation(.easeOut(duration: 0.20)) {
+                        withAnimation(reduceMotion ? .easeOut(duration: 0.08) : .easeOut(duration: 0.20)) {
                             uiState.questionCustomMode.toggle()
                         }
                         customFieldFocused = uiState.questionCustomMode
@@ -3353,6 +3413,8 @@ private struct QuestionChoiceButton: View {
         .animation(.easeOut(duration: 0.18), value: hovering)
         .keyboardShortcut(key, modifiers: .command)
         .help(detail.isEmpty ? String(localized: "question.chooseHelp", defaultValue: "Choose \(title)") : String(localized: "question.choiceHelpWithDetail", defaultValue: "\(title)\n\(detail)"))
+        .accessibilityLabel(title)
+        .accessibilityHint(detail)
     }
 }
 
@@ -3397,6 +3459,9 @@ private struct MultiSelectChoiceRow: View {
         .onHover { hovering = $0 }
         .animation(.easeOut(duration: 0.18), value: hovering)
         .help(String(localized: "question.toggleSelectionHelp", defaultValue: "Toggle \(title)"))
+        .accessibilityLabel(title)
+        .accessibilityHint(detail)
+        .accessibilityAddTraits(isSelected ? [.isSelected] : [])
     }
 }
 
@@ -3765,7 +3830,13 @@ private struct PlanChoiceButton: View {
         .buttonStyle(NotchPressStyle())
         .onHover { hovering = $0 }
         .animation(.easeOut(duration: 0.18), value: hovering)
+        // Mirrors ApprovalActionButton's ⌘Y/⌘N convention (allow/deny) —
+        // "Yes, approve" and "No, keep planning" are the same affirmative/
+        // negative pair, just for a plan instead of a permission request.
+        .keyboardShortcut(isPrimary ? KeyEquivalent("y") : KeyEquivalent("n"), modifiers: .command)
         .help(detail)
+        .accessibilityLabel(title)
+        .accessibilityHint(detail)
     }
 
     private var foreground: Color { isPrimary ? .black : .white.opacity(0.86) }
@@ -3801,6 +3872,8 @@ private struct ApprovalActionButton: View {
         .animation(.easeOut(duration: 0.18), value: hovering)
         .keyboardShortcut(role == .allow ? KeyEquivalent("y") : KeyEquivalent("n"), modifiers: .command)
         .help(role == .allow ? String(localized: "approval.allowOnceHelp", defaultValue: "Allow this action once") : String(localized: "approval.denyHelp", defaultValue: "Deny this action"))
+        .accessibilityLabel(title)
+        .accessibilityHint(role == .allow ? String(localized: "approval.allowOnceHelp", defaultValue: "Allow this action once") : String(localized: "approval.denyHelp", defaultValue: "Deny this action"))
     }
 
     private var foreground: Color { role == .allow ? .black : .white.opacity(0.86) }
