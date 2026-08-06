@@ -74,3 +74,46 @@ final class PermissionCenter: ObservableObject {
         return ""
     }
 }
+
+extension PermissionCenter.PendingPermission {
+    /// Structured fields extracted from `toolInput`, letting
+    /// `ApprovalOverlayView` render a dangerous-command warning without
+    /// re-parsing `toolInput` itself.
+    var details: ApprovalDetails {
+        ApprovalDetails.extract(toolName: toolName, toolInput: toolInput)
+    }
+}
+
+/// Pure and independently testable — mirrors `MediaKeyDecoder.decodeSkipDirection`'s
+/// style (no `PermissionCenter`/UI dependency).
+struct ApprovalDetails: Equatable {
+    let isDangerous: Bool
+
+    static func extract(toolName: String, toolInput: [String: Any]) -> ApprovalDetails {
+        guard toolName == "Bash", let command = toolInput["command"] as? String else {
+            return ApprovalDetails(isDangerous: false)
+        }
+        return ApprovalDetails(isDangerous: DangerousCommandDetector.isDangerous(command: command))
+    }
+}
+
+/// A heuristic nudge for the human reviewing an approval card — not a safety
+/// boundary AgentNotch enforces itself (it only relays the human's Allow/Deny
+/// decision back to the blocked agent; it never allows/denies on its own).
+/// Not exhaustive — a best-effort flag for commands worth a second look.
+enum DangerousCommandDetector {
+    static let patterns = [
+        "rm -rf", "rm -fr", "sudo ", "git push --force", "git push -f",
+        "chmod -r 777", "dd if=", "mkfs", ":(){ :|:& };:",
+        // Piping a download straight into a shell interpreter — the risky
+        // part is the pipe-to-shell itself, not literally "curl | bash"
+        // adjacency (real invocations are usually "curl <url> | bash").
+        "| sh", "| bash", "| zsh", "|sh", "|bash", "|zsh",
+        "> /dev/sd", "> /dev/disk", "diskutil erasedisk", "diskutil erasevolume",
+    ]
+
+    static func isDangerous(command: String) -> Bool {
+        let lower = command.lowercased()
+        return patterns.contains { lower.contains($0) }
+    }
+}

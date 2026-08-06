@@ -120,7 +120,11 @@ struct NotchView: View {
         return shellShape
             .fill(Color.black)
             .overlay(shellShape.strokeBorder(edgeColor.opacity(edgeOpacity), lineWidth: 0.75))
-            .shadow(color: (isHover && media.isPlaying ? edgeColor : .black).opacity(isHover ? 0.35 : 0), radius: isHover ? 12 : 0, y: isHover ? 6 : 0)
+            .shadow(
+                color: (isHover && media.isPlaying ? edgeColor : .black).opacity(isHover ? DesignTokens.cardShadowOpacity : 0),
+                radius: isHover ? DesignTokens.cardShadowRadius : 0,
+                y: isHover ? DesignTokens.cardShadowY : 0
+            )
     }
 
     @ViewBuilder
@@ -574,7 +578,7 @@ struct NotchView: View {
     @ViewBuilder
     private func overlayCell(_ overlay: IslandOverlay) -> some View {
         switch overlay {
-        case .approval(let agent, let toolName, let summary, let extraCount, let otherAgentPending):
+        case .approval(let agent, let toolName, let summary, let extraCount, let otherAgentPending, let cwd, let isDangerous):
             if toolName == "ExitPlanMode" {
                 PlanApprovalOverlayView(
                     agent: agent,
@@ -603,6 +607,8 @@ struct NotchView: View {
                     summary: summary,
                     extraCount: extraCount,
                     otherAgentPending: otherAgentPending,
+                    cwd: cwd,
+                    isDangerous: isDangerous,
                     onAllowOnce: {
                         if let id = permissions.queue.first?.id {
                             permissions.resolve(id, behavior: "allow")
@@ -631,7 +637,7 @@ struct NotchView: View {
             }
         case .question:
             if let request = questions.queue.first {
-                AgentQuestionView(request: request, uiState: uiState) { answers in
+                AgentQuestionView(request: request, uiState: uiState, extraCount: questions.queue.count - 1) { answers in
                     questions.resolve(request.id, answers: answers)
                     controller.finishQuestionResponse()
                 }
@@ -691,17 +697,36 @@ struct NotchView: View {
         }
     }
 
-    /// Agents and Media have no detail panel: their metadata is fully
-    /// covered by the always-visible main content, so a separate panel
-    /// would only repeat it. System and Today surface additional data here.
+    /// Media has no detail panel: its metadata is fully covered by the
+    /// always-visible main content, so a separate panel would only repeat
+    /// it. Agents gained one in Phase 5 (context-usage%, moved out of the
+    /// always-visible row) — System and Today already had one.
     private func hasDetailPanel(for view: NookView) -> Bool {
-        view == .system || view == .today
+        view == .system || view == .today || view == .agents
+    }
+
+    /// Mirrors `AgentsCell.selected`'s "explicitly selected, else first"
+    /// logic at the `NotchView` level, since `expandedDetail` (unlike
+    /// `AgentsCell` itself) doesn't have its own local session-selection
+    /// state to read from.
+    private var selectedAgentSession: AgentSession? {
+        if let id = uiState.selectedSessionId, let match = store.sessions.first(where: { $0.id == id }) {
+            return match
+        }
+        return store.sessions.first
     }
 
     @ViewBuilder
     private var expandedDetail: some View {
         switch uiState.activeView {
-        case .agents, .media:
+        case .agents:
+            if let session = selectedAgentSession {
+                DetailStrip(items: orderedDetailItems(tabId: "agents", items: [
+                    ("agents.project", String(localized: "detail.agents.project", defaultValue: "Project"), cwdTail(session.cwd)),
+                    ("agents.context", String(localized: "detail.agents.context", defaultValue: "Context used"), session.contextUsedPercent.map(contextUsedPercentValue) ?? String(localized: "detail.agents.contextUnavailable", defaultValue: "—")),
+                ]))
+            }
+        case .media:
             EmptyView()
         case .today:
             DetailStrip(items: orderedDetailItems(tabId: "today", items: [
@@ -1164,6 +1189,34 @@ func elapsedString(_ session: AgentSession) -> String {
 
 func cwdTail(_ cwd: String) -> String {
     URL(fileURLWithPath: cwd).lastPathComponent
+}
+
+/// Buckets `sessions` by `cwd` (project), preserving `sessions`' own
+/// ordering (most-recent-first, per `SessionStore`) — the first occurrence
+/// of each `cwd` anchors that group's position, so a newly-active
+/// session's project still surfaces near the top rather than group order
+/// being alphabetical or otherwise disconnected from recency. Pulled out
+/// as a pure function so the ordering logic is testable without
+/// constructing a `SessionStore`/view — see `AgentsCell.groupedSessions`.
+func groupSessionsByProject(_ sessions: [AgentSession]) -> [(cwd: String, sessions: [AgentSession])] {
+    var order: [String] = []
+    var buckets: [String: [AgentSession]] = [:]
+    for session in sessions {
+        if buckets[session.cwd] == nil {
+            order.append(session.cwd)
+        }
+        buckets[session.cwd, default: []].append(session)
+    }
+    return order.map { (cwd: $0, sessions: buckets[$0] ?? []) }
+}
+
+/// Plain "NN%" value string for the Agents detail panel (`DetailStrip`
+/// only takes label/value strings). Context-usage percentage moved out of
+/// the always-visible session row into the detail panel as part of
+/// Phase 5's "row shows agent/project/activity/state/elapsed only" pass.
+func contextUsedPercentValue(_ percent: Double) -> String {
+    let clamped = min(max(percent, 0), 100)
+    return "\(Int(clamped.rounded()))%"
 }
 
 func sessionStateLabel(_ state: SessionState) -> String {
@@ -1821,6 +1874,32 @@ private struct HoverPeekView: View {
     }
 }
 
+#Preview("Hover — notch-aware, session") {
+    HoverPeekView(
+        session: AgentSession(id: "preview", agent: .claude, title: "Fix auth middleware bug", cwd: "/Users/chaos/Documents/agent-notch", lastActivity: Date(), state: .running, lastMessage: "Reading AuthMiddleware.swift"),
+        media: MediaController.shared,
+        topClearance: 43
+    )
+    .frame(width: 320, height: 90)
+    .background(Color.black)
+}
+
+#Preview("Hover — notch-aware, idle") {
+    HoverPeekView(session: nil, media: MediaController.shared, topClearance: 43)
+        .frame(width: 320, height: 90)
+        .background(Color.black)
+}
+
+#Preview("Hover — legacy (non-notched)") {
+    HoverPeekView(
+        session: AgentSession(id: "preview", agent: .codex, title: "Add pagination to /users", cwd: "/Users/chaos/Documents/agent-notch", lastActivity: Date(), state: .waitingApproval, lastMessage: "Waiting for your approval"),
+        media: MediaController.shared,
+        topClearance: 0
+    )
+    .frame(width: 320, height: 90)
+    .background(Color.black)
+}
+
 // MARK: - Agents cell (implemented)
 
 private struct AgentsCell: View {
@@ -1860,21 +1939,49 @@ private struct AgentsCell: View {
             // row) overflows the card's rounded-rect visually instead of
             // being contained/scrolled, which is what produced the
             // "floating Terminal button" bug report.
-            .clipShape(RoundedRectangle(cornerRadius: 14))
+            .clipShape(RoundedRectangle(cornerRadius: DesignTokens.cellRadius))
     }
 
     /// Full vertical list of every tracked session, most-recent/selected
     /// first. Only the selected row expands to show the last user message
     /// and current activity; the rest stay single-line so several sessions
     /// fit without crowding the notch. Scrolls when they don't all fit.
+    /// Sessions from the same project (`cwd`) are grouped together — e.g.
+    /// Claude and Codex both running against the same repo read as one
+    /// project instead of two unrelated rows.
     private var sessionList: some View {
         ScrollView(.vertical, showsIndicators: false) {
             VStack(alignment: .leading, spacing: 4) {
-                ForEach(store.sessions) { session in
-                    sessionRow(session, isSelected: session.id == selected?.id)
+                ForEach(groupedSessions, id: \.cwd) { group in
+                    if groupedSessions.count > 1 {
+                        projectHeader(group.cwd)
+                    }
+                    ForEach(group.sessions) { session in
+                        sessionRow(session, isSelected: session.id == selected?.id)
+                    }
                 }
             }
         }
+    }
+
+    private var groupedSessions: [(cwd: String, sessions: [AgentSession])] {
+        groupSessionsByProject(store.sessions)
+    }
+
+    /// Only shown when there's more than one distinct project — a single
+    /// header for the common (one-project) case would just repeat what's
+    /// already implied by context without adding information.
+    private func projectHeader(_ cwd: String) -> some View {
+        Text(cwdTail(cwd))
+            .font(.system(size: 8.5, weight: .semibold))
+            .foregroundColor(DesignTokens.muted)
+            .textCase(.uppercase)
+            .tracking(0.3)
+            .lineLimit(1)
+            .truncationMode(.head)
+            .padding(.leading, 2)
+            .padding(.top, 2)
+            .accessibilityAddTraits(.isHeader)
     }
 
     private var emptyState: some View {
@@ -1907,11 +2014,11 @@ private struct AgentsCell: View {
     }
 
     private var cellShape: some View {
-        RoundedRectangle(cornerRadius: 14)
+        RoundedRectangle(cornerRadius: DesignTokens.cellRadius)
             .fill(.ultraThinMaterial)
-            .overlay(RoundedRectangle(cornerRadius: 14).fill(Color.black.opacity(0.34)))
+            .overlay(RoundedRectangle(cornerRadius: DesignTokens.cellRadius).fill(Color.black.opacity(0.34)))
             .overlay(
-                RoundedRectangle(cornerRadius: 14)
+                RoundedRectangle(cornerRadius: DesignTokens.cellRadius)
                     .stroke(Color.white.opacity(0.055), lineWidth: 1)
             )
     }
@@ -1938,9 +2045,6 @@ private struct AgentsCell: View {
                     .truncationMode(.tail)
                     .layoutPriority(1)
                 Spacer(minLength: 4)
-                if !isSelected, let percent = session.contextUsedPercent {
-                    compactContextBadge(percent)
-                }
                 agentBadge(session.agent)
                 Text(elapsedString(session))
                     .font(.system(size: 9, design: .rounded))
@@ -1954,10 +2058,6 @@ private struct AgentsCell: View {
                         .foregroundColor(DesignTokens.muted)
                         .lineLimit(1)
                         .truncationMode(.tail)
-                    if let percent = session.contextUsedPercent {
-                        Spacer(minLength: 4)
-                        contextUsageLabel(percent)
-                    }
                 }
                 .padding(.leading, 34)
                 HStack(spacing: 6) {
@@ -2003,35 +2103,6 @@ private struct AgentsCell: View {
     /// per-row "Claude"/"Codex"/"Gemini" pill. Terminal-app badges are
     /// omitted: `AgentSession` doesn't currently carry which terminal a
     /// session is running in, so adding that pairing is left for later.
-    /// Color for a context-window usage percentage, matching `UsageBar`'s
-    /// green/orange/red thresholds elsewhere in the notch.
-    private func contextUsageColor(_ percent: Double) -> Color {
-        let clamped = min(max(percent, 0), 100)
-        if clamped >= 95 { return DesignTokens.red }
-        if clamped >= 80 { return DesignTokens.orange }
-        return DesignTokens.green
-    }
-
-    /// Tiny "NN%" tag shown on compact (non-selected) session rows when
-    /// `contextUsedPercent` is available, kept minimal to avoid crowding
-    /// the single-line layout.
-    private func compactContextBadge(_ percent: Double) -> some View {
-        let clamped = min(max(percent, 0), 100)
-        return Text("\(Int(clamped.rounded()))%")
-            .font(.system(size: 7.5, weight: .semibold, design: .rounded))
-            .foregroundColor(contextUsageColor(percent))
-            .frame(minWidth: 18, alignment: .trailing)
-            .accessibilityLabel(String(localized: "agents.contextUsedPercentAccessibility", defaultValue: "Context window \(Int(clamped.rounded())) percent used"))
-    }
-
-    /// "Context NN%" label shown in the expanded selected-session row.
-    private func contextUsageLabel(_ percent: Double) -> some View {
-        let clamped = min(max(percent, 0), 100)
-        return Text(String(localized: "agents.contextUsedPercent", defaultValue: "Context \(Int(clamped.rounded()))%"))
-            .font(.system(size: 8.5, weight: .medium))
-            .foregroundColor(contextUsageColor(percent))
-            .lineLimit(1)
-    }
 
     private func agentBadge(_ agent: AgentKind) -> some View {
         Text(agent.displayName)
@@ -2043,6 +2114,11 @@ private struct AgentsCell: View {
             .lineLimit(1)
     }
 
+    /// Stop (SIGTERM, irreversible) is deliberately placed apart from
+    /// Pause/Terminal — both a real gap and a non-destructive button
+    /// (Terminal) between them — instead of sitting immediately next to
+    /// Pause where a hurried click could hit the wrong one. It also carries
+    /// `requiresConfirmation` (arm-then-confirm, see `MiniButton`).
     private var footerRow: some View {
         HStack(spacing: 4) {
             Spacer(minLength: 4)
@@ -2055,13 +2131,22 @@ private struct AgentsCell: View {
                     let action: ManagedSessionAction = selected.state == .idle ? .resume : .pause
                     actionFeedback = store.controlManagedSession(id: selected.id, action: action) ? nil : String(localized: "agents.action.controlFailed", defaultValue: "Could not control process")
                 }
-                MiniButton(title: String(localized: "agents.action.stop", defaultValue: "Stop"), icon: "stop.fill", isDanger: true, helpText: String(localized: "agents.action.stopHelp", defaultValue: "Stop the managed process")) {
-                    actionFeedback = store.controlManagedSession(id: selected.id, action: .stop) ? String(localized: "agents.action.stopping", defaultValue: "Stopping…") : String(localized: "agents.action.stopFailed", defaultValue: "Could not stop process")
-                }
             }
             MiniButton(title: String(localized: "agents.action.terminal", defaultValue: "Terminal"), icon: "terminal", helpText: String(localized: "agents.action.terminalHelp", defaultValue: "Return to Terminal")) {
                 if let selected {
                     Jumper.jump(to: selected)
+                }
+            }
+            if let selected, selected.isManagedProcess {
+                Spacer(minLength: 8)
+                MiniButton(
+                    title: String(localized: "agents.action.stop", defaultValue: "Stop"),
+                    icon: "stop.fill",
+                    isDanger: true,
+                    helpText: String(localized: "agents.action.stopHelp", defaultValue: "Stop the managed process"),
+                    requiresConfirmation: true
+                ) {
+                    actionFeedback = store.controlManagedSession(id: selected.id, action: .stop) ? String(localized: "agents.action.stopping", defaultValue: "Stopping…") : String(localized: "agents.action.stopFailed", defaultValue: "Could not stop process")
                 }
             }
         }
@@ -2076,34 +2161,70 @@ private struct MiniButton: View {
     var isDanger: Bool = false
     var isPrimary: Bool = false
     var helpText: String? = nil
+    /// When true, the first tap arms a "Confirm?" state instead of firing
+    /// `action()` immediately — a second tap within `confirmWindow` actually
+    /// confirms it; the arm auto-reverts if that second tap doesn't come.
+    /// Used for irreversible actions (Stop sends SIGTERM to the managed
+    /// process) so a stray or hurried tap can't silently trigger them.
+    var requiresConfirmation: Bool = false
     let action: () -> Void
     @State private var hovering = false
+    @State private var isArmed = false
+    @State private var armTask: Task<Void, Never>?
+    /// Debounces rapid repeated taps regardless of `requiresConfirmation` —
+    /// covers the general "no double-fire" case, not just the confirm flow.
+    @State private var isCoolingDown = false
+
+    private static let confirmWindow: UInt64 = 3_000_000_000
+    private static let tapCooldown: UInt64 = 400_000_000
 
     var body: some View {
         Button {
+            guard !isCoolingDown else { return }
+            isCoolingDown = true
+            Task { @MainActor in
+                try? await Task.sleep(nanoseconds: Self.tapCooldown)
+                isCoolingDown = false
+            }
+            if requiresConfirmation && !isArmed {
+                SoundPlayer.shared.play(.navigation)
+                armTask?.cancel()
+                isArmed = true
+                armTask = Task { @MainActor in
+                    try? await Task.sleep(nanoseconds: Self.confirmWindow)
+                    if !Task.isCancelled { isArmed = false }
+                }
+                return
+            }
+            armTask?.cancel()
+            isArmed = false
             SoundPlayer.shared.play(.action)
             action()
         } label: {
             HStack(spacing: 4) {
-                if let icon { Image(systemName: icon).font(.system(size: 8, weight: .semibold)) }
-                Text(title)
-                if let shortcut {
+                if let icon { Image(systemName: isArmed ? "exclamationmark.triangle.fill" : icon).font(.system(size: 8, weight: .semibold)) }
+                Text(isArmed ? String(localized: "miniButton.confirmPrompt", defaultValue: "Confirm \(title)?") : title)
+                if let shortcut, !isArmed {
                     Text(shortcut).foregroundColor(textColor.opacity(0.55))
                 }
             }
-            .font(.system(size: 10.5, weight: isPrimary ? .semibold : .regular))
-            .foregroundColor(textColor)
+            .font(.system(size: 10.5, weight: isPrimary || isArmed ? .semibold : .regular))
+            .foregroundColor(isArmed ? DesignTokens.red : textColor)
             .padding(.horizontal, 8)
             .frame(height: 30)
             .background(
                 RoundedRectangle(cornerRadius: 8)
-                    .fill(backgroundColor)
+                    .fill(isArmed ? DesignTokens.red.opacity(0.22) : backgroundColor)
             )
         }
         .buttonStyle(NotchPressStyle())
         .onHover { hovering = $0 }
         .animation(.easeOut(duration: 0.18), value: hovering)
-        .help(helpText ?? title)
+        .animation(.easeOut(duration: 0.15), value: isArmed)
+        .help(isArmed ? String(localized: "miniButton.confirmPromptHelp", defaultValue: "Tap again to confirm") : (helpText ?? title))
+        .accessibilityLabel(isArmed ? String(localized: "miniButton.confirmPrompt", defaultValue: "Confirm \(title)?") : title)
+        .accessibilityHint(isArmed ? String(localized: "miniButton.confirmPromptHelp", defaultValue: "Tap again to confirm") : (helpText ?? ""))
+        .onDisappear { armTask?.cancel() }
     }
 
     private var textColor: Color {
@@ -2130,12 +2251,12 @@ private struct CellSurface<Content: View>: View {
     }
 
     var body: some View {
-        RoundedRectangle(cornerRadius: 14)
+        RoundedRectangle(cornerRadius: DesignTokens.cellRadius)
             .fill(reduceTransparency ? AnyShapeStyle(Color(white: 0.075)) : AnyShapeStyle(.ultraThinMaterial))
-            .overlay(RoundedRectangle(cornerRadius: 14).fill(Color.black.opacity(reduceTransparency ? 0 : 0.32)))
-            .overlay(RoundedRectangle(cornerRadius: 14).stroke(Color.white.opacity(0.065), lineWidth: 0.75))
+            .overlay(RoundedRectangle(cornerRadius: DesignTokens.cellRadius).fill(Color.black.opacity(reduceTransparency ? 0 : 0.32)))
+            .overlay(RoundedRectangle(cornerRadius: DesignTokens.cellRadius).stroke(Color.white.opacity(0.065), lineWidth: 0.75))
             .overlay(content.padding(7))
-            .clipShape(RoundedRectangle(cornerRadius: 14, style: .continuous))
+            .clipShape(RoundedRectangle(cornerRadius: DesignTokens.cellRadius, style: .continuous))
     }
 }
 
@@ -2854,6 +2975,23 @@ private struct PlanReviewView: View {
     }
 }
 
+#Preview("Plan review card") {
+    PlanReviewView(
+        request: PlanCenter.Request(
+            agent: .claude,
+            sessionID: "preview",
+            cwd: "/Users/chaos/Documents/agent-notch",
+            title: "Add multi-select support to AskUserQuestion",
+            summary: "Extend SubQuestion with an isMultiSelect flag, render toggleable checkbox rows instead of single-shot buttons, and add a review-before-send confirmation step.",
+            connection: nil,
+            occurredAt: Date()
+        ),
+        resolve: { _, _ in }
+    )
+    .frame(width: 540, height: 190)
+    .background(Color.black)
+}
+
 private struct AgentQuestionView: View {
     let request: QuestionCenter.Request
     /// Step/mode live on `uiState` rather than local `@State` so
@@ -2863,88 +3001,76 @@ private struct AgentQuestionView: View {
     /// at the call site still forces a fresh view per request, but `uiState`
     /// itself is long-lived and wouldn't otherwise reset between requests.
     @ObservedObject var uiState: NotchUIState
+    /// Other question batches waiting behind this one — mirrors
+    /// `ApprovalOverlayView`'s `extraCount`/`+N` badge so a second queued
+    /// batch (e.g. from a different agent) doesn't sit invisibly behind the
+    /// one currently shown.
+    var extraCount: Int = 0
     /// Called exactly once, with every sub-question's answer collected —
     /// `request.connection` is shared across the whole batch and can only
     /// be responded to a single time (see `QuestionCenter.resolve(_:answers:)`).
     let onComplete: ([String]) -> Void
     @State private var collectedAnswers: [String] = []
     @State private var customAnswer = ""
+    @State private var multiSelectedOptionIDs: Set<UUID> = []
     @FocusState private var customFieldFocused: Bool
     @State private var isInteractive = false
+    /// Every other overlay (`ApprovalOverlayView`/`PlanApprovalOverlayView`)
+    /// already reads this; AgentQuestionView's step/mode transitions didn't.
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
     private var currentQuestion: QuestionCenter.SubQuestion { request.questions[uiState.questionStepIndex] }
+
+    /// Drops the `.offset(y:)` component under Reduce Motion — a vertical
+    /// slide is exactly the kind of motion that setting asks apps to avoid;
+    /// a plain opacity crossfade still communicates the step changed.
+    private var stepTransition: AnyTransition {
+        reduceMotion ? .opacity : .opacity.combined(with: .offset(y: 2))
+    }
 
     var body: some View {
         CellSurface {
             VStack(alignment: .leading, spacing: 7) {
-                HStack(spacing: 6) {
-                    Label(String(localized: "question.asks", defaultValue: "\(request.agent.displayName) asks"), systemImage: request.agent.symbolName)
-                        .font(.system(size: 12, weight: .semibold))
-                        .foregroundColor(request.agent == .codex ? .white.opacity(0.9) : DesignTokens.cyan)
-                    Text(currentQuestion.header)
-                        .font(.system(size: 9.5, weight: .medium))
-                        .foregroundColor(DesignTokens.muted)
-                        .lineLimit(1)
-                        .padding(.horizontal, 6)
-                        .frame(height: 20)
-                        .background(Capsule().fill(Color.white.opacity(0.07)))
-                    if request.questions.count > 1 {
-                        Text("\(uiState.questionStepIndex + 1)/\(request.questions.count)")
-                            .font(.system(size: 9.5, weight: .medium))
-                            .foregroundColor(DesignTokens.muted)
-                            .lineLimit(1)
-                            .padding(.horizontal, 6)
-                            .frame(height: 20)
-                            .background(Capsule().fill(Color.white.opacity(0.07)))
-                    }
-                    Spacer(minLength: 4)
-                    if !currentQuestion.options.isEmpty {
-                        Button(uiState.questionCustomMode ? String(localized: "question.choices", defaultValue: "Choices") : String(localized: "question.other", defaultValue: "Other…")) {
-                            withAnimation(.easeOut(duration: 0.20)) {
-                                uiState.questionCustomMode.toggle()
-                            }
-                            customFieldFocused = uiState.questionCustomMode
+                headerRow
+                if uiState.questionReviewMode {
+                    reviewView
+                } else {
+                    Text(currentQuestion.prompt)
+                        .font(.system(size: 14, weight: .medium))
+                        .tracking(-0.1)
+                        .lineLimit(4)
+                        .fixedSize(horizontal: false, vertical: true)
+                        .help(currentQuestion.prompt)
+                        // Measures this Text's own (unstretched) rendered
+                        // height — it can run to several lines, so the panel
+                        // is sized to fit it live instead of budgeting a
+                        // fixed line count (which either clipped long
+                        // prompts or wasted space on short ones). See
+                        // `uiState.questionPromptHeight`.
+                        .onGeometryChange(for: CGFloat.self, of: { $0.size.height }) { newHeight in
+                            uiState.questionPromptHeight = newHeight
                         }
-                        .buttonStyle(NotchPressStyle())
-                        .font(.system(size: 9.5, weight: .medium))
-                        .foregroundColor(.white.opacity(0.66))
-                        .padding(.horizontal, 7)
-                        .frame(height: 24)
-                        .background(Capsule().fill(Color.white.opacity(0.07)))
-                        .help(uiState.questionCustomMode ? String(localized: "question.showChoicesHelp", defaultValue: "Show choices") : String(localized: "question.otherHelp", defaultValue: "Type another answer"))
-                    }
-                }
-                Text(currentQuestion.prompt)
-                    .font(.system(size: 14, weight: .medium))
-                    .tracking(-0.1)
-                    .lineLimit(4)
-                    .fixedSize(horizontal: false, vertical: true)
-                    .help(currentQuestion.prompt)
-                    // Measures this Text's own (unstretched) rendered height —
-                    // it can run to several lines, so the panel is sized to
-                    // fit it live instead of budgeting a fixed line count
-                    // (which either clipped long prompts or wasted space on
-                    // short ones). See `uiState.questionPromptHeight`.
-                    .onGeometryChange(for: CGFloat.self, of: { $0.size.height }) { newHeight in
-                        uiState.questionPromptHeight = newHeight
-                    }
-                Group {
-                    if uiState.questionCustomMode {
-                        customAnswerView
-                            .transition(.opacity.combined(with: .offset(y: 2)))
-                    } else {
-                        VStack(spacing: 5) {
-                            ForEach(Array(currentQuestion.options.enumerated()), id: \.element.id) { index, option in
-                                QuestionChoiceButton(
-                                    shortcut: "⌘\(index + 1)",
-                                    key: KeyEquivalent(Character("\(index + 1)")),
-                                    title: option.label,
-                                    detail: option.detail
-                                ) { advance(with: option.label) }
-                                .disabled(!isInteractive)
+                    Group {
+                        if uiState.questionCustomMode {
+                            customAnswerView
+                                .transition(stepTransition)
+                        } else if currentQuestion.isMultiSelect {
+                            multiSelectView
+                                .transition(stepTransition)
+                        } else {
+                            VStack(spacing: 5) {
+                                ForEach(Array(currentQuestion.options.enumerated()), id: \.element.id) { index, option in
+                                    QuestionChoiceButton(
+                                        shortcut: "⌘\(index + 1)",
+                                        key: KeyEquivalent(Character("\(index + 1)")),
+                                        title: option.label,
+                                        detail: option.detail
+                                    ) { advance(with: option.label) }
+                                    .disabled(!isInteractive)
+                                }
                             }
+                            .transition(stepTransition)
                         }
-                        .transition(.opacity.combined(with: .offset(y: 2)))
                     }
                 }
             }
@@ -2958,6 +3084,8 @@ private struct AgentQuestionView: View {
         .onAppear {
             uiState.questionStepIndex = 0
             uiState.questionCustomMode = request.questions[0].options.isEmpty
+            uiState.questionReviewMode = false
+            multiSelectedOptionIDs = []
             armInteractivity()
         }
     }
@@ -2972,6 +3100,78 @@ private struct AgentQuestionView: View {
         Task { @MainActor in
             try? await Task.sleep(nanoseconds: 150_000_000)
             isInteractive = true
+        }
+    }
+
+    private var headerRow: some View {
+        HStack(spacing: 6) {
+            Label(
+                uiState.questionReviewMode
+                    ? String(localized: "question.reviewHeader", defaultValue: "Review your answers")
+                    : String(localized: "question.asks", defaultValue: "\(request.agent.displayName) asks"),
+                systemImage: request.agent.symbolName
+            )
+            .font(.system(size: 12, weight: .semibold))
+            .foregroundColor(request.agent == .codex ? .white.opacity(0.9) : DesignTokens.cyan)
+            if !uiState.questionReviewMode {
+                Text(currentQuestion.header)
+                    .font(.system(size: 9.5, weight: .medium))
+                    .foregroundColor(DesignTokens.muted)
+                    .lineLimit(1)
+                    .padding(.horizontal, 6)
+                    .frame(height: 20)
+                    .background(Capsule().fill(Color.white.opacity(0.07)))
+                if request.questions.count > 1 {
+                    HStack(spacing: 5) {
+                        Text("\(uiState.questionStepIndex + 1)/\(request.questions.count)")
+                            .font(.system(size: 9.5, weight: .medium))
+                            .foregroundColor(DesignTokens.muted)
+                            .lineLimit(1)
+                        // Which sub-questions are already answered vs. still
+                        // ahead — the plain "N/M" text alone doesn't make
+                        // that legible at a glance.
+                        HStack(spacing: 3) {
+                            ForEach(0..<request.questions.count, id: \.self) { index in
+                                Circle()
+                                    .fill(
+                                        index < uiState.questionStepIndex ? DesignTokens.cyan
+                                        : index == uiState.questionStepIndex ? Color.white.opacity(0.8)
+                                        : Color.white.opacity(0.18)
+                                    )
+                                    .frame(width: 5, height: 5)
+                            }
+                        }
+                    }
+                    .padding(.horizontal, 6)
+                    .frame(height: 20)
+                    .background(Capsule().fill(Color.white.opacity(0.07)))
+                }
+            }
+            Spacer(minLength: 4)
+            if !uiState.questionReviewMode {
+                if extraCount > 0 {
+                    Text(String(localized: "question.extraCount", defaultValue: "+\(String(extraCount))"))
+                        .font(.system(size: 10.5, weight: .semibold))
+                        .padding(.horizontal, 6)
+                        .frame(height: 18)
+                        .background(Capsule().fill(Color.white.opacity(0.09)))
+                }
+                if !currentQuestion.options.isEmpty {
+                    Button(uiState.questionCustomMode ? String(localized: "question.choices", defaultValue: "Choices") : String(localized: "question.other", defaultValue: "Other…")) {
+                        withAnimation(reduceMotion ? .easeOut(duration: 0.08) : .easeOut(duration: 0.20)) {
+                            uiState.questionCustomMode.toggle()
+                        }
+                        customFieldFocused = uiState.questionCustomMode
+                    }
+                    .buttonStyle(NotchPressStyle())
+                    .font(.system(size: 9.5, weight: .medium))
+                    .foregroundColor(.white.opacity(0.66))
+                    .padding(.horizontal, 7)
+                    .frame(height: 24)
+                    .background(Capsule().fill(Color.white.opacity(0.07)))
+                    .help(uiState.questionCustomMode ? String(localized: "question.showChoicesHelp", defaultValue: "Show choices") : String(localized: "question.otherHelp", defaultValue: "Type another answer"))
+                }
+            }
         }
     }
 
@@ -3004,6 +3204,74 @@ private struct AgentQuestionView: View {
         }
     }
 
+    /// Toggleable checkbox-style rows for a `multiSelect` sub-question —
+    /// unlike single-select, no single tap unambiguously means "done", so a
+    /// separate confirm button combines the current selection into one
+    /// comma-joined answer and advances.
+    private var multiSelectView: some View {
+        VStack(spacing: 5) {
+            ForEach(currentQuestion.options) { option in
+                MultiSelectChoiceRow(
+                    title: option.label,
+                    detail: option.detail,
+                    isSelected: multiSelectedOptionIDs.contains(option.id)
+                ) {
+                    if multiSelectedOptionIDs.contains(option.id) {
+                        multiSelectedOptionIDs.remove(option.id)
+                    } else {
+                        multiSelectedOptionIDs.insert(option.id)
+                    }
+                }
+                .disabled(!isInteractive)
+            }
+            Button(action: confirmMultiSelect) {
+                Text(String(localized: "question.continueButton", defaultValue: "Continue"))
+                    .font(.system(size: 11, weight: .semibold))
+                    .frame(maxWidth: .infinity, minHeight: 32)
+                    .foregroundColor(.black)
+                    .background(RoundedRectangle(cornerRadius: 8).fill(DesignTokens.cyan.opacity(multiSelectedOptionIDs.isEmpty ? 0.4 : 0.92)))
+            }
+            .buttonStyle(NotchPressStyle())
+            .disabled(!isInteractive || multiSelectedOptionIDs.isEmpty)
+        }
+    }
+
+    /// The read-only screen shown after the last sub-question is answered —
+    /// every answer is visible together before it's actually sent back to
+    /// the (blocked) agent, since `resolve(_:answers:)` can only respond
+    /// once. No per-answer editing here (that would need backward step
+    /// navigation); the user can only confirm-send as a whole.
+    private var reviewView: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            ScrollView {
+                VStack(alignment: .leading, spacing: 8) {
+                    ForEach(Array(zip(request.questions, collectedAnswers)), id: \.0.id) { question, answer in
+                        VStack(alignment: .leading, spacing: 2) {
+                            Text(question.header)
+                                .font(.system(size: 9.5, weight: .semibold))
+                                .foregroundColor(DesignTokens.muted)
+                            Text(answer)
+                                .font(.system(size: 11.5))
+                                .foregroundColor(.white.opacity(0.85))
+                                .fixedSize(horizontal: false, vertical: true)
+                        }
+                    }
+                }
+                .padding(.vertical, 4)
+            }
+            .frame(maxHeight: 108)
+            Button(action: confirmSend) {
+                Text(String(localized: "question.sendAllAnswers", defaultValue: "Send answers"))
+                    .font(.system(size: 11, weight: .semibold))
+                    .frame(maxWidth: .infinity, minHeight: 32)
+                    .foregroundColor(.black)
+                    .background(RoundedRectangle(cornerRadius: 8).fill(DesignTokens.cyan.opacity(0.92)))
+            }
+            .buttonStyle(NotchPressStyle())
+            .disabled(!isInteractive)
+        }
+    }
+
     private func submitCustomAnswer() {
         let value = customAnswer.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !value.isEmpty else { return }
@@ -3011,9 +3279,23 @@ private struct AgentQuestionView: View {
         advance(with: value)
     }
 
+    private func confirmMultiSelect() {
+        let labels = currentQuestion.options.filter { multiSelectedOptionIDs.contains($0.id) }.map(\.label)
+        guard !labels.isEmpty else { return }
+        SoundPlayer.shared.play(.approve)
+        advance(with: labels.joined(separator: ", "))
+    }
+
+    private func confirmSend() {
+        guard isInteractive else { return }
+        isInteractive = false
+        onComplete(collectedAnswers)
+    }
+
     private func advance(with value: String) {
         var next = collectedAnswers
         next.append(value)
+        multiSelectedOptionIDs = []
         if uiState.questionStepIndex + 1 < request.questions.count {
             collectedAnswers = next
             uiState.questionStepIndex += 1
@@ -3021,9 +3303,68 @@ private struct AgentQuestionView: View {
             uiState.questionCustomMode = currentQuestion.options.isEmpty
             armInteractivity()
         } else {
-            onComplete(next)
+            collectedAnswers = next
+            uiState.questionReviewMode = true
+            armInteractivity()
         }
     }
+}
+
+#Preview("Question — single-select, multi-question batch") {
+    AgentQuestionView(
+        request: QuestionCenter.Request(
+            agent: .claude,
+            sessionID: "preview",
+            questions: [
+                QuestionCenter.SubQuestion(
+                    sourceQuestionID: "0",
+                    prompt: "Which approach should I take for the retry logic?",
+                    header: "Retry strategy",
+                    options: [
+                        QuestionCenter.Option(label: "Exponential backoff", detail: "Doubles the delay after each failure"),
+                        QuestionCenter.Option(label: "Fixed interval", detail: "Retries every 2 seconds"),
+                    ],
+                    isMultiSelect: false
+                ),
+                QuestionCenter.SubQuestion(sourceQuestionID: "1", prompt: "Should I add a test for this?", header: "Testing", options: [], isMultiSelect: false),
+            ],
+            connection: nil,
+            occurredAt: Date()
+        ),
+        uiState: NotchUIState(),
+        extraCount: 1,
+        onComplete: { _ in }
+    )
+    .frame(width: 540, height: 220)
+    .background(Color.black)
+}
+
+#Preview("Question — multi-select") {
+    AgentQuestionView(
+        request: QuestionCenter.Request(
+            agent: .codex,
+            sessionID: "preview",
+            questions: [
+                QuestionCenter.SubQuestion(
+                    sourceQuestionID: "0",
+                    prompt: "Which features should be enabled for this build?",
+                    header: "Features",
+                    options: [
+                        QuestionCenter.Option(label: "Dark mode", detail: ""),
+                        QuestionCenter.Option(label: "Notifications", detail: ""),
+                        QuestionCenter.Option(label: "Background sync", detail: ""),
+                    ],
+                    isMultiSelect: true
+                ),
+            ],
+            connection: nil,
+            occurredAt: Date()
+        ),
+        uiState: NotchUIState(),
+        onComplete: { _ in }
+    )
+    .frame(width: 540, height: 260)
+    .background(Color.black)
 }
 
 private struct QuestionChoiceButton: View {
@@ -3072,6 +3413,55 @@ private struct QuestionChoiceButton: View {
         .animation(.easeOut(duration: 0.18), value: hovering)
         .keyboardShortcut(key, modifiers: .command)
         .help(detail.isEmpty ? String(localized: "question.chooseHelp", defaultValue: "Choose \(title)") : String(localized: "question.choiceHelpWithDetail", defaultValue: "\(title)\n\(detail)"))
+        .accessibilityLabel(title)
+        .accessibilityHint(detail)
+    }
+}
+
+/// A toggleable row for `multiSelect` sub-questions — same visual family as
+/// `QuestionChoiceButton` (same padding/row-height/hover pattern) but with a
+/// persistent checkbox glyph instead of a one-shot chevron, since selecting
+/// this option doesn't advance the question by itself.
+private struct MultiSelectChoiceRow: View {
+    let title: String
+    let detail: String
+    let isSelected: Bool
+    let action: () -> Void
+    @State private var hovering = false
+
+    var body: some View {
+        Button(action: action) {
+            HStack(spacing: 9) {
+                Image(systemName: isSelected ? "checkmark.square.fill" : "square")
+                    .font(.system(size: 14))
+                    .foregroundColor(isSelected ? DesignTokens.cyan : .white.opacity(0.35))
+                    .frame(width: 20)
+                VStack(alignment: .leading, spacing: 1) {
+                    Text(title)
+                        .font(.system(size: 12, weight: .medium))
+                        .lineLimit(1)
+                        .truncationMode(.tail)
+                    if !detail.isEmpty {
+                        Text(detail)
+                            .font(.system(size: 10))
+                            .foregroundColor(DesignTokens.muted)
+                            .lineLimit(1)
+                            .truncationMode(.tail)
+                    }
+                }
+                Spacer()
+            }
+            .padding(.horizontal, 10)
+            .frame(minHeight: detail.isEmpty ? 32 : 42)
+            .background(RoundedRectangle(cornerRadius: 9).fill(Color.white.opacity(hovering ? 0.12 : (isSelected ? 0.09 : 0.065))))
+        }
+        .buttonStyle(NotchPressStyle())
+        .onHover { hovering = $0 }
+        .animation(.easeOut(duration: 0.18), value: hovering)
+        .help(String(localized: "question.toggleSelectionHelp", defaultValue: "Toggle \(title)"))
+        .accessibilityLabel(title)
+        .accessibilityHint(detail)
+        .accessibilityAddTraits(isSelected ? [.isSelected] : [])
     }
 }
 
@@ -3126,6 +3516,12 @@ private struct ApprovalOverlayView: View {
     /// otherwise makes the shown agent's label look wrong when a different
     /// agent's brand-new request is actually the one waiting behind it).
     var otherAgentPending: AgentKind? = nil
+    var cwd: String = ""
+    /// Best-effort heuristic flag from `DangerousCommandDetector` — see its
+    /// doc comment. Escalates the command box's border/caption, not the
+    /// header icon (which stays orange for every permission request, so the
+    /// color language doesn't collide with `.deny`'s red).
+    var isDangerous: Bool = false
     var onAllowOnce: () -> Void = {}
     var onDeny: () -> Void = {}
     var onCompactOutcome: (Bool) -> Void = { _ in }
@@ -3133,6 +3529,12 @@ private struct ApprovalOverlayView: View {
     @State private var decision: ApprovalDecision?
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @State private var isInteractive = false
+
+    /// Caps how tall the command/diff box grows before it becomes
+    /// internally scrollable — keeps `approvalOpenSize()`'s height budget
+    /// (see `NotchWindowController`) bounded even for very long commands,
+    /// instead of the box (and the whole panel) growing without limit.
+    private static let summaryBoxMaxHeight: CGFloat = 140
 
     var body: some View {
         CellSurface {
@@ -3185,21 +3587,47 @@ private struct ApprovalOverlayView: View {
                                 .lineLimit(1)
                                 .truncationMode(.middle)
                         }
-                        Text(summary.isEmpty ? String(localized: "approval.reviewAction", defaultValue: "Review this action before \(agent.displayName) continues.") : summary)
-                            .font(.system(size: 11, design: .monospaced))
-                            .foregroundColor(.white.opacity(0.58))
-                            .padding(.horizontal, 9)
-                            .frame(maxWidth: .infinity, minHeight: 34, alignment: .leading)
-                            .background(RoundedRectangle(cornerRadius: 8).fill(Color.black.opacity(0.28)))
-                            // No `lineLimit` on this Text on purpose — it's a
-                            // command/diff excerpt the user must review before
-                            // approving, so it must never truncate. Measure
-                            // its real height instead, so the panel grows to
-                            // fit it exactly rather than budgeting a fixed
-                            // size. See `uiState.approvalSummaryHeight`.
-                            .onGeometryChange(for: CGFloat.self, of: { $0.size.height }) { newHeight in
-                                uiState.approvalSummaryHeight = newHeight
+                        if !cwd.isEmpty {
+                            HStack(spacing: 5) {
+                                Image(systemName: "folder")
+                                    .font(.system(size: 9))
+                                    .foregroundColor(DesignTokens.muted)
+                                Text(cwdTail(cwd))
+                                    .font(.system(size: 10, design: .monospaced))
+                                    .foregroundColor(DesignTokens.muted)
+                                    .lineLimit(1)
+                                    .truncationMode(.head)
+                                Spacer(minLength: 6)
+                                if isDangerous {
+                                    Label(String(localized: "approval.dangerousCommand", defaultValue: "Review carefully"), systemImage: "exclamationmark.triangle.fill")
+                                        .font(.system(size: 9, weight: .semibold))
+                                        .foregroundColor(DesignTokens.red)
+                                        .lineLimit(1)
+                                }
                             }
+                        }
+                        ScrollView {
+                            Text(summary.isEmpty ? String(localized: "approval.reviewAction", defaultValue: "Review this action before \(agent.displayName) continues.") : summary)
+                                .font(.system(size: 11, design: .monospaced))
+                                .foregroundColor(isDangerous ? DesignTokens.red.opacity(0.85) : .white.opacity(0.58))
+                                .padding(.horizontal, 9)
+                                .padding(.vertical, 8)
+                                .frame(maxWidth: .infinity, minHeight: 34, alignment: .leading)
+                                // No `lineLimit` on this Text on purpose — it's
+                                // a command/diff excerpt the user must review
+                                // before approving, so it must never truncate.
+                                // Measure its real (unbounded) height so long
+                                // content that exceeds the box's own capped
+                                // `.frame(maxHeight:)` below stays reachable by
+                                // scrolling instead of being silently clipped
+                                // by the panel's own `approvalMaxHeight` cap.
+                                .onGeometryChange(for: CGFloat.self, of: { $0.size.height }) { newHeight in
+                                    uiState.approvalSummaryHeight = min(newHeight, Self.summaryBoxMaxHeight)
+                                }
+                        }
+                        .frame(maxHeight: Self.summaryBoxMaxHeight)
+                        .background(RoundedRectangle(cornerRadius: 8).fill(Color.black.opacity(0.28)))
+                        .overlay(RoundedRectangle(cornerRadius: 8).strokeBorder(isDangerous ? DesignTokens.red.opacity(0.45) : .clear, lineWidth: 1))
                         Spacer(minLength: 10)
                         HStack(spacing: 8) {
                             ApprovalActionButton(title: String(localized: "approval.deny", defaultValue: "Deny"), shortcut: "⌘N", icon: "xmark", role: .deny) { decide(.deny) }
@@ -3250,6 +3678,33 @@ private struct ApprovalOverlayView: View {
             onFinishOutcome()
         }
     }
+}
+
+#Preview("Approval — dangerous command") {
+    ApprovalOverlayView(
+        uiState: NotchUIState(),
+        agent: .claude,
+        toolName: "Bash",
+        summary: "sudo rm -rf /tmp/build-artifacts && git push --force origin main",
+        extraCount: 2,
+        otherAgentPending: .codex,
+        cwd: "/Users/chaos/Documents/agent-notch/Sources/AgentNotch",
+        isDangerous: true
+    )
+    .frame(width: 540, height: 260)
+    .background(Color.black)
+}
+
+#Preview("Approval — ordinary file edit") {
+    ApprovalOverlayView(
+        uiState: NotchUIState(),
+        agent: .codex,
+        toolName: "Edit",
+        summary: "/Users/chaos/Documents/agent-notch/Sources/AgentNotch/NotchView.swift",
+        cwd: "/Users/chaos/Documents/agent-notch"
+    )
+    .frame(width: 540, height: 220)
+    .background(Color.black)
 }
 
 private enum ApprovalDecision { case allow, deny }
@@ -3338,6 +3793,12 @@ private struct PlanApprovalOverlayView: View {
     }
 }
 
+#Preview("Plan approval (ExitPlanMode)") {
+    PlanApprovalOverlayView(agent: .claude)
+        .frame(width: 540, height: 190)
+        .background(Color.black)
+}
+
 private struct PlanChoiceButton: View {
     let title: String
     let detail: String
@@ -3369,7 +3830,13 @@ private struct PlanChoiceButton: View {
         .buttonStyle(NotchPressStyle())
         .onHover { hovering = $0 }
         .animation(.easeOut(duration: 0.18), value: hovering)
+        // Mirrors ApprovalActionButton's ⌘Y/⌘N convention (allow/deny) —
+        // "Yes, approve" and "No, keep planning" are the same affirmative/
+        // negative pair, just for a plan instead of a permission request.
+        .keyboardShortcut(isPrimary ? KeyEquivalent("y") : KeyEquivalent("n"), modifiers: .command)
         .help(detail)
+        .accessibilityLabel(title)
+        .accessibilityHint(detail)
     }
 
     private var foreground: Color { isPrimary ? .black : .white.opacity(0.86) }
@@ -3405,6 +3872,8 @@ private struct ApprovalActionButton: View {
         .animation(.easeOut(duration: 0.18), value: hovering)
         .keyboardShortcut(role == .allow ? KeyEquivalent("y") : KeyEquivalent("n"), modifiers: .command)
         .help(role == .allow ? String(localized: "approval.allowOnceHelp", defaultValue: "Allow this action once") : String(localized: "approval.denyHelp", defaultValue: "Deny this action"))
+        .accessibilityLabel(title)
+        .accessibilityHint(role == .allow ? String(localized: "approval.allowOnceHelp", defaultValue: "Allow this action once") : String(localized: "approval.denyHelp", defaultValue: "Deny this action"))
     }
 
     private var foreground: Color { role == .allow ? .black : .white.opacity(0.86) }

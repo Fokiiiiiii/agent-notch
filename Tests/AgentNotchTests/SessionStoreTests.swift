@@ -178,6 +178,76 @@ final class SessionStoreTests: XCTestCase {
         XCTAssertNil(session.processExecutablePath)
     }
 
+    // MARK: - groupSessionsByProject (Phase 5)
+
+    private func session(_ id: String, agent: AgentKind = .claude, cwd: String) -> AgentSession {
+        AgentSession(id: id, agent: agent, title: id, cwd: cwd, lastActivity: Date(), state: .running, lastMessage: "")
+    }
+
+    func testGroupSessionsByProjectCombinesSameCwdRegardlessOfAgent() {
+        let sessions = [
+            session("s1", agent: .claude, cwd: "/repo/a"),
+            session("s2", agent: .codex, cwd: "/repo/a"),
+            session("s3", agent: .claude, cwd: "/repo/b"),
+        ]
+
+        let groups = groupSessionsByProject(sessions)
+
+        XCTAssertEqual(groups.count, 2)
+        XCTAssertEqual(groups[0].cwd, "/repo/a")
+        XCTAssertEqual(groups[0].sessions.map(\.id), ["s1", "s2"])
+        XCTAssertEqual(groups[1].cwd, "/repo/b")
+        XCTAssertEqual(groups[1].sessions.map(\.id), ["s3"])
+    }
+
+    func testGroupSessionsByProjectPreservesFirstOccurrenceOrdering() {
+        // Group order follows each cwd's *first* appearance in the input
+        // (which is itself most-recent-first from SessionStore) — not
+        // alphabetical, and not disrupted by a later session reusing an
+        // earlier project.
+        let sessions = [
+            session("s1", cwd: "/repo/newest"),
+            session("s2", cwd: "/repo/older"),
+            session("s3", cwd: "/repo/newest"),
+        ]
+
+        let groups = groupSessionsByProject(sessions)
+
+        XCTAssertEqual(groups.map(\.cwd), ["/repo/newest", "/repo/older"])
+        XCTAssertEqual(groups[0].sessions.map(\.id), ["s1", "s3"])
+    }
+
+    func testGroupSessionsByProjectHandlesEmptyInput() {
+        XCTAssertTrue(groupSessionsByProject([]).isEmpty)
+    }
+
+    func testGroupSessionsByProjectSingleProjectYieldsOneGroup() {
+        let sessions = [session("s1", cwd: "/repo/only"), session("s2", cwd: "/repo/only")]
+        let groups = groupSessionsByProject(sessions)
+
+        XCTAssertEqual(groups.count, 1)
+        XCTAssertEqual(groups[0].sessions.count, 2)
+    }
+
+    /// Layout boundary case (Phase 8): a large number of simultaneous
+    /// sessions across several projects — `AgentsCell.sessionList`'s
+    /// `ScrollView` is the mechanism relied on to keep this usable, but the
+    /// grouping/ordering logic itself must still hold at this scale.
+    func testGroupSessionsByProjectHandlesManySessionsAcrossManyProjects() {
+        let sessionCount = 40
+        let projectCount = 8
+        let sessions = (0..<sessionCount).map { index in
+            session("s\(index)", agent: index.isMultiple(of: 2) ? .claude : .codex, cwd: "/repo/project-\(index % projectCount)")
+        }
+
+        let groups = groupSessionsByProject(sessions)
+
+        XCTAssertEqual(groups.count, projectCount)
+        XCTAssertEqual(groups.reduce(0) { $0 + $1.sessions.count }, sessionCount)
+        // No session lost or duplicated across group boundaries.
+        XCTAssertEqual(Set(groups.flatMap { $0.sessions.map(\.id) }).count, sessionCount)
+    }
+
     // MARK: - Helpers
 
     private func makeCLIEvent(sessionId: String, input: [String: Any]) -> HookEvent {

@@ -65,15 +65,105 @@ final class AppSettings: ObservableObject {
     }
 }
 
-/// A single widget's placement within a tab's layout: whether it shows, and
-/// in what order relative to its siblings. `id` should be a stable,
-/// human-readable identifier (e.g. `"media.sources"`) so saved layouts
-/// survive code refactors that don't rename the underlying widget.
+/// Which side of its row/tab-bar a widget anchors to.
+enum WidgetAlignment: String, Codable, CaseIterable {
+    case leading, trailing
+}
+
+/// How a widget behaves while a fullscreen app is active on the current
+/// Space — mirrors the suppression behavior `NotchWindowController` already
+/// applies to the whole notch, but per-widget.
+enum WidgetFullscreenBehavior: String, Codable, CaseIterable {
+    /// Shows exactly as it would in a normal (non-fullscreen) Space.
+    case show
+    /// Never shows while a fullscreen app is active.
+    case hide
+    /// Only reachable via the Hover peek (long-press), never Compact/Expanded.
+    case hoverOnly
+}
+
+/// A single widget's placement and per-state visibility within a tab's
+/// layout. `id` should be a stable, human-readable identifier (e.g.
+/// `"media.sources"`) so saved layouts survive code refactors that don't
+/// rename the underlying widget.
+///
+/// Decoding is hand-written (not synthesized) so a layout saved by an
+/// older build — before `displayName`/`alignment`/`priority`/`minWidth`/
+/// `preferredWidth`/`showsInCompact`/`showsInHover`/`showsInExpanded`/
+/// `fullscreenBehavior` existed — still decodes cleanly instead of
+/// throwing on the missing keys; every new field falls back to its
+/// default. See `WidgetLayoutItemCodableTests` for the regression guard.
 struct WidgetLayoutItem: Codable, Identifiable, Equatable {
     let id: String
+    var displayName: String = ""
     var isVisible: Bool = true
+    var alignment: WidgetAlignment = .leading
     var order: Int
+    /// Lower-priority widgets are the first candidates to drop when a row
+    /// doesn't have room for everything at once. Not yet consumed by any
+    /// layout code — reserved for the settings/module-rewiring work this
+    /// data model exists to support (see this type's introducing commit).
+    var priority: Int = 0
+    var minWidth: CGFloat = 0
+    var preferredWidth: CGFloat = 0
+    var showsInCompact: Bool = true
+    var showsInHover: Bool = true
+    var showsInExpanded: Bool = true
+    var fullscreenBehavior: WidgetFullscreenBehavior = .hoverOnly
     var sizeScale: Double = 1.0
+
+    init(
+        id: String,
+        displayName: String = "",
+        isVisible: Bool = true,
+        alignment: WidgetAlignment = .leading,
+        order: Int,
+        priority: Int = 0,
+        minWidth: CGFloat = 0,
+        preferredWidth: CGFloat = 0,
+        showsInCompact: Bool = true,
+        showsInHover: Bool = true,
+        showsInExpanded: Bool = true,
+        fullscreenBehavior: WidgetFullscreenBehavior = .hoverOnly,
+        sizeScale: Double = 1.0
+    ) {
+        self.id = id
+        self.displayName = displayName
+        self.isVisible = isVisible
+        self.alignment = alignment
+        self.order = order
+        self.priority = priority
+        self.minWidth = minWidth
+        self.preferredWidth = preferredWidth
+        self.showsInCompact = showsInCompact
+        self.showsInHover = showsInHover
+        self.showsInExpanded = showsInExpanded
+        self.fullscreenBehavior = fullscreenBehavior
+        self.sizeScale = sizeScale
+    }
+
+    private enum CodingKeys: String, CodingKey {
+        case id, displayName, isVisible, alignment, order, priority
+        case minWidth, preferredWidth, showsInCompact, showsInHover, showsInExpanded
+        case fullscreenBehavior, sizeScale
+    }
+
+    init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        id = try container.decode(String.self, forKey: .id)
+        displayName = try container.decodeIfPresent(String.self, forKey: .displayName) ?? ""
+        isVisible = try container.decodeIfPresent(Bool.self, forKey: .isVisible) ?? true
+        alignment = try container.decodeIfPresent(WidgetAlignment.self, forKey: .alignment) ?? .leading
+        order = try container.decode(Int.self, forKey: .order)
+        priority = try container.decodeIfPresent(Int.self, forKey: .priority) ?? 0
+        minWidth = try container.decodeIfPresent(CGFloat.self, forKey: .minWidth) ?? 0
+        preferredWidth = try container.decodeIfPresent(CGFloat.self, forKey: .preferredWidth) ?? 0
+        showsInCompact = try container.decodeIfPresent(Bool.self, forKey: .showsInCompact) ?? true
+        showsInHover = try container.decodeIfPresent(Bool.self, forKey: .showsInHover) ?? true
+        showsInExpanded = try container.decodeIfPresent(Bool.self, forKey: .showsInExpanded) ?? true
+        fullscreenBehavior = try container.decodeIfPresent(WidgetFullscreenBehavior.self, forKey: .fullscreenBehavior) ?? .hoverOnly
+        sizeScale = try container.decodeIfPresent(Double.self, forKey: .sizeScale) ?? 1.0
+    }
 }
 
 /// The full widget arrangement for one tab (Agents/Media/Today/System).

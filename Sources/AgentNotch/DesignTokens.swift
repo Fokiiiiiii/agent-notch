@@ -55,6 +55,42 @@ enum DesignTokens {
     /// damped response also remains interruptible when the pointer reverses.
     static let spring = Animation.spring(response: 0.42, dampingFraction: 0.92)
     static let contentTransition = Animation.easeInOut(duration: 0.30)
+
+    // MARK: - Spacing scale
+    //
+    // A generic 4pt-step scale for call sites that don't already have a
+    // purpose-specific spacing constant. Existing hand-tuned spacing
+    // throughout NotchView.swift (much of it calibrated against live-measured
+    // content, per this session's approval/question-card sizing work) is
+    // intentionally left as-is rather than swept onto this scale wholesale —
+    // see this token group's introducing commit for why.
+    static let spacingXS: CGFloat = 4
+    static let spacingS: CGFloat = 8
+    static let spacingM: CGFloat = 12
+    static let spacingL: CGFloat = 16
+
+    /// Corner radius shared by `CellSurface` and `AgentsCell.cellShape` — was
+    /// the literal `14` duplicated in both places (and not routed through
+    /// `AppSettings.cornerRadiusScale` the way `closedRadius`/`openRadius`
+    /// are). Kept as a plain (unscaled) constant for now, matching those two
+    /// call sites' prior behavior exactly.
+    static let cellRadius: CGFloat = 14
+
+    // MARK: - Shadow (currently: `.hover`'s shell only, see `NotchView.shapeBackground`)
+    static let cardShadowOpacity: Double = 0.35
+    static let cardShadowRadius: CGFloat = 12
+    static let cardShadowY: CGFloat = 6
+
+    // MARK: - Hover dwell timing
+    //
+    // Mirrors the values already hand-tuned and documented in
+    // `NotchWindowController` (`hoverExpandTask`/`hoverTask`) — reproduced
+    // here as named constants for a future settings UI to reference, not yet
+    // wired into `NotchWindowController` itself (its own inline values carry
+    // more specific tuning context in their doc comments than duplicating
+    // them here would preserve).
+    static let hoverExpandDelay: TimeInterval = 0.22
+    static let hoverCollapseDelay: TimeInterval = 0.14
 }
 
 extension DesignTokens {

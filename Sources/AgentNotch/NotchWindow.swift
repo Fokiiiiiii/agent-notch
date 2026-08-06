@@ -86,7 +86,7 @@ enum IslandOverlay: Equatable {
     /// without changing FIFO resolution order (changing to "show newest"
     /// would let a busy agent starve an older pending request into timing
     /// out unanswered, which is worse).
-    case approval(agent: AgentKind, toolName: String, summary: String, extraCount: Int, otherAgentPending: AgentKind?)
+    case approval(agent: AgentKind, toolName: String, summary: String, extraCount: Int, otherAgentPending: AgentKind?, cwd: String, isDangerous: Bool)
     case plan
     case question
 }
@@ -173,6 +173,11 @@ final class NotchUIState: ObservableObject {
     /// whole batch (see `questionOpenSize(for:)`).
     @Published var questionStepIndex: Int = 0
     @Published var questionCustomMode: Bool = false
+    /// `true` once every sub-question in the current batch has been
+    /// answered and `AgentQuestionView` is showing the read-only
+    /// review-before-send screen instead of a question step — see
+    /// `questionOpenSize(for:)`'s `questionReviewHeight` branch.
+    @Published var questionReviewMode: Bool = false
     /// Live-measured heights of the two genuinely variable-length text
     /// elements in the question/approval overlays (the question prompt can
     /// run to several lines; the approval summary is a full command/diff
@@ -781,6 +786,13 @@ final class NotchWindowController: NSObject {
                 self.scheduleResize()
             }
             .store(in: &cancellables)
+        uiState.$questionReviewMode
+            .dropFirst()
+            .sink { [weak self] _ in
+                guard let self, self.uiState.overlay == .question else { return }
+                self.scheduleResize()
+            }
+            .store(in: &cancellables)
         uiState.$questionPromptHeight
             .dropFirst()
             .sink { [weak self] _ in
@@ -914,7 +926,9 @@ final class NotchWindowController: NSObject {
                 toolName: first.toolName,
                 summary: first.summary,
                 extraCount: permissions.queue.count - 1,
-                otherAgentPending: otherAgent
+                otherAgentPending: otherAgent,
+                cwd: first.cwd,
+                isDangerous: first.details.isDangerous
             )
         case .plan:
             uiState.overlay = .plan
@@ -1115,7 +1129,7 @@ final class NotchWindowController: NSObject {
             switch uiState.overlay {
             case .question:
                 targetSize = questions.queue.first.map(questionOpenSize(for:)) ?? openQuestionSize
-            case .approval(_, let toolName, _, _, _):
+            case .approval(_, let toolName, _, _, _, _, _):
                 // `ExitPlanMode` renders as `PlanApprovalOverlayView` instead
                 // (see `overlayCell(_:)`) — entirely fixed/known-height
                 // content (a header row + two 38pt `PlanChoiceButton`s), so
@@ -1185,6 +1199,20 @@ final class NotchWindowController: NSObject {
     /// `customAnswerView`'s fixed-height `TextEditor` (74) + its 8pt spacing
     /// + the "Send answer" button (32).
     private let questionCustomAnswerHeight: CGFloat = 114
+    /// One `MultiSelectChoiceRow` (34pt checkbox row) plus 5pt spacing, plus
+    /// a fixed 40pt for the "Continue" confirm button + its own spacing —
+    /// mirrors `questionOptionRowHeight`'s single-select math but budgets
+    /// extra for the explicit confirm step multi-select needs (there's no
+    /// single tap that unambiguously means "done" the way single-select
+    /// has).
+    private let questionMultiSelectRowHeight: CGFloat = 39
+    private let questionMultiSelectConfirmHeight: CGFloat = 40
+    /// The review-before-send screen's content is a capped, internally
+    /// scrollable list (mirrors `ApprovalOverlayView.summaryBoxMaxHeight`'s
+    /// pattern) plus a fixed "Send answers" button row, so — unlike the
+    /// other branches — this doesn't need to grow with the number of
+    /// questions in the batch.
+    private let questionReviewHeight: CGFloat = 190
     private let questionMinHeight: CGFloat = 150
 
     /// Sizes the `.question` overlay to fit the *current step's* content
@@ -1196,11 +1224,20 @@ final class NotchWindowController: NSObject {
     /// (`uiState.questionPromptHeight`) rather than budgeted for a fixed
     /// line count, since prompts vary from one short line to several.
     private func questionOpenSize(for request: QuestionCenter.Request) -> CGSize {
+        if uiState.questionReviewMode {
+            // Self-contained: no per-question prompt row here, just the
+            // fixed header + capped scrollable answer list + send button —
+            // see `questionReviewHeight`'s doc comment.
+            let height = max(questionReviewHeight, questionMinHeight)
+            return CGSize(width: openQuestionSize.width, height: min(height, openQuestionSize.height))
+        }
         let stepIndex = min(max(uiState.questionStepIndex, 0), request.questions.count - 1)
         let question = request.questions[stepIndex]
         let bodyHeight: CGFloat
         if question.options.isEmpty || uiState.questionCustomMode {
             bodyHeight = questionCustomAnswerHeight
+        } else if question.isMultiSelect {
+            bodyHeight = CGFloat(question.options.count) * questionMultiSelectRowHeight - 5 + questionMultiSelectConfirmHeight
         } else {
             let hasDetail = question.options.contains { !$0.detail.isEmpty }
             let rowHeight = hasDetail ? questionOptionRowHeightWithDetail : questionOptionRowHeight
@@ -1213,18 +1250,20 @@ final class NotchWindowController: NSObject {
     /// Fixed chrome around `ApprovalOverlayView`'s pre-decision content,
     /// *excluding* the summary box: 30pt tab bar, `CellSurface`'s 7pt
     /// padding top+bottom, the request-header row (~20pt), the tool-name
-    /// row (~20pt), the outer `VStack(spacing: 8)`'s 4 gaps (header→tool→
+    /// row (~20pt), the cwd row (~16pt, added for the Phase 3 info-separation
+    /// pass — folder icon + path, plus the dangerous-command caption when
+    /// present), the outer `VStack(spacing: 8)`'s 5 gaps (header→tool→cwd→
     /// summary→spacer→buttons), the `Spacer(minLength: 10)` before the
     /// buttons, and the button row (`ApprovalActionButton`'s `minHeight:
     /// 36`, not 30 — an earlier version of this budget under-counted it,
     /// which is what made the card look cramped/pinned at the bottom: the
     /// `Spacer` was bottoming out at its minimum with no slack left). Plus
     /// a small extra margin so it errs toward comfortable rather than tight.
-    /// The summary box's *text* height is measured live
-    /// (`uiState.approvalSummaryHeight`) since it has no `lineLimit` — it's
-    /// a command/diff excerpt, and truncating it could hide the dangerous
-    /// part of what's being approved.
-    private let approvalBaseHeight: CGFloat = 180
+    /// The summary box's *text* height is measured live and capped at
+    /// `ApprovalOverlayView.summaryBoxMaxHeight`, since beyond that it
+    /// becomes internally scrollable instead of growing the panel further —
+    /// see `ApprovalOverlayView`'s doc comment on that constant.
+    private let approvalBaseHeight: CGFloat = 200
     private let approvalMinHeight: CGFloat = 195
     /// Deliberately *not* `openOverlaySize.height` (246) — the summary box
     /// has no `lineLimit`, so a long command/diff excerpt must be allowed to
