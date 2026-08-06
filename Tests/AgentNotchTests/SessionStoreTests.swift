@@ -229,6 +229,25 @@ final class SessionStoreTests: XCTestCase {
         XCTAssertEqual(groups[0].sessions.count, 2)
     }
 
+    /// Layout boundary case (Phase 8): a large number of simultaneous
+    /// sessions across several projects — `AgentsCell.sessionList`'s
+    /// `ScrollView` is the mechanism relied on to keep this usable, but the
+    /// grouping/ordering logic itself must still hold at this scale.
+    func testGroupSessionsByProjectHandlesManySessionsAcrossManyProjects() {
+        let sessionCount = 40
+        let projectCount = 8
+        let sessions = (0..<sessionCount).map { index in
+            session("s\(index)", agent: index.isMultiple(of: 2) ? .claude : .codex, cwd: "/repo/project-\(index % projectCount)")
+        }
+
+        let groups = groupSessionsByProject(sessions)
+
+        XCTAssertEqual(groups.count, projectCount)
+        XCTAssertEqual(groups.reduce(0) { $0 + $1.sessions.count }, sessionCount)
+        // No session lost or duplicated across group boundaries.
+        XCTAssertEqual(Set(groups.flatMap { $0.sessions.map(\.id) }).count, sessionCount)
+    }
+
     // MARK: - Helpers
 
     private func makeCLIEvent(sessionId: String, input: [String: Any]) -> HookEvent {

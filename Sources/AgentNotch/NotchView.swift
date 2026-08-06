@@ -1874,6 +1874,32 @@ private struct HoverPeekView: View {
     }
 }
 
+#Preview("Hover — notch-aware, session") {
+    HoverPeekView(
+        session: AgentSession(id: "preview", agent: .claude, title: "Fix auth middleware bug", cwd: "/Users/chaos/Documents/agent-notch", lastActivity: Date(), state: .running, lastMessage: "Reading AuthMiddleware.swift"),
+        media: MediaController.shared,
+        topClearance: 43
+    )
+    .frame(width: 320, height: 90)
+    .background(Color.black)
+}
+
+#Preview("Hover — notch-aware, idle") {
+    HoverPeekView(session: nil, media: MediaController.shared, topClearance: 43)
+        .frame(width: 320, height: 90)
+        .background(Color.black)
+}
+
+#Preview("Hover — legacy (non-notched)") {
+    HoverPeekView(
+        session: AgentSession(id: "preview", agent: .codex, title: "Add pagination to /users", cwd: "/Users/chaos/Documents/agent-notch", lastActivity: Date(), state: .waitingApproval, lastMessage: "Waiting for your approval"),
+        media: MediaController.shared,
+        topClearance: 0
+    )
+    .frame(width: 320, height: 90)
+    .background(Color.black)
+}
+
 // MARK: - Agents cell (implemented)
 
 private struct AgentsCell: View {
@@ -2899,6 +2925,23 @@ private struct PlanReviewView: View {
     }
 }
 
+#Preview("Plan review card") {
+    PlanReviewView(
+        request: PlanCenter.Request(
+            agent: .claude,
+            sessionID: "preview",
+            cwd: "/Users/chaos/Documents/agent-notch",
+            title: "Add multi-select support to AskUserQuestion",
+            summary: "Extend SubQuestion with an isMultiSelect flag, render toggleable checkbox rows instead of single-shot buttons, and add a review-before-send confirmation step.",
+            connection: nil,
+            occurredAt: Date()
+        ),
+        resolve: { _, _ in }
+    )
+    .frame(width: 540, height: 190)
+    .background(Color.black)
+}
+
 private struct AgentQuestionView: View {
     let request: QuestionCenter.Request
     /// Step/mode live on `uiState` rather than local `@State` so
@@ -3205,6 +3248,63 @@ private struct AgentQuestionView: View {
             armInteractivity()
         }
     }
+}
+
+#Preview("Question — single-select, multi-question batch") {
+    AgentQuestionView(
+        request: QuestionCenter.Request(
+            agent: .claude,
+            sessionID: "preview",
+            questions: [
+                QuestionCenter.SubQuestion(
+                    sourceQuestionID: "0",
+                    prompt: "Which approach should I take for the retry logic?",
+                    header: "Retry strategy",
+                    options: [
+                        QuestionCenter.Option(label: "Exponential backoff", detail: "Doubles the delay after each failure"),
+                        QuestionCenter.Option(label: "Fixed interval", detail: "Retries every 2 seconds"),
+                    ],
+                    isMultiSelect: false
+                ),
+                QuestionCenter.SubQuestion(sourceQuestionID: "1", prompt: "Should I add a test for this?", header: "Testing", options: [], isMultiSelect: false),
+            ],
+            connection: nil,
+            occurredAt: Date()
+        ),
+        uiState: NotchUIState(),
+        extraCount: 1,
+        onComplete: { _ in }
+    )
+    .frame(width: 540, height: 220)
+    .background(Color.black)
+}
+
+#Preview("Question — multi-select") {
+    AgentQuestionView(
+        request: QuestionCenter.Request(
+            agent: .codex,
+            sessionID: "preview",
+            questions: [
+                QuestionCenter.SubQuestion(
+                    sourceQuestionID: "0",
+                    prompt: "Which features should be enabled for this build?",
+                    header: "Features",
+                    options: [
+                        QuestionCenter.Option(label: "Dark mode", detail: ""),
+                        QuestionCenter.Option(label: "Notifications", detail: ""),
+                        QuestionCenter.Option(label: "Background sync", detail: ""),
+                    ],
+                    isMultiSelect: true
+                ),
+            ],
+            connection: nil,
+            occurredAt: Date()
+        ),
+        uiState: NotchUIState(),
+        onComplete: { _ in }
+    )
+    .frame(width: 540, height: 260)
+    .background(Color.black)
 }
 
 private struct QuestionChoiceButton: View {
@@ -3515,6 +3615,33 @@ private struct ApprovalOverlayView: View {
     }
 }
 
+#Preview("Approval — dangerous command") {
+    ApprovalOverlayView(
+        uiState: NotchUIState(),
+        agent: .claude,
+        toolName: "Bash",
+        summary: "sudo rm -rf /tmp/build-artifacts && git push --force origin main",
+        extraCount: 2,
+        otherAgentPending: .codex,
+        cwd: "/Users/chaos/Documents/agent-notch/Sources/AgentNotch",
+        isDangerous: true
+    )
+    .frame(width: 540, height: 260)
+    .background(Color.black)
+}
+
+#Preview("Approval — ordinary file edit") {
+    ApprovalOverlayView(
+        uiState: NotchUIState(),
+        agent: .codex,
+        toolName: "Edit",
+        summary: "/Users/chaos/Documents/agent-notch/Sources/AgentNotch/NotchView.swift",
+        cwd: "/Users/chaos/Documents/agent-notch"
+    )
+    .frame(width: 540, height: 220)
+    .background(Color.black)
+}
+
 private enum ApprovalDecision { case allow, deny }
 
 // MARK: - Plan approval overlay (ExitPlanMode)
@@ -3599,6 +3726,12 @@ private struct PlanApprovalOverlayView: View {
             onFinishOutcome()
         }
     }
+}
+
+#Preview("Plan approval (ExitPlanMode)") {
+    PlanApprovalOverlayView(agent: .claude)
+        .frame(width: 540, height: 190)
+        .background(Color.black)
 }
 
 private struct PlanChoiceButton: View {

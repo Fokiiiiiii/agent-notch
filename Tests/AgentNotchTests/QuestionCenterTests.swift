@@ -204,4 +204,61 @@ final class QuestionCenterTests: XCTestCase {
 
         XCTAssertEqual(center.queue.first?.questions.first?.isMultiSelect, false)
     }
+
+    // MARK: - Layout boundary cases (Phase 8)
+
+    func testEnqueuePreservesVeryLongPromptTextWithoutTruncation() {
+        // AgentQuestionView measures the prompt's live height instead of
+        // budgeting a fixed line count specifically so long prompts aren't
+        // clipped — confirm the data layer doesn't truncate it either.
+        let longPrompt = String(repeating: "This is a very long question that keeps going. ", count: 20)
+        XCTAssertGreaterThan(longPrompt.count, 900)
+        let toolInput: [String: Any] = [
+            "questions": [["header": "Q1", "question": longPrompt, "options": []]],
+        ]
+
+        let center = QuestionCenter()
+        center.enqueue(makeEvent(toolInput: toolInput))
+
+        XCTAssertEqual(center.queue.first?.questions.first?.prompt, longPrompt)
+    }
+
+    func testResolveCombinesManySubQuestionsInOneBatch() throws {
+        // Stress case for the step-wizard + review-step flow: a batch large
+        // enough that it would need several Continue/step transitions in
+        // the real UI, still resolves as exactly one response.
+        var fds: [Int32] = [0, 0]
+        let result = fds.withUnsafeMutableBufferPointer { buffer in
+            Darwin.socketpair(AF_UNIX, SOCK_STREAM, 0, buffer.baseAddress)
+        }
+        XCTAssertEqual(result, 0)
+        let appSideFD = fds[0]
+        let testSideFD = fds[1]
+        defer { Darwin.close(testSideFD) }
+        let connection = SocketConnection(fd: appSideFD)
+
+        let questionCount = 10
+        let toolInput: [String: Any] = [
+            "questions": (0..<questionCount).map { ["header": "Q\($0)", "question": "Question \($0)?", "options": []] },
+        ]
+
+        let center = QuestionCenter()
+        center.enqueue(makeEvent(toolInput: toolInput, connection: connection))
+        let id = try XCTUnwrap(center.queue.first?.id)
+        XCTAssertEqual(center.queue.first?.questions.count, questionCount)
+
+        let answers = (0..<questionCount).map { "answer-\($0)" }
+        center.resolve(id, answers: answers)
+
+        var buffer = [UInt8](repeating: 0, count: 8192)
+        let bytesRead = Darwin.read(testSideFD, &buffer, buffer.count)
+        XCTAssertGreaterThan(bytesRead, 0)
+        let line = String(decoding: buffer[0..<bytesRead], as: UTF8.self)
+        let json = try XCTUnwrap((try? JSONSerialization.jsonObject(with: Data(line.utf8))) as? [String: Any])
+        let combined = try XCTUnwrap(json["answer"] as? String)
+        // Every sub-question's header and answer must survive the merge.
+        for index in 0..<questionCount {
+            XCTAssertTrue(combined.contains("Q\(index): answer-\(index)"))
+        }
+    }
 }
