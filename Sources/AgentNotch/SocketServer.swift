@@ -204,13 +204,31 @@ final class SocketServer {
     /// can rely on teardown having fully happened by the time this returns
     /// — same pattern as `debugConnectionCount()`; do not call this from
     /// `queue` itself for the same deadlock reason.
+    ///
+    /// Each open connection is torn down the same way `handleReadable`'s EOF
+    /// path does it — `closeWithoutResponse()` first (so a still-pending
+    /// `respond()` can never later write to a descriptor number the kernel
+    /// may since have recycled — see `SocketConnection.closeOrDelegate`'s
+    /// doc comment for why that ordering matters), then `deliverCancel` so
+    /// whichever Center owns this connection drops it from its own queue
+    /// instead of being left with an unresolvable, permanently-pending
+    /// entry. Calling `closeWithoutResponse()` unconditionally (not just for
+    /// connections known to be `eventDelivered`) is safe: it's a no-op via
+    /// `isClosed` for a connection that was never handed a response
+    /// obligation in the first place.
     func stop() {
         queue.sync {
             acceptSource?.cancel()
             acceptSource = nil
+            listenFD = -1
+            let deliverCancel = onCancel
             for incoming in connections.values {
                 incoming.source?.cancel()
                 incoming.source = nil
+                incoming.connection.closeWithoutResponse()
+                Task { @MainActor in
+                    deliverCancel(incoming.connection)
+                }
             }
             connections.removeAll()
         }
@@ -481,9 +499,15 @@ final class SocketServer {
     /// Common failure path for every early-return in `start()`. Previously
     /// these four cases (`socket()`, path-too-long, `bind()`, `listen()`)
     /// only ever wrote to stderr — invisible in a GUI app the user launched
-    /// via Finder/Login Items, so a bind conflict (e.g. another AgentNotch
-    /// process already holding the socket) left the app looking like it
-    /// started fine while silently never receiving a single hook event.
+    /// via Finder/Login Items, so a failure here (e.g. a permissions problem
+    /// on `~/.agent-notch/run`, or the directory living on a filesystem that
+    /// doesn't support Unix domain sockets) left the app looking like it
+    /// started fine while silently never receiving a single hook event. Note
+    /// this is NOT "another AgentNotch process already holding the socket":
+    /// `start()` always `unlink(socketPath)`s first, so a second instance
+    /// silently steals the path out from under a still-running first
+    /// instance instead of failing to bind — a separate, unnotified failure
+    /// mode this callback doesn't cover.
     /// `onStartupFailure` is best-effort notification only, same policy as
     /// `NativeNotifier` itself — no retry, no fallback transport.
     private func failStartup(_ message: String) {

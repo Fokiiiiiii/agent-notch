@@ -98,6 +98,7 @@ final class SocketServerTests: XCTestCase {
             capturedConnection = event.connection
             receivedEvent.fulfill()
         })
+        defer { server.stop() } // torn down before `path` is unlinked (LIFO defer order)
         server.start()
 
         let clientFD = connectClient(to: path)
@@ -129,6 +130,7 @@ final class SocketServerTests: XCTestCase {
         let server = SocketServer(socketPath: path, onEvent: { event in
             event.connection?.respond(json: ["ok": true])
         })
+        defer { server.stop() } // torn down before `path` is unlinked (LIFO defer order)
         server.start()
 
         // Fire all 50 connect+ping cycles back-to-back (a small yield
@@ -180,9 +182,14 @@ final class SocketServerTests: XCTestCase {
         XCTAssertEqual(server.debugConnectionCount(), 0, "stop() must synchronously clear every tracked connection")
 
         // The listening socket itself should be gone too: a fresh connect()
-        // attempt must fail (nothing left accepting on this path).
-        let secondFD = Darwin.socket(AF_UNIX, SOCK_STREAM, 0)
-        defer { Darwin.close(secondFD) }
+        // attempt must fail (nothing left accepting on this path). A fresh
+        // fd is required on *every* attempt, not just the first: once an
+        // AF_UNIX SOCK_STREAM fd successfully connect()s, reusing that same
+        // fd for a second connect() always fails with EISCONN regardless of
+        // whether the listener is still alive — reusing one fd across the
+        // retry loop would make this assertion pass unconditionally (a
+        // false negative that can't actually detect a regression where
+        // stop() stops tearing the listener down).
         var addr = sockaddr_un()
         addr.sun_family = sa_family_t(AF_UNIX)
         let pathBytes = Array(path.utf8CString)
@@ -196,9 +203,11 @@ final class SocketServerTests: XCTestCase {
         // first attempt alone.
         var stillConnectable = true
         for _ in 0..<10 {
+            let attemptFD = Darwin.socket(AF_UNIX, SOCK_STREAM, 0)
+            defer { Darwin.close(attemptFD) }
             let result = withUnsafePointer(to: &addr) { ptr -> Int32 in
                 ptr.withMemoryRebound(to: sockaddr.self, capacity: 1) { sockPtr in
-                    Darwin.connect(secondFD, sockPtr, socklen_t(MemoryLayout<sockaddr_un>.size))
+                    Darwin.connect(attemptFD, sockPtr, socklen_t(MemoryLayout<sockaddr_un>.size))
                 }
             }
             if result != 0 {
