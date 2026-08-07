@@ -16,6 +16,19 @@ struct TodayEvent: Identifiable {
 
 @MainActor
 final class TodayModel: ObservableObject {
+    /// Shared instance so `NotchWindowController` (which needs to read
+    /// `events`/`authorizationStatus` for `dashboardOpenSize`'s sizing
+    /// calculation) and `NotchView`'s `DashboardCell` observe the same
+    /// EventKit state — same pattern as `MediaController.shared`, which
+    /// `NotchWindowController` already reads directly (see
+    /// `NotchWindow.swift`'s `MediaController.shared.$isPlaying`
+    /// subscription). Previously `NotchView` and `TodayCell` each held
+    /// their own separate instance, meaning two independent `EKEventStore`s,
+    /// two 300s timers, and two `.EKEventStoreChanged` subscriptions running
+    /// at once. `init()` stays non-private (see `TodayModelTests.swift`,
+    /// which constructs `TodayModel()` directly to test its init wiring).
+    static let shared = TodayModel()
+
     @Published private(set) var events: [TodayEvent] = []
     @Published private(set) var authorizationStatus = EKEventStore.authorizationStatus(for: .event)
     @Published private(set) var errorMessage: String?
@@ -330,6 +343,11 @@ private enum SystemMediaBridge {
 
 @MainActor
 final class SystemMonitor: ObservableObject {
+    /// Shared instance — same rationale as `TodayModel.shared`: `NotchView`
+    /// and `SystemCell` previously held separate instances, each polling
+    /// IOKit power info/memory/storage on its own 3s timer.
+    static let shared = SystemMonitor()
+
     @Published private(set) var batteryLevel: Int?
     @Published private(set) var isCharging = false
     @Published private(set) var timeRemainingLabel: String?
@@ -444,6 +462,10 @@ struct BackgroundActivity: Identifiable, Sendable {
 /// placeholders it only shows work that exists in the live process list.
 @MainActor
 final class BackgroundActivityMonitor: ObservableObject {
+    /// Shared instance — same rationale as `TodayModel.shared`/
+    /// `SystemMonitor.shared`.
+    static let shared = BackgroundActivityMonitor()
+
     @Published private(set) var activities: [BackgroundActivity] = []
     private var timer: AnyCancellable?
     private var refreshInFlight = false
