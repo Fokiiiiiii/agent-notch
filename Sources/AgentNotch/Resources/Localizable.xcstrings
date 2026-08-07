@@ -1601,6 +1601,306 @@
         }
       }
     },
+    "agents.jumpToTerminalAction": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Jump to Terminal"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "跳转到终端"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ir a Terminal"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Aller au Terminal"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Zum Terminal springen"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Перейти в Terminal"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "الانتقال إلى Terminal"
+          }
+        },
+        "pt": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ir para o Terminal"
+          }
+        },
+        "hi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Terminal पर जाएं"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Terminalへジャンプ"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Terminal로 이동"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Vai al Terminal"
+          }
+        },
+        "id": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Buka Terminal"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Chuyển đến Terminal"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ไปที่ Terminal"
+          }
+        },
+        "fil": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Tumalon sa Terminal"
+          }
+        }
+      }
+    },
+    "agents.sessionAccessibilityHint": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Double-tap to select. Use the actions rotor to jump to Terminal."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "双击以选择。使用操作转轮跳转到终端。"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Toca dos veces para seleccionar. Usa el rotor de acciones para ir a Terminal."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Appuyez deux fois pour sélectionner. Utilisez le rotor d'actions pour aller au Terminal."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Doppelt tippen zum Auswählen. Verwende das Aktionsrad, um zum Terminal zu springen."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Дважды нажмите, чтобы выбрать. Используйте ротор действий, чтобы перейти в Terminal."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "انقر مرتين للتحديد. استخدم عجلة الإجراءات للانتقال إلى Terminal."
+          }
+        },
+        "pt": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Toque duas vezes para selecionar. Use o rotor de ações para ir ao Terminal."
+          }
+        },
+        "hi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "चयन के लिए डबल-टैप करें। Terminal पर जाने के लिए एक्शन रोटर का उपयोग करें।"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ダブルタップで選択します。アクションローターからTerminalへジャンプできます。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "두 번 탭하여 선택하세요. 작업 로터를 사용해 Terminal로 이동할 수 있습니다."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Tocca due volte per selezionare. Usa la rotella delle azioni per andare al Terminal."
+          }
+        },
+        "id": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ketuk dua kali untuk memilih. Gunakan rotor tindakan untuk membuka Terminal."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Chạm đúp để chọn. Dùng bánh xe hành động để chuyển đến Terminal."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "แตะสองครั้งเพื่อเลือก ใช้ Actions Rotor เพื่อไปที่ Terminal"
+          }
+        },
+        "fil": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "I-double-tap para pumili. Gamitin ang actions rotor para tumalon sa Terminal."
+          }
+        }
+      }
+    },
+    "agents.sessionAccessibilityLabel": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%1$@, %2$@"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%1$@，%2$@"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%1$@, %2$@"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%1$@, %2$@"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%1$@, %2$@"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%1$@, %2$@"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%1$@، %2$@"
+          }
+        },
+        "pt": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%1$@, %2$@"
+          }
+        },
+        "hi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%1$@, %2$@"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%1$@、%2$@"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%1$@, %2$@"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%1$@, %2$@"
+          }
+        },
+        "id": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%1$@, %2$@"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%1$@, %2$@"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%1$@, %2$@"
+          }
+        },
+        "fil": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%1$@, %2$@"
+          }
+        }
+      }
+    },
     "agents.state.done": {
       "localizations": {
         "en": {
@@ -11801,6 +12101,206 @@
         }
       }
     },
+    "notification.socketServerFailure.body": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "The local socket failed to start. Hook events from Claude/Codex won't reach the notch until AgentNotch is restarted."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "本地套接字启动失败。在重启 AgentNotch 之前，来自 Claude/Codex 的 Hook 事件将无法到达灵动岛。"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "El socket local no pudo iniciarse. Los eventos de Claude/Codex no llegarán a la muesca hasta que reinicies AgentNotch."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Le socket local n'a pas pu démarrer. Les événements de Claude/Codex n'atteindront pas l'encoche tant qu'AgentNotch n'aura pas redémarré."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Der lokale Socket konnte nicht gestartet werden. Hook-Ereignisse von Claude/Codex erreichen den Notch erst nach einem Neustart von AgentNotch."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Не удалось запустить локальный сокет. События hook от Claude/Codex не будут доходить до панели, пока AgentNotch не перезапустится."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "فشل تشغيل المقبس المحلي. لن تصل أحداث الـ hook من Claude/Codex إلى الشق حتى إعادة تشغيل AgentNotch."
+          }
+        },
+        "pt": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "O socket local falhou ao iniciar. Os eventos de hook do Claude/Codex não chegarão ao notch até que o AgentNotch seja reiniciado."
+          }
+        },
+        "hi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "लोकल सॉकेट शुरू नहीं हो सका। जब तक AgentNotch पुनः आरंभ नहीं होता, Claude/Codex के हुक इवेंट नॉच तक नहीं पहुंचेंगे।"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ローカルソケットの起動に失敗しました。AgentNotchを再起動するまで、Claude/CodexからのフックイベントはノッチUIに届きません。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "로컬 소켓을 시작하지 못했습니다. AgentNotch를 다시 시작할 때까지 Claude/Codex의 후크 이벤트가 노치에 도달하지 않습니다."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Impossibile avviare il socket locale. Gli eventi hook di Claude/Codex non raggiungeranno il notch finché AgentNotch non verrà riavviato."
+          }
+        },
+        "id": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Socket lokal gagal dimulai. Peristiwa hook dari Claude/Codex tidak akan sampai ke notch hingga AgentNotch dimulai ulang."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Socket cục bộ không khởi động được. Các sự kiện hook từ Claude/Codex sẽ không đến được notch cho đến khi khởi động lại AgentNotch."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ซ็อกเก็ตภายในเครื่องเริ่มทำงานไม่สำเร็จ เหตุการณ์ hook จาก Claude/Codex จะไม่ไปถึงรอยบากจนกว่าจะรีสตาร์ท AgentNotch"
+          }
+        },
+        "fil": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Nabigong magsimula ang lokal na socket. Hindi maaabot ng mga hook event mula sa Claude/Codex ang notch hangga't hindi nire-restart ang AgentNotch."
+          }
+        }
+      }
+    },
+    "notification.socketServerFailure.title": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "AgentNotch can't receive events"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "AgentNotch 无法接收事件"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "AgentNotch no puede recibir eventos"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "AgentNotch ne peut pas recevoir d'événements"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "AgentNotch kann keine Ereignisse empfangen"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "AgentNotch не может получать события"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "لا يمكن لـ AgentNotch تلقي الأحداث"
+          }
+        },
+        "pt": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "O AgentNotch não consegue receber eventos"
+          }
+        },
+        "hi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "AgentNotch इवेंट प्राप्त नहीं कर सकता"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "AgentNotchがイベントを受信できません"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "AgentNotch가 이벤트를 수신할 수 없습니다"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "AgentNotch non può ricevere eventi"
+          }
+        },
+        "id": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "AgentNotch tidak dapat menerima peristiwa"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "AgentNotch không thể nhận sự kiện"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "AgentNotch ไม่สามารถรับเหตุการณ์ได้"
+          }
+        },
+        "fil": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Hindi makatanggap ng mga event ang AgentNotch"
+          }
+        }
+      }
+    },
     "plan.addCommentPlaceholder": {
       "localizations": {
         "en": {
@@ -15801,6 +16301,206 @@
         }
       }
     },
+    "settings.notificationsDenied": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Notifications are off. AgentNotch can't alert you when the notch itself isn't visible (e.g. while in full screen)."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "通知已关闭。当灵动岛本身不可见时（例如全屏时），AgentNotch 将无法提醒你。"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Las notificaciones están desactivadas. AgentNotch no puede avisarte cuando la muesca no es visible (por ejemplo, en pantalla completa)."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Les notifications sont désactivées. AgentNotch ne peut pas vous alerter lorsque l'encoche elle-même n'est pas visible (par exemple en plein écran)."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Benachrichtigungen sind deaktiviert. AgentNotch kann dich nicht benachrichtigen, wenn der Notch selbst nicht sichtbar ist (z. B. im Vollbildmodus)."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Уведомления отключены. AgentNotch не сможет предупредить вас, если сама панель не видна (например, в полноэкранном режиме)."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "الإشعارات متوقفة. لا يمكن لـ AgentNotch تنبيهك عندما لا يكون الشق نفسه مرئيًا (مثل وضع ملء الشاشة)."
+          }
+        },
+        "pt": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "As notificações estão desativadas. O AgentNotch não pode avisá-lo quando o notch não estiver visível (por exemplo, em tela cheia)."
+          }
+        },
+        "hi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "सूचनाएं बंद हैं। जब नॉच स्वयं दिखाई नहीं देता (जैसे फ़ुल स्क्रीन में), तो AgentNotch आपको सचेत नहीं कर सकता।"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "通知がオフになっています。ノッチ自体が表示されていない場合（フルスクリーン時など）、AgentNotchは通知できません。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "알림이 꺼져 있습니다. 노치 자체가 보이지 않을 때(예: 전체 화면 사용 중) AgentNotch가 알려드릴 수 없습니다."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Le notifiche sono disattivate. AgentNotch non può avvisarti quando il notch stesso non è visibile (ad es. a schermo intero)."
+          }
+        },
+        "id": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Notifikasi mati. AgentNotch tidak dapat memberi tahu Anda saat notch itu sendiri tidak terlihat (misalnya saat layar penuh)."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Thông báo đang tắt. AgentNotch không thể cảnh báo bạn khi notch không hiển thị (ví dụ: khi ở chế độ toàn màn hình)."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "การแจ้งเตือนปิดอยู่ AgentNotch ไม่สามารถแจ้งเตือนคุณได้เมื่อรอยบากเองไม่ปรากฏให้เห็น (เช่น ขณะอยู่ในโหมดเต็มหน้าจอ)"
+          }
+        },
+        "fil": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Naka-off ang mga notification. Hindi maaabisuhan ka ng AgentNotch kapag hindi nakikita ang notch mismo (hal. habang naka-full screen)."
+          }
+        }
+      }
+    },
+    "settings.openNotificationSettings": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Open Notification Settings…"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "打开通知设置…"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Abrir Ajustes de Notificaciones…"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ouvrir les réglages de notifications…"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Benachrichtigungseinstellungen öffnen…"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Открыть настройки уведомлений…"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "فتح إعدادات الإشعارات…"
+          }
+        },
+        "pt": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Abrir Ajustes de Notificações…"
+          }
+        },
+        "hi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "सूचना सेटिंग्स खोलें…"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "通知設定を開く…"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "알림 설정 열기…"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Apri Impostazioni Notifiche…"
+          }
+        },
+        "id": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Buka Pengaturan Notifikasi…"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Mở Cài đặt Thông báo…"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "เปิดการตั้งค่าการแจ้งเตือน…"
+          }
+        },
+        "fil": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Buksan ang Mga Setting ng Notification…"
+          }
+        }
+      }
+    },
     "settings.panelSize": {
       "localizations": {
         "en": {
@@ -16297,6 +16997,106 @@
           "stringUnit": {
             "state": "translated",
             "value": "Pangkalahatan"
+          }
+        }
+      }
+    },
+    "settings.section.notifications": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Notifications"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "通知"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Notificaciones"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Notifications"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Benachrichtigungen"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Уведомления"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "الإشعارات"
+          }
+        },
+        "pt": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Notificações"
+          }
+        },
+        "hi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "सूचनाएं"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "通知"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "알림"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Notifiche"
+          }
+        },
+        "id": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Notifikasi"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Thông báo"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "การแจ้งเตือน"
+          }
+        },
+        "fil": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Mga Notification"
           }
         }
       }

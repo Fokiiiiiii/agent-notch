@@ -8,10 +8,19 @@ import AppKit
 /// manual bundle may fail to authorize, and that must never crash or hang
 /// the app — every failure path here is silently logged and swallowed.
 @MainActor
-final class NativeNotifier {
-    private(set) var isAuthorized = false
-    private var didRequestAuthorization = false
-    private(set) var lastAuthorizationError: String?
+final class NativeNotifier: ObservableObject {
+    /// Shared instance so `SettingsView` (a separate SwiftUI `Settings`
+    /// scene with no path back to `AppDelegate`'s own `nativeNotifier`) can
+    /// observe the same authorization state the app actually uses to send
+    /// notifications, instead of a second disconnected instance that would
+    /// always read as unauthorized. `AppDelegate` still owns the instance's
+    /// lifetime by holding a reference to this same shared object — there's
+    /// only ever one `NativeNotifier` in the running app either way.
+    static let shared = NativeNotifier()
+
+    @Published private(set) var isAuthorized = false
+    @Published private(set) var didRequestAuthorization = false
+    @Published private(set) var lastAuthorizationError: String?
 
     /// Diagnostic snapshot for `agent-notch ping`, so an authorization
     /// failure (e.g. an unsigned/ad-hoc `.app` bundle that usernoted refuses

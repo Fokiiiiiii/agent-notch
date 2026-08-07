@@ -74,6 +74,14 @@ enum DesignTokens {
     // call sites for the dwell-guard logic these delays gate).
     static let hoverExpandDelay: TimeInterval = 0.22
     static let hoverCollapseDelay: TimeInterval = 0.14
+
+    /// Double-tap/double-Enter dwell guard: an interactive control disarms
+    /// itself for this long right after appearing (or after a step
+    /// transition), so a fast repeat click/keypress can't fire the same
+    /// action twice before SwiftUI has re-rendered the disabled state.
+    /// Shared by `AgentQuestionView`, `ApprovalOverlayView`, and
+    /// `PlanApprovalOverlayView` via `NotchView.armDwellGuard(_:)`.
+    static let dwellGuardDelay: TimeInterval = 0.15
 }
 
 extension DesignTokens {
