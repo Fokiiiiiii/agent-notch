@@ -2314,22 +2314,20 @@ private struct DashboardCell: View {
     @ObservedObject var today: TodayModel
     @Binding var focusEndsAt: Date?
 
-    /// Two independent capsule-style panels rather than one big surface
-    /// split by dividers — mirrors NotchNook's reference screenshots, where
-    /// media/shortcuts/calendar/mirror each sit in their own rounded card
-    /// with visible gaps between them.
+    /// Media keeps its own capsule surface; Today sits directly on the
+    /// notch panel's own background with no card behind it — mirrors
+    /// NotchNook's reference screenshots, where the calendar widget has no
+    /// independent background the way the media widget does.
     var body: some View {
-        HStack(spacing: 7) {
+        HStack(alignment: .top, spacing: 7) {
             CellSurface {
                 DashboardMediaSection(media: media)
             }
             .shadow(color: .black.opacity(0.28), radius: 8, y: 3)
             .frame(maxWidth: .infinity, alignment: .leading)
-            CellSurface {
-                DashboardTodaySection(model: today, focusEndsAt: $focusEndsAt)
-            }
-            .shadow(color: .black.opacity(0.28), radius: 8, y: 3)
-            .frame(width: 236, alignment: .leading)
+            DashboardTodaySection(model: today, focusEndsAt: $focusEndsAt)
+                .padding(.top, 7)
+                .frame(width: 236, alignment: .leading)
         }
         .onAppear { today.refresh() }
     }
@@ -2556,7 +2554,7 @@ private struct DashboardTodaySection: View {
     /// below).
     private var monthBlock: some View {
         Text(Date().formatted(.dateTime.month(.abbreviated)))
-            .font(.system(size: 16, weight: .bold))
+            .font(.system(size: 18, weight: .bold, design: .rounded))
             .foregroundColor(.white.opacity(0.9))
     }
 
@@ -2574,20 +2572,19 @@ private struct DashboardTodaySection: View {
 
     private func calendarContent(remaining: Int?) -> some View {
         HStack(spacing: 6) {
-            Image(systemName: model.events.isEmpty ? "calendar.badge.checkmark" : "calendar")
-                .font(.system(size: 9.5))
-                .foregroundColor(DesignTokens.muted)
             if let event = model.events.first {
-                VStack(alignment: .leading, spacing: 1) {
-                    Text(event.title)
-                        .font(.system(size: 10, weight: .medium))
-                        .foregroundColor(.white.opacity(0.85))
-                        .lineLimit(1)
-                    Text(eventTimeRange(event))
-                        .font(.system(size: 8.5))
-                        .foregroundColor(DesignTokens.muted)
-                }
-                .help(event.title)
+                Text("•")
+                    .font(.system(size: 11, weight: .bold))
+                    .foregroundColor(DesignTokens.cyan)
+                Text(event.title)
+                    .font(.system(size: 10, weight: .medium))
+                    .foregroundColor(.white.opacity(0.85))
+                    .lineLimit(1)
+                Text(eventTimeRange(event))
+                    .font(.system(size: 9))
+                    .foregroundColor(DesignTokens.muted)
+                    .lineLimit(1)
+                    .help(event.title)
             } else {
                 Text(String(localized: "today.nothingForToday", defaultValue: "Nothing for today"))
                     .font(.system(size: 10, weight: .medium))
@@ -2683,8 +2680,8 @@ private struct WeekDayColumn: View {
                 .font(.system(size: 7.5, weight: .medium))
                 .foregroundColor(DesignTokens.muted)
             Text(date.formatted(.dateTime.day()))
-                .font(.system(size: isToday ? 15 : 10.5, weight: isToday ? .bold : .regular))
-                .foregroundColor(isToday ? DesignTokens.cyan : .white.opacity(0.55))
+                .font(.system(size: isToday ? 16 : 10.5, weight: isToday ? .bold : .regular, design: .rounded))
+                .foregroundColor(isToday ? DesignTokens.cyan : DesignTokens.muted)
                 .frame(height: 19, alignment: .center)
         }
         .frame(height: 33)
