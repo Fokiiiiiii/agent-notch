@@ -95,11 +95,20 @@ struct NotchView: View {
         } else {
             radius = DesignTokens.scaledClosedRadius()
         }
+        // Square top corners read correctly only while the shell is fused to
+        // a real notch cutout. `.open` on a Mac with no physical notch draws
+        // the panel floating below the menu bar, where a hard right-angle
+        // top edge looks like an unintended seam rather than a continuation
+        // of anything — round it to match the bottom there. `.closed`/
+        // `.hover`/`.notice` keep square top corners regardless of
+        // `hasRealNotch`: that's the compact pill fused to the menu bar
+        // itself, which does still read correctly square.
+        let topRadius: CGFloat = (uiState.mode == .open && !hasRealNotch) ? radius : 0
         return UnevenRoundedRectangle(
-            topLeadingRadius: 0,
+            topLeadingRadius: topRadius,
             bottomLeadingRadius: radius,
             bottomTrailingRadius: radius,
-            topTrailingRadius: 0,
+            topTrailingRadius: topRadius,
             style: .continuous
         )
     }
@@ -2314,20 +2323,20 @@ private struct DashboardCell: View {
     @ObservedObject var today: TodayModel
     @Binding var focusEndsAt: Date?
 
-    /// Media keeps its own capsule surface; Today sits directly on the
-    /// notch panel's own background with no card behind it — mirrors
-    /// NotchNook's reference screenshots, where the calendar widget has no
-    /// independent background the way the media widget does.
+    /// Media/Today share one continuous panel — confirmed against NotchNook's
+    /// reference screenshots at 4x zoom, where no divider or background
+    /// boundary exists between the media and calendar widgets. The 236pt
+    /// Today width is a provisional fixed value; a future widget system
+    /// (freely reorderable/resizable Dashboard widgets) will replace this
+    /// hardcoded two-column split.
     var body: some View {
-        HStack(alignment: .top, spacing: 7) {
-            CellSurface {
+        CellSurface {
+            HStack(alignment: .top, spacing: 7) {
                 DashboardMediaSection(media: media)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                DashboardTodaySection(model: today, focusEndsAt: $focusEndsAt)
+                    .frame(width: 236, alignment: .leading)
             }
-            .shadow(color: .black.opacity(0.28), radius: 8, y: 3)
-            .frame(maxWidth: .infinity, alignment: .leading)
-            DashboardTodaySection(model: today, focusEndsAt: $focusEndsAt)
-                .padding(.top, 7)
-                .frame(width: 236, alignment: .leading)
         }
         .onAppear { today.refresh() }
     }
@@ -2524,10 +2533,8 @@ private struct DashboardTodaySection: View {
     @ObservedObject var model: TodayModel
     @Binding var focusEndsAt: Date?
 
-    private var weekDates: [Date] {
-        let calendar = Calendar.current
-        guard let interval = calendar.dateInterval(of: .weekOfYear, for: Date()) else { return [] }
-        return (0..<7).compactMap { calendar.date(byAdding: .day, value: $0, to: interval.start) }
+    private var weekStripDays: [WeekStripDay] {
+        centeredWeekStrip(around: Date(), count: 7)
     }
 
     var body: some View {
@@ -2563,11 +2570,21 @@ private struct DashboardTodaySection: View {
     /// calendar access has been granted.
     private var weekStrip: some View {
         HStack(spacing: 4) {
-            ForEach(weekDates, id: \.self) { day in
-                WeekDayColumn(date: day)
+            ForEach(weekStripDays, id: \.date) { day in
+                WeekDayColumn(date: day.date, offset: day.offset, hasEvent: hasEvent(on: day.date))
                     .frame(maxWidth: .infinity)
             }
         }
+    }
+
+    /// Whether `model.events` (today-only, per `TodayModel.refresh()`'s
+    /// fixed 0:00–24:00 query window) contains an event on `date`. Only
+    /// ever true for today's own column — the underlying data doesn't cover
+    /// other days — but written against `date` rather than hardcoding
+    /// "today" so it keeps working unmodified if `TodayModel` ever grows a
+    /// week-range query.
+    private func hasEvent(on date: Date) -> Bool {
+        model.events.contains { Calendar.current.isDate($0.startDate, inSameDayAs: date) }
     }
 
     private func calendarContent(remaining: Int?) -> some View {
@@ -2671,8 +2688,15 @@ private struct DashboardTodaySection: View {
 /// mirrors NotchNook's reference screenshot's calendar treatment.
 private struct WeekDayColumn: View {
     let date: Date
+    /// Signed day offset from today (0 = today). Used only for the "dial"
+    /// fade effect — since the strip is now centered on `Date()` rather
+    /// than the calendar week's own start, this can't be recomputed from
+    /// `date` alone and must be passed in.
+    let offset: Int
+    let hasEvent: Bool
 
     private var isToday: Bool { Calendar.current.isDateInToday(date) }
+    private var isWeekend: Bool { Calendar.current.isDateInWeekend(date) }
 
     var body: some View {
         VStack(spacing: 2) {
@@ -2681,13 +2705,64 @@ private struct WeekDayColumn: View {
                 .foregroundColor(DesignTokens.muted)
             Text(date.formatted(.dateTime.day()))
                 .font(.system(size: isToday ? 16 : 10.5, weight: isToday ? .bold : .regular, design: .rounded))
-                .foregroundColor(isToday ? DesignTokens.cyan : DesignTokens.muted)
+                .foregroundColor(numberColor)
+                .opacity(weekStripDialOpacity(forDistance: offset))
                 .frame(height: 19, alignment: .center)
+            Circle()
+                .fill(DesignTokens.cyan)
+                .frame(width: 3.5, height: 3.5)
+                .opacity(hasEvent ? weekStripDialOpacity(forDistance: offset) : 0)
         }
-        .frame(height: 33)
+        .frame(height: 37)
         .accessibilityElement(children: .ignore)
-        .accessibilityLabel(date.formatted(.dateTime.weekday(.wide).day()))
+        .accessibilityLabel(accessibilityLabel)
         .accessibilityAddTraits(isToday ? [.isSelected] : [])
+    }
+
+    private var numberColor: Color {
+        if isToday { return DesignTokens.cyan }
+        if isWeekend { return DesignTokens.orange }
+        return DesignTokens.muted
+    }
+
+    private var accessibilityLabel: String {
+        let base = date.formatted(.dateTime.weekday(.wide).day())
+        guard hasEvent else { return base }
+        return String(localized: "today.weekDayHasEvent", defaultValue: "\(base), has an event")
+    }
+}
+
+/// One day in `DashboardTodaySection`'s week strip: the date itself, plus
+/// its signed offset from today (0 = today, negative = past, positive =
+/// future) for the "dial" fade effect in `WeekDayColumn`.
+struct WeekStripDay: Equatable {
+    let date: Date
+    let offset: Int
+}
+
+/// Returns `count` consecutive days centered on `referenceDate` — `(count-1)/2`
+/// days before it, `referenceDate` itself, and the rest after. Pure/`Calendar`-
+/// parameterized so it's directly testable, same pattern as
+/// `NotchWindowController.computeClosedSize`.
+func centeredWeekStrip(around referenceDate: Date, count: Int, calendar: Calendar = .current) -> [WeekStripDay] {
+    guard count > 0 else { return [] }
+    let before = (count - 1) / 2
+    return (0..<count).compactMap { index -> WeekStripDay? in
+        let offset = index - before
+        guard let date = calendar.date(byAdding: .day, value: offset, to: referenceDate) else { return nil }
+        return WeekStripDay(date: date, offset: offset)
+    }
+}
+
+/// Opacity for the week strip's "dial" effect — today's number reads at
+/// full strength, with neighbors fading out the further they are from it
+/// (mirrors a rotating picker wheel, per user reference).
+func weekStripDialOpacity(forDistance distance: Int) -> Double {
+    switch abs(distance) {
+    case 0: return 1.0
+    case 1: return 0.7
+    case 2: return 0.45
+    default: return 0.25
     }
 }
 
