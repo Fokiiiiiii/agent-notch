@@ -2532,35 +2532,42 @@ private struct DashboardTodaySection: View {
     var body: some View {
         TimelineView(.periodic(from: .now, by: 1)) { context in
             let remaining = focusEndsAt.map { max(Int($0.timeIntervalSince(context.date)), 0) }
-            if model.canReadCalendar {
-                calendarContent(remaining: remaining)
-            } else {
-                calendarPermissionContent(remaining: remaining)
+            VStack(alignment: .leading, spacing: 5) {
+                weekStrip
+                if model.canReadCalendar {
+                    calendarContent(remaining: remaining)
+                } else {
+                    calendarPermissionContent(remaining: remaining)
+                }
             }
         }
         .foregroundColor(.white)
     }
 
+    /// Week-of-dates strip. Pure `Calendar` date arithmetic — independent of
+    /// EventKit authorization, so it renders identically whether or not
+    /// calendar access has been granted.
+    private var weekStrip: some View {
+        HStack(spacing: 2) {
+            ForEach(weekDates, id: \.self) { day in
+                WeekDayColumn(date: day)
+                    .frame(maxWidth: .infinity)
+            }
+        }
+    }
+
     private func calendarContent(remaining: Int?) -> some View {
-        VStack(alignment: .leading, spacing: 5) {
-            HStack(spacing: 2) {
-                ForEach(weekDates, id: \.self) { day in
-                    WeekDayColumn(date: day)
-                        .frame(maxWidth: .infinity)
-                }
-            }
-            HStack(spacing: 5) {
-                Image(systemName: model.events.isEmpty ? "calendar.badge.checkmark" : "calendar")
-                    .font(.system(size: 8.5))
-                    .foregroundColor(DesignTokens.muted)
-                Text(model.events.first?.title ?? String(localized: "today.noMoreEventsToday", defaultValue: "No more events today"))
-                    .font(.system(size: 9, weight: .medium))
-                    .foregroundColor(model.events.isEmpty ? DesignTokens.muted : .white.opacity(0.85))
-                    .lineLimit(1)
-                    .help(model.events.first?.title ?? "")
-                Spacer(minLength: 4)
-                focusButton(remaining: remaining, prominent: false)
-            }
+        HStack(spacing: 5) {
+            Image(systemName: model.events.isEmpty ? "calendar.badge.checkmark" : "calendar")
+                .font(.system(size: 8.5))
+                .foregroundColor(DesignTokens.muted)
+            Text(model.events.first?.title ?? String(localized: "today.noMoreEventsToday", defaultValue: "No more events today"))
+                .font(.system(size: 9, weight: .medium))
+                .foregroundColor(model.events.isEmpty ? DesignTokens.muted : .white.opacity(0.85))
+                .lineLimit(1)
+                .help(model.events.first?.title ?? "")
+            Spacer(minLength: 4)
+            focusButton(remaining: remaining, prominent: false)
         }
     }
 
@@ -2569,25 +2576,22 @@ private struct DashboardTodaySection: View {
             Text(String(localized: "today.showCalendarEvents", defaultValue: "Show today's Calendar events"))
                 .font(.system(size: 9.5, weight: .medium))
                 .foregroundColor(.white.opacity(0.8))
-                .lineLimit(2)
-                .fixedSize(horizontal: false, vertical: true)
+                .lineLimit(1)
             Spacer(minLength: 4)
-            VStack(spacing: 4) {
-                focusButton(remaining: remaining, prominent: false)
-                Button {
-                    SoundPlayer.shared.play(.action)
-                    model.requestAccess()
-                } label: {
-                    Image(systemName: "calendar.badge.plus")
-                        .font(.system(size: 10, weight: .medium))
-                        .frame(width: 24, height: 20)
-                        .background(RoundedRectangle(cornerRadius: 7).fill(Color.white.opacity(0.06)))
-                }
-                .buttonStyle(NotchPressStyle())
-                .hoverLift(cornerRadius: 7)
-                .accessibilityIdentifier("today.enable-calendar")
-                .help(model.errorMessage ?? String(localized: "today.allowAccessHelp", defaultValue: "Allow access to today's events"))
+            focusButton(remaining: remaining, prominent: false)
+            Button {
+                SoundPlayer.shared.play(.action)
+                model.requestAccess()
+            } label: {
+                Image(systemName: "calendar.badge.plus")
+                    .font(.system(size: 10, weight: .medium))
+                    .frame(width: 24, height: 20)
+                    .background(RoundedRectangle(cornerRadius: 7).fill(Color.white.opacity(0.06)))
             }
+            .buttonStyle(NotchPressStyle())
+            .hoverLift(cornerRadius: 7)
+            .accessibilityIdentifier("today.enable-calendar")
+            .help(model.errorMessage ?? String(localized: "today.allowAccessHelp", defaultValue: "Allow access to today's events"))
         }
     }
 
