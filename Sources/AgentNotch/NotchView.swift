@@ -2314,25 +2314,24 @@ private struct DashboardCell: View {
     @ObservedObject var today: TodayModel
     @Binding var focusEndsAt: Date?
 
+    /// Two independent capsule-style panels rather than one big surface
+    /// split by dividers — mirrors NotchNook's reference screenshots, where
+    /// media/shortcuts/calendar/mirror each sit in their own rounded card
+    /// with visible gaps between them.
     var body: some View {
-        CellSurface {
-            HStack(spacing: 0) {
+        HStack(spacing: 7) {
+            CellSurface {
                 DashboardMediaSection(media: media)
-                    .frame(maxWidth: .infinity, alignment: .leading)
-                sectionDivider
-                DashboardTodaySection(model: today, focusEndsAt: $focusEndsAt)
-                    .frame(width: 224, alignment: .leading)
             }
-            .foregroundColor(.white)
+            .shadow(color: .black.opacity(0.28), radius: 8, y: 3)
+            .frame(maxWidth: .infinity, alignment: .leading)
+            CellSurface {
+                DashboardTodaySection(model: today, focusEndsAt: $focusEndsAt)
+            }
+            .shadow(color: .black.opacity(0.28), radius: 8, y: 3)
+            .frame(width: 236, alignment: .leading)
         }
         .onAppear { today.refresh() }
-    }
-
-    private var sectionDivider: some View {
-        Divider()
-            .overlay(DesignTokens.line)
-            .padding(.vertical, 6)
-            .padding(.horizontal, 9)
     }
 }
 
@@ -2578,14 +2577,35 @@ private struct DashboardTodaySection: View {
             Image(systemName: model.events.isEmpty ? "calendar.badge.checkmark" : "calendar")
                 .font(.system(size: 9.5))
                 .foregroundColor(DesignTokens.muted)
-            Text(model.events.first?.title ?? String(localized: "today.nothingForToday", defaultValue: "Nothing for today"))
-                .font(.system(size: 10, weight: .medium))
-                .foregroundColor(model.events.isEmpty ? DesignTokens.muted : .white.opacity(0.85))
-                .lineLimit(1)
-                .help(model.events.first?.title ?? "")
+            if let event = model.events.first {
+                VStack(alignment: .leading, spacing: 1) {
+                    Text(event.title)
+                        .font(.system(size: 10, weight: .medium))
+                        .foregroundColor(.white.opacity(0.85))
+                        .lineLimit(1)
+                    Text(eventTimeRange(event))
+                        .font(.system(size: 8.5))
+                        .foregroundColor(DesignTokens.muted)
+                }
+                .help(event.title)
+            } else {
+                Text(String(localized: "today.nothingForToday", defaultValue: "Nothing for today"))
+                    .font(.system(size: 10, weight: .medium))
+                    .foregroundColor(DesignTokens.muted)
+                    .lineLimit(1)
+            }
             Spacer(minLength: 4)
             focusButton(remaining: remaining, prominent: false)
         }
+    }
+
+    /// "16:00–17:00"-style range mirroring NotchNook's reference screenshot,
+    /// which shows an event's start/end time under its title rather than
+    /// just the bare title.
+    private func eventTimeRange(_ event: TodayEvent) -> String {
+        let start = event.startDate.formatted(.dateTime.hour().minute())
+        let end = event.endDate.formatted(.dateTime.hour().minute())
+        return "\(start)–\(end)"
     }
 
     private func calendarPermissionContent(remaining: Int?) -> some View {
