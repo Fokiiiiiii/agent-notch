@@ -11,9 +11,9 @@ struct NotchView: View {
     @EnvironmentObject var uiState: NotchUIState
     @StateObject private var media = MediaController.shared
     @StateObject private var usageStore = AgentUsageStore.shared
-    @StateObject private var todayModel = TodayModel()
-    @StateObject private var systemMonitor = SystemMonitor()
-    @StateObject private var backgroundActivity = BackgroundActivityMonitor()
+    @StateObject private var todayModel = TodayModel.shared
+    @StateObject private var systemMonitor = SystemMonitor.shared
+    @StateObject private var backgroundActivity = BackgroundActivityMonitor.shared
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @State private var trayItems: [TrayItem] = []
     @State private var selectedTrayItemID: UUID?
