@@ -2312,7 +2312,7 @@ private struct DashboardCell: View {
     @Binding var focusEndsAt: Date?
 
     var body: some View {
-        VStack(spacing: 6) {
+        VStack(spacing: 4) {
             MediaCell(media: media)
             TodayCell(model: today, focusEndsAt: $focusEndsAt)
             SystemCell(monitor: system, background: background)
@@ -2325,9 +2325,9 @@ private struct MediaCell: View {
 
     var body: some View {
         CellSurface {
-            HStack(spacing: 10) {
+            HStack(spacing: 8) {
                 ZStack {
-                    RoundedRectangle(cornerRadius: 12)
+                    RoundedRectangle(cornerRadius: 10)
                         .fill(LinearGradient(colors: [.purple.opacity(0.75), .blue.opacity(0.55), .black], startPoint: .topLeading, endPoint: .bottomTrailing))
                     if let artwork = media.artwork {
                         Image(nsImage: artwork)
@@ -2335,19 +2335,19 @@ private struct MediaCell: View {
                             .scaledToFill()
                     } else {
                         Image(systemName: media.hasMedia ? "waveform" : "music.note")
-                            .font(.system(size: 21, weight: .light))
+                            .font(.system(size: 16, weight: .light))
                             .foregroundColor(.white.opacity(0.82))
                     }
                 }
-                .frame(width: 58, height: 58)
-                .clipShape(RoundedRectangle(cornerRadius: 10, style: .continuous))
-                .overlay(RoundedRectangle(cornerRadius: 10, style: .continuous).stroke(Color.white.opacity(0.08), lineWidth: 0.5))
-                VStack(alignment: .leading, spacing: 5) {
-                    MarqueeText(text: media.title, size: 12, weight: .semibold, speed: 24)
-                        .frame(height: 16)
+                .frame(width: 40, height: 40)
+                .clipShape(RoundedRectangle(cornerRadius: 8, style: .continuous))
+                .overlay(RoundedRectangle(cornerRadius: 8, style: .continuous).stroke(Color.white.opacity(0.08), lineWidth: 0.5))
+                VStack(alignment: .leading, spacing: 3) {
+                    MarqueeText(text: media.title, size: 11, weight: .semibold, speed: 24)
+                        .frame(height: 14)
                         .help(media.title)
                     Text(media.artist)
-                        .font(.system(size: 10))
+                        .font(.system(size: 9))
                         .foregroundColor(DesignTokens.muted)
                         .lineLimit(1)
                         .help(media.artist)
@@ -2510,7 +2510,8 @@ private struct MediaControlButton: View {
             action()
         } label: {
             Image(systemName: icon)
-                .frame(width: prominent ? 32 : 28, height: 30)
+                .font(.system(size: 12))
+                .frame(width: prominent ? 26 : 22, height: 24)
                 .background(Circle().fill(Color.white.opacity(prominent ? 0.11 : 0)))
         }
         .buttonStyle(NotchPressStyle())
@@ -2540,21 +2541,21 @@ private struct TodayCell: View {
     }
 
     private func calendarContent(remaining: Int?) -> some View {
-        HStack(spacing: 14) {
+        HStack(spacing: 10) {
             VStack(spacing: 1) {
                 Text(Date.now.formatted(.dateTime.day()))
-                    .font(.system(size: 34, weight: .light, design: .rounded))
+                    .font(.system(size: 22, weight: .light, design: .rounded))
                 Text(Date.now.formatted(.dateTime.month(.abbreviated).weekday(.abbreviated)).uppercased())
-                    .font(.system(size: 9.5, weight: .semibold))
+                    .font(.system(size: 8, weight: .semibold))
                     .tracking(0.5)
                     .foregroundColor(DesignTokens.muted)
             }
-            .frame(width: 76)
+            .frame(width: 52)
             Divider().overlay(DesignTokens.line)
-            VStack(alignment: .leading, spacing: 7) {
+            VStack(alignment: .leading, spacing: 4) {
                 if model.events.isEmpty {
                     Label(String(localized: "today.noMoreEventsToday", defaultValue: "No more events today"), systemImage: "calendar.badge.checkmark")
-                        .font(.system(size: 10.5, weight: .medium))
+                        .font(.system(size: 10, weight: .medium))
                         .foregroundColor(.white.opacity(0.72))
                 } else {
                     ForEach(model.events.prefix(2)) { event in
@@ -2572,11 +2573,11 @@ private struct TodayCell: View {
     }
 
     private func calendarPermissionContent(remaining: Int?) -> some View {
-        VStack(spacing: 8) {
+        VStack(spacing: 5) {
             Label(remaining == nil || remaining == 0 ? String(localized: "today.focusFor25Minutes", defaultValue: "Focus for 25 minutes") : String(localized: "today.focusIsActive", defaultValue: "Focus is active"), systemImage: remaining == nil || remaining == 0 ? "moon.stars.fill" : "timer")
-                .font(.system(size: 12, weight: .semibold))
+                .font(.system(size: 11, weight: .semibold))
             Text(remaining == nil || remaining == 0 ? String(localized: "today.focusLocalTimerDescription", defaultValue: "A local timer keeps the current task in view.") : String(localized: "today.focusContinuesDescription", defaultValue: "The timer continues when you switch views or close the Nook."))
-                .font(.system(size: 10))
+                .font(.system(size: 9))
                 .foregroundColor(DesignTokens.muted)
                 .multilineTextAlignment(.center)
             focusButton(remaining: remaining, prominent: true)
@@ -2585,9 +2586,9 @@ private struct TodayCell: View {
                 model.requestAccess()
             } label: {
                 Label(String(localized: "today.showCalendarEvents", defaultValue: "Show today's Calendar events"), systemImage: "calendar.badge.plus")
-                    .font(.system(size: 10, weight: .medium))
-                    .padding(.horizontal, 10)
-                    .frame(height: 28)
+                    .font(.system(size: 9.5, weight: .medium))
+                    .padding(.horizontal, 9)
+                    .frame(height: 24)
                     .background(RoundedRectangle(cornerRadius: 8).fill(Color.white.opacity(0.06)))
             }
             .buttonStyle(NotchPressStyle())
@@ -2612,10 +2613,10 @@ private struct TodayCell: View {
             focusEndsAt = remaining == nil || remaining == 0 ? Date().addingTimeInterval(25 * 60) : nil
         } label: {
             Label(focusLabel(remaining), systemImage: remaining == nil || remaining == 0 ? "moon.fill" : "stop.fill")
-                .font(.system(size: 10.5, weight: .semibold))
-                .padding(.horizontal, 12)
-                .frame(height: prominent ? 32 : 30)
-                .background(RoundedRectangle(cornerRadius: 9).fill(Color.white.opacity(prominent ? 0.14 : 0.09)))
+                .font(.system(size: 9.5, weight: .semibold))
+                .padding(.horizontal, 10)
+                .frame(height: prominent ? 28 : 24)
+                .background(RoundedRectangle(cornerRadius: 8).fill(Color.white.opacity(prominent ? 0.14 : 0.09)))
         }
         .buttonStyle(NotchPressStyle())
         .hoverLift(cornerRadius: 9)
@@ -2653,39 +2654,39 @@ private struct SystemCell: View {
         CellSurface {
             VStack(spacing: 5) {
                 if let activity = background.activities.first {
-                    VStack(alignment: .leading, spacing: 8) {
-                        HStack(spacing: 10) {
+                    VStack(alignment: .leading, spacing: 5) {
+                        HStack(spacing: 8) {
                             Image(systemName: activity.symbol)
-                                .font(.system(size: 20, weight: .medium))
+                                .font(.system(size: 15, weight: .medium))
                                 .foregroundColor(.white.opacity(0.82))
-                                .frame(width: 34, height: 34)
-                                .background(RoundedRectangle(cornerRadius: 9).fill(Color.white.opacity(0.07)))
-                            VStack(alignment: .leading, spacing: 3) {
-                                Text(activity.title).font(.system(size: 12, weight: .semibold))
-                                Text(activity.detail).font(.system(size: 10)).foregroundColor(DesignTokens.muted).lineLimit(1)
+                                .frame(width: 26, height: 26)
+                                .background(RoundedRectangle(cornerRadius: 8).fill(Color.white.opacity(0.07)))
+                            VStack(alignment: .leading, spacing: 2) {
+                                Text(activity.title).font(.system(size: 11, weight: .semibold))
+                                Text(activity.detail).font(.system(size: 9)).foregroundColor(DesignTokens.muted).lineLimit(1)
                             }
                             Spacer()
                             ProgressView().controlSize(.small).tint(.white.opacity(0.8))
                         }
                         HStack {
                             Label(String(localized: "system.runningInBackground", defaultValue: "Running in background"), systemImage: "clock.arrow.circlepath")
-                                .font(.system(size: 9.5, weight: .medium))
+                                .font(.system(size: 8.5, weight: .medium))
                                 .foregroundColor(.white.opacity(0.58))
                             if background.activities.count > 1 {
                                 Text(String(localized: "system.moreActivities", defaultValue: "+\(String(background.activities.count - 1)) more"))
-                                    .font(.system(size: 9.5, weight: .medium))
+                                    .font(.system(size: 8.5, weight: .medium))
                                     .foregroundColor(DesignTokens.muted)
                             }
                             Spacer()
                             activityMonitorButton
                         }
                     }
-                    .padding(.horizontal, 12)
-                    .padding(.vertical, 10)
+                    .padding(.horizontal, 10)
+                    .padding(.vertical, 8)
                     // maxHeight: .infinity dropped — same reasoning as
                     // MediaCell/TodayCell above.
                     .frame(maxWidth: .infinity)
-                    .background(RoundedRectangle(cornerRadius: 11).fill(Color.white.opacity(0.055)))
+                    .background(RoundedRectangle(cornerRadius: 10).fill(Color.white.opacity(0.055)))
                     .help(activity.detail)
                 } else {
                     HStack(spacing: 6) {
@@ -2702,23 +2703,18 @@ private struct SystemCell: View {
                             openSystemSettings("x-apple.systempreferences:com.apple.settings.Storage")
                         }
                     }
-                    HStack(spacing: 7) {
+                    HStack(spacing: 6) {
                         Image(systemName: "checkmark.circle")
-                            .font(.system(size: 11, weight: .medium))
+                            .font(.system(size: 10, weight: .medium))
                             .foregroundColor(.white.opacity(0.55))
-                        VStack(alignment: .leading, spacing: 1) {
-                            Text(String(localized: "system.noActiveBackgroundWork", defaultValue: "No active background work"))
-                                .font(.system(size: 10.5, weight: .medium))
-                            Text(String(localized: "system.noActiveBackgroundWorkDetail", defaultValue: "Builds, Git transfers and downloads appear here"))
-                                .font(.system(size: 9.5))
-                                .foregroundColor(DesignTokens.muted)
-                        }
+                        Text(String(localized: "system.noActiveBackgroundWork", defaultValue: "No active background work"))
+                            .font(.system(size: 9.5, weight: .medium))
                         Spacer()
                         activityMonitorButton
                     }
                     .padding(.horizontal, 8)
-                    .frame(height: 36)
-                    .background(RoundedRectangle(cornerRadius: 9).fill(Color.white.opacity(0.045)))
+                    .frame(height: 26)
+                    .background(RoundedRectangle(cornerRadius: 8).fill(Color.white.opacity(0.045)))
                 }
             }.foregroundColor(.white)
         }
@@ -2736,10 +2732,10 @@ private struct SystemCell: View {
             NSWorkspace.shared.open(URL(fileURLWithPath: "/System/Applications/Utilities/Activity Monitor.app"))
         } label: {
             Label(String(localized: "system.activityMonitor", defaultValue: "Activity Monitor"), systemImage: "gauge.with.dots.needle.50percent")
-                .font(.system(size: 9.5, weight: .medium))
-                .padding(.horizontal, 10)
-                .frame(height: 30)
-                .background(RoundedRectangle(cornerRadius: 8).fill(Color.white.opacity(0.075)))
+                .font(.system(size: 8.5, weight: .medium))
+                .padding(.horizontal, 8)
+                .frame(height: 22)
+                .background(RoundedRectangle(cornerRadius: 7).fill(Color.white.opacity(0.075)))
         }
         .buttonStyle(NotchPressStyle())
         .hoverLift(cornerRadius: 8)
@@ -2760,21 +2756,18 @@ private struct SystemActionCard: View {
             SoundPlayer.shared.play(.action)
             action()
         } label: {
-            HStack(spacing: 7) {
-                Image(systemName: icon).font(.system(size: 12)).foregroundColor(.white.opacity(0.76))
-                VStack(alignment: .leading, spacing: 2) {
-                    Text(title).font(.system(size: 9.5)).foregroundColor(DesignTokens.muted)
-                    Text(value).font(.system(size: 11, weight: .semibold)).lineLimit(1)
-                    Text(detail).font(.system(size: 9)).foregroundColor(.white.opacity(0.46)).lineLimit(1)
+            HStack(spacing: 6) {
+                Image(systemName: icon).font(.system(size: 11)).foregroundColor(.white.opacity(0.76))
+                VStack(alignment: .leading, spacing: 1) {
+                    Text(title).font(.system(size: 8.5)).foregroundColor(DesignTokens.muted)
+                    Text(value).font(.system(size: 10, weight: .semibold)).lineLimit(1)
+                    Text(detail).font(.system(size: 8)).foregroundColor(.white.opacity(0.46)).lineLimit(1)
                 }
                 Spacer(minLength: 0)
-                Image(systemName: "chevron.right")
-                    .font(.system(size: 8, weight: .semibold))
-                    .foregroundColor(.white.opacity(0.24))
             }
-            .padding(.horizontal, 9)
-            .frame(maxWidth: .infinity, minHeight: 48)
-            .background(RoundedRectangle(cornerRadius: 10).fill(Color.white.opacity(0.055)))
+            .padding(.horizontal, 8)
+            .frame(maxWidth: .infinity, minHeight: 38)
+            .background(RoundedRectangle(cornerRadius: 9).fill(Color.white.opacity(0.055)))
         }
         .buttonStyle(NotchPressStyle())
         .hoverLift(cornerRadius: 10)

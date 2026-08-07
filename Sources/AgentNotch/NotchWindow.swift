@@ -288,21 +288,24 @@ final class NotchWindowController: NSObject {
     private let agentsMaxHeight: CGFloat = 400
     /// Height budget for the Dashboard Nook page (merged Media/Today/System,
     /// three stacked cards — see `NotchView.DashboardCell`). Concrete values
-    /// are estimates derived from each card's known content height
-    /// (`MediaCell` ~84pt, `TodayCell` ~64pt with events / +
-    /// `dashboardPermissionPromptExtra` without calendar access, `SystemCell`
-    /// ~103pt) plus chrome (nookbar/view tabs) and `DashboardCell`'s 6pt
-    /// inter-card spacing × 2 — same "estimate, then eyeball-tune on a real
-    /// device" status as `agentsBaseHeight`.
-    static let dashboardBaseHeight: CGFloat = 340
+    /// are estimates derived from each card's known content height after
+    /// the compaction pass that shrank artwork/icon sizes, font sizes, and
+    /// inter-row spacing across all three cards in response to the initial
+    /// merge rendering far taller than intended (`MediaCell` ~63pt content
+    /// + 14pt CellSurface padding ≈ 77pt, `TodayCell` ~80pt + 14pt ≈ 94pt,
+    /// `SystemCell` ~68pt + 14pt ≈ 82pt) plus chrome (nookbar/view tabs,
+    /// ~60pt) and `DashboardCell`'s 4pt inter-card spacing × 2 — same
+    /// "estimate, then eyeball-tune on a real device" status as
+    /// `agentsBaseHeight`.
+    static let dashboardBaseHeight: CGFloat = 270
     /// Extra height per calendar event shown (`TodayCell` renders up to 2
     /// via `model.events.prefix(2)` — see `NotchView.swift`), mirroring
     /// `agentsRowHeight`'s role for the Agents page.
-    static let dashboardEventRowHeight: CGFloat = 28
+    static let dashboardEventRowHeight: CGFloat = 26
     /// Extra height when `TodayCell` is showing its "grant calendar access"
     /// prompt (description text + Focus button + Allow button) instead of
     /// the compact 0-events state.
-    static let dashboardPermissionPromptExtra: CGFloat = 50
+    static let dashboardPermissionPromptExtra: CGFloat = 40
     /// Extra height for the two-row `DetailStrip` `expandedDetail` shows for
     /// `.dashboard` (Today's 3 items + System's 2, split across two rows —
     /// see `NotchView.expandedDetail`'s `.dashboard` case) — larger than the
@@ -313,7 +316,7 @@ final class NotchWindowController: NSObject {
     /// Absolute ceiling on the Dashboard tab height — same safety-net role
     /// as `agentsMaxHeight`. Set above the worst case the formula above can
     /// actually produce (`dashboardBaseHeight` + 2 events × `dashboardEventRowHeight`
-    /// + `dashboardDetailExpandedHeight` = 340 + 56 + 96 = 492) with a little
+    /// + `dashboardDetailExpandedHeight` = 270 + 52 + 96 = 418) with a little
     /// headroom — unlike Agents' cap (which exists specifically to hand off
     /// to `AgentsCell`'s own `ScrollView` once a real overflow risk exists),
     /// Dashboard has no scroll fallback, so a cap tighter than its own worst
