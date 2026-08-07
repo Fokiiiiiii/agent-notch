@@ -2321,10 +2321,10 @@ private struct DashboardCell: View {
                     .frame(maxWidth: .infinity, alignment: .leading)
                 sectionDivider
                 DashboardTodaySection(model: today, focusEndsAt: $focusEndsAt)
-                    .frame(width: 176, alignment: .leading)
+                    .frame(width: 152, alignment: .leading)
                 sectionDivider
                 DashboardBatterySection(monitor: system)
-                    .frame(width: 60, alignment: .leading)
+                    .frame(width: 46, alignment: .leading)
             }
             .foregroundColor(.white)
         }
@@ -2334,8 +2334,8 @@ private struct DashboardCell: View {
     private var sectionDivider: some View {
         Divider()
             .overlay(DesignTokens.line)
-            .padding(.vertical, 3)
-            .padding(.horizontal, 9)
+            .padding(.vertical, 4)
+            .padding(.horizontal, 5)
     }
 }
 
@@ -2343,9 +2343,9 @@ private struct DashboardMediaSection: View {
     @ObservedObject var media: MediaController
 
     var body: some View {
-        HStack(spacing: 8) {
+        HStack(spacing: 6) {
             ZStack {
-                RoundedRectangle(cornerRadius: 8)
+                RoundedRectangle(cornerRadius: 7)
                     .fill(LinearGradient(colors: [.purple.opacity(0.75), .blue.opacity(0.55), .black], startPoint: .topLeading, endPoint: .bottomTrailing))
                 if let artwork = media.artwork {
                     Image(nsImage: artwork)
@@ -2353,14 +2353,14 @@ private struct DashboardMediaSection: View {
                         .scaledToFill()
                 } else {
                     Image(systemName: media.hasMedia ? "waveform" : "music.note")
-                        .font(.system(size: 16, weight: .light))
+                        .font(.system(size: 14, weight: .light))
                         .foregroundColor(.white.opacity(0.82))
                 }
             }
-            .frame(width: 40, height: 40)
-            .clipShape(RoundedRectangle(cornerRadius: 8, style: .continuous))
-            .overlay(RoundedRectangle(cornerRadius: 8, style: .continuous).stroke(Color.white.opacity(0.08), lineWidth: 0.5))
-            VStack(alignment: .leading, spacing: 3) {
+            .frame(width: 34, height: 34)
+            .clipShape(RoundedRectangle(cornerRadius: 7, style: .continuous))
+            .overlay(RoundedRectangle(cornerRadius: 7, style: .continuous).stroke(Color.white.opacity(0.08), lineWidth: 0.5))
+            VStack(alignment: .leading, spacing: 2) {
                 MarqueeText(text: media.hasMedia ? media.title : String(localized: "media.noMediaPlaying", defaultValue: "No media playing"), size: 11, weight: .semibold, speed: 24)
                     .frame(height: 14)
                     .help(media.title)
@@ -2494,12 +2494,12 @@ private struct MediaControlButton: View {
             action()
         } label: {
             Image(systemName: icon)
-                .font(.system(size: 12))
-                .frame(width: prominent ? 26 : 22, height: 24)
+                .font(.system(size: 11))
+                .frame(width: prominent ? 22 : 18, height: 18)
                 .background(Circle().fill(Color.white.opacity(prominent ? 0.11 : 0)))
         }
         .buttonStyle(NotchPressStyle())
-        .hoverLift(cornerRadius: 11, strength: 0.08)
+        .hoverLift(cornerRadius: 9, strength: 0.08)
         .help(help)
         .accessibilityLabel(help)
     }
@@ -2522,16 +2522,16 @@ private struct DashboardTodaySection: View {
     }
 
     private func calendarContent(remaining: Int?) -> some View {
-        HStack(spacing: 8) {
+        HStack(spacing: 6) {
             VStack(spacing: 0) {
                 Text(Date.now.formatted(.dateTime.day()))
-                    .font(.system(size: 20, weight: .semibold, design: .rounded))
+                    .font(.system(size: 18, weight: .semibold, design: .rounded))
                 Text(Date.now.formatted(.dateTime.weekday(.abbreviated)).uppercased())
-                    .font(.system(size: 7.5, weight: .semibold))
+                    .font(.system(size: 7, weight: .semibold))
                     .tracking(0.5)
                     .foregroundColor(DesignTokens.muted)
             }
-            VStack(alignment: .leading, spacing: 3) {
+            VStack(alignment: .leading, spacing: 2) {
                 if let event = model.events.first {
                     Text(event.title)
                         .font(.system(size: 10, weight: .semibold))
@@ -2584,10 +2584,10 @@ private struct DashboardTodaySection: View {
             focusEndsAt = remaining == nil || remaining == 0 ? Date().addingTimeInterval(25 * 60) : nil
         } label: {
             Label(focusLabel(remaining), systemImage: remaining == nil || remaining == 0 ? "moon.fill" : "stop.fill")
-                .font(.system(size: 8.5, weight: .semibold))
-                .padding(.horizontal, 8)
-                .frame(height: 20)
-                .background(RoundedRectangle(cornerRadius: 7).fill(Color.white.opacity(prominent ? 0.14 : 0.09)))
+                .font(.system(size: 8, weight: .semibold))
+                .padding(.horizontal, 6)
+                .frame(height: 17)
+                .background(RoundedRectangle(cornerRadius: 6).fill(Color.white.opacity(prominent ? 0.14 : 0.09)))
         }
         .buttonStyle(NotchPressStyle())
         .hoverLift(cornerRadius: 7)
@@ -2614,13 +2614,13 @@ private struct DashboardBatterySection: View {
         Button {
             openSystemSettings("x-apple.systempreferences:com.apple.Battery-Settings.extension")
         } label: {
-            VStack(alignment: .leading, spacing: 2) {
+            VStack(alignment: .leading, spacing: 1) {
                 Image(systemName: monitor.isCharging ? "battery.100percent.bolt" : batteryIcon)
-                    .font(.system(size: 13))
+                    .font(.system(size: 12))
                 Text(monitor.batteryLevel.map { "\($0)%" } ?? String(localized: "system.acPower", defaultValue: "AC"))
-                    .font(.system(size: 11, weight: .semibold))
+                    .font(.system(size: 10, weight: .semibold))
                 Text(String(localized: "system.battery", defaultValue: "Battery"))
-                    .font(.system(size: 8))
+                    .font(.system(size: 7.5))
                     .foregroundColor(DesignTokens.muted)
             }
             .frame(maxWidth: .infinity, alignment: .leading)
