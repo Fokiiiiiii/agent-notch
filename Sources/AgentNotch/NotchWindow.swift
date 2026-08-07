@@ -55,16 +55,19 @@ enum IslandMode {
     case closed, hover, notice, open
 }
 
-/// Which page is shown inside the "Nook" tab of the open panel.
+/// Which page is shown inside the "Nook" tab of the open panel. Formerly
+/// `agents, media, today, system` — Media/Today/System were merged into a
+/// single `dashboard` page (three stacked cards) so all of it is visible at
+/// once instead of requiring a tab switch; `agents` stays separate by design
+/// (agent session monitoring/approval is a distinct concern from the
+/// at-a-glance system widgets).
 enum NookView: CaseIterable {
-    case agents, media, today, system
+    case agents, dashboard
 
     var title: String {
         switch self {
         case .agents: return String(localized: "nook.tab.agents", defaultValue: "Agents")
-        case .media: return String(localized: "nook.tab.media", defaultValue: "Media")
-        case .today: return String(localized: "nook.tab.today", defaultValue: "Today")
-        case .system: return String(localized: "nook.tab.system", defaultValue: "System")
+        case .dashboard: return String(localized: "nook.tab.dashboard", defaultValue: "Dashboard")
         }
     }
 }
@@ -1780,10 +1783,12 @@ final class NotchWindowController: NSObject {
     private func handleVerticalScroll(_ event: NSEvent, delta deltaY: CGFloat) {
         // The Agents tab hosts its own vertical `ScrollView` for the session
         // list; treating ordinary list scrolling as a "swipe to expand
-        // detail" gesture there was firing accidentally. Agents and Media no
-        // longer have a detail panel at all (NotchView.hasDetailPanel), so
-        // swipe-to-expand is disabled for both.
-        guard uiState.activeView != .agents, uiState.activeView != .media else { return }
+        // detail" gesture there was firing accidentally, so it's excluded
+        // even though Agents does have a detail panel (NotchView.hasDetailPanel).
+        // Dashboard has no competing scroll view, so swipe-to-expand stays
+        // enabled there (it merged Media, which had no detail panel at all,
+        // with Today/System, which did — the merged tab does have one).
+        guard uiState.activeView != .agents else { return }
 
         if event.phase == .began {
             verticalScrollTotal = 0
@@ -1825,7 +1830,11 @@ final class NotchWindowController: NSObject {
             if uiState.activeTab == .tray {
                 guard !forward else { return }
                 uiState.activeTab = .nook
-                uiState.activeView = .system
+                // Land on the last Nook page (was hardcoded to `.system`,
+                // the last case in the old 4-case enum — `.allCases.last`
+                // keeps this correct regardless of how `NookView`'s cases
+                // are ordered/renamed going forward).
+                uiState.activeView = NookView.allCases.last ?? .agents
             } else if let index = NookView.allCases.firstIndex(of: uiState.activeView) {
                 let nextIndex = forward ? index + 1 : index - 1
                 if NookView.allCases.indices.contains(nextIndex) {

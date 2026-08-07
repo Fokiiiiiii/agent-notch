@@ -159,7 +159,7 @@ struct NotchView: View {
             hideCompactMediaPreview()
             if shouldShowCompactMedia {
                 uiState.activeTab = .nook
-                uiState.activeView = .media
+                uiState.activeView = .dashboard
             }
             controller.toggleOpen()
         } label: {
@@ -555,12 +555,8 @@ struct NotchView: View {
                     switch uiState.activeView {
                     case .agents:
                         AgentsCell(store: store, uiState: uiState)
-                    case .media:
-                        MediaCell(media: media)
-                    case .today:
-                        TodayCell(focusEndsAt: $uiState.focusEndsAt)
-                    case .system:
-                        SystemCell()
+                    case .dashboard:
+                        DashboardCell(media: media, today: todayModel, system: systemMonitor, background: backgroundActivity, focusEndsAt: $uiState.focusEndsAt)
                     }
                 }
             }
@@ -692,18 +688,17 @@ struct NotchView: View {
     private func viewIcon(_ view: NookView) -> String {
         switch view {
         case .agents: return "terminal"
-        case .media: return "play.fill"
-        case .today: return "calendar"
-        case .system: return "gauge.with.dots.needle.50percent"
+        case .dashboard: return "square.grid.2x2"
         }
     }
 
-    /// Media has no detail panel: its metadata is fully covered by the
-    /// always-visible main content, so a separate panel would only repeat
-    /// it. Agents gained one in Phase 5 (context-usage%, moved out of the
-    /// always-visible row) — System and Today already had one.
+    /// Agents gained a detail panel in Phase 5 (context-usage%, moved out of
+    /// the always-visible row). Dashboard (formerly Today/System, which each
+    /// already had one, merged with Media, which didn't need one since its
+    /// metadata is fully covered by the always-visible main content) also
+    /// has one — see `expandedDetail`'s `.dashboard` case.
     private func hasDetailPanel(for view: NookView) -> Bool {
-        view == .system || view == .today || view == .agents
+        view == .agents || view == .dashboard
     }
 
     /// Mirrors `AgentsCell.selected`'s "explicitly selected, else first"
@@ -727,20 +722,28 @@ struct NotchView: View {
                     ("agents.context", String(localized: "detail.agents.context", defaultValue: "Context used"), session.contextUsedPercent.map(contextUsedPercentValue) ?? String(localized: "detail.agents.contextUnavailable", defaultValue: "—")),
                 ]))
             }
-        case .media:
-            EmptyView()
-        case .today:
-            DetailStrip(items: orderedDetailItems(tabId: "today", items: [
-                ("today.location", String(localized: "detail.today.location", defaultValue: "Location"), todayLocationValue),
-                ("today.duration", String(localized: "detail.today.duration", defaultValue: "Duration"), todayDurationValue),
-                ("today.attendees", String(localized: "detail.today.attendees", defaultValue: "Attendees"), todayAttendeesValue)
-            ]))
+        case .dashboard:
+            // Today's 3 items + System's 2 items = 5, too many to stay
+            // legible as one 540pt-wide row (each box would get roughly
+            // half the width it gets today) — kept as two stacked
+            // `DetailStrip`s instead, matching each source tab's own prior
+            // per-item width exactly. `tabId` keeps the pre-merge "today"/
+            // "system" identifiers rather than a new "dashboard" one:
+            // `tabLayouts` is inert today (see `orderedDetailItems`'s doc
+            // comment) but preserving the finer-grained IDs keeps that data
+            // model meaningful if a layout-editing UI is ever built.
+            VStack(spacing: 6) {
+                DetailStrip(items: orderedDetailItems(tabId: "today", items: [
+                    ("today.location", String(localized: "detail.today.location", defaultValue: "Location"), todayLocationValue),
+                    ("today.duration", String(localized: "detail.today.duration", defaultValue: "Duration"), todayDurationValue),
+                    ("today.attendees", String(localized: "detail.today.attendees", defaultValue: "Attendees"), todayAttendeesValue)
+                ]))
+                DetailStrip(items: orderedDetailItems(tabId: "system", items: [
+                    ("system.uptime", String(localized: "detail.system.uptime", defaultValue: "Uptime"), systemMonitor.uptime),
+                    ("system.activity", String(localized: "detail.system.activity", defaultValue: "Also running"), systemMoreActivityValue)
+                ]))
+            }
             .onAppear { todayModel.refresh() }
-        case .system:
-            DetailStrip(items: orderedDetailItems(tabId: "system", items: [
-                ("system.uptime", String(localized: "detail.system.uptime", defaultValue: "Uptime"), systemMonitor.uptime),
-                ("system.activity", String(localized: "detail.system.activity", defaultValue: "Also running"), systemMoreActivityValue)
-            ]))
         }
     }
 
@@ -985,17 +988,21 @@ struct NotchView: View {
             }
     }
 
+    // Agents is excluded because it hosts its own vertical `ScrollView` for
+    // the session list (see `handleVerticalScroll`'s doc comment in
+    // NotchWindow.swift) — Dashboard has no competing scroll view and does
+    // have a detail panel, so it's not excluded here.
     private var verticalDetailGesture: some Gesture {
         DragGesture(minimumDistance: 10, coordinateSpace: .local)
             .updating($verticalDrag) { value, state, _ in
                 guard uiState.overlay == nil,
-                      uiState.activeView != .agents, uiState.activeView != .media,
+                      uiState.activeView != .agents,
                       abs(value.translation.height) > abs(value.translation.width) else { return }
                 state = value.translation.height
             }
             .onEnded { value in
                 guard uiState.overlay == nil,
-                      uiState.activeView != .agents, uiState.activeView != .media,
+                      uiState.activeView != .agents,
                       abs(value.translation.height) > abs(value.translation.width) * 1.15 else { return }
                 let projected = value.predictedEndTranslation.height
                 let committed = abs(value.translation.height) > 34 || abs(projected) > 58
@@ -2289,6 +2296,30 @@ private struct CellSurface<Content: View>: View {
     }
 }
 
+/// The merged Media/Today/System page — three independently-`CellSurface`d
+/// cards stacked vertically, matching macOS Control Center's "grid of
+/// rounded cards" pattern (chosen over a slot-swap/paged design because the
+/// user's request was specifically for everything visible "in one screen"
+/// at once). Each card keeps its own pre-merge implementation almost
+/// unchanged; only their outer `.frame(..., maxHeight: .infinity, ...)`
+/// stretch was removed so three stacked cards don't fight each other for
+/// vertical space (see each card's own comment on this).
+private struct DashboardCell: View {
+    @ObservedObject var media: MediaController
+    @ObservedObject var today: TodayModel
+    @ObservedObject var system: SystemMonitor
+    @ObservedObject var background: BackgroundActivityMonitor
+    @Binding var focusEndsAt: Date?
+
+    var body: some View {
+        VStack(spacing: 6) {
+            MediaCell(media: media)
+            TodayCell(model: today, focusEndsAt: $focusEndsAt)
+            SystemCell(monitor: system, background: background)
+        }
+    }
+}
+
 private struct MediaCell: View {
     @ObservedObject var media: MediaController
 
@@ -2362,7 +2393,12 @@ private struct MediaCell: View {
                 .frame(maxWidth: .infinity, alignment: .leading)
             }
             .foregroundColor(.white)
-            .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .center)
+            // maxHeight: .infinity dropped (was `alignment: .center`
+            // stretch-and-center) now that this card sits stacked with
+            // Today/System in DashboardCell instead of alone filling the
+            // whole Media tab — stretching would push the other two cards
+            // off-screen.
+            .frame(maxWidth: .infinity, alignment: .center)
         }
     }
 
@@ -2485,7 +2521,7 @@ private struct MediaControlButton: View {
 }
 
 private struct TodayCell: View {
-    @StateObject private var model = TodayModel()
+    @ObservedObject var model: TodayModel
     @Binding var focusEndsAt: Date?
 
     var body: some View {
@@ -2566,7 +2602,8 @@ private struct TodayCell: View {
                     .help(error)
             }
         }
-        .frame(maxWidth: .infinity, maxHeight: .infinity)
+        // maxHeight: .infinity dropped — same reasoning as MediaCell above.
+        .frame(maxWidth: .infinity)
     }
 
     private func focusButton(remaining: Int?, prominent: Bool) -> some View {
@@ -2609,8 +2646,8 @@ private struct ScheduleRow: View {
 }
 
 private struct SystemCell: View {
-    @StateObject private var monitor = SystemMonitor()
-    @StateObject private var background = BackgroundActivityMonitor()
+    @ObservedObject var monitor: SystemMonitor
+    @ObservedObject var background: BackgroundActivityMonitor
 
     var body: some View {
         CellSurface {
@@ -2645,7 +2682,9 @@ private struct SystemCell: View {
                     }
                     .padding(.horizontal, 12)
                     .padding(.vertical, 10)
-                    .frame(maxWidth: .infinity, maxHeight: .infinity)
+                    // maxHeight: .infinity dropped — same reasoning as
+                    // MediaCell/TodayCell above.
+                    .frame(maxWidth: .infinity)
                     .background(RoundedRectangle(cornerRadius: 11).fill(Color.white.opacity(0.055)))
                     .help(activity.detail)
                 } else {
