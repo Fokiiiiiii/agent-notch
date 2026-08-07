@@ -291,15 +291,15 @@ final class NotchWindowController: NSObject {
     /// `NotchView.DashboardCell`), not stacked cards. Because the row's
     /// height is set by its tallest section rather than by how much content
     /// each section has, it no longer varies with calendar event count the
-    /// way the original (stacked-cards) design's did — `TodayCell` shows at
-    /// most one event summary line regardless of how many events exist.
-    /// Concrete value is an estimate derived from the tallest section
-    /// (`DashboardMediaSection`'s ~47pt content when media is playing:
-    /// 14pt title + 2pt spacing + ~11pt artist + 2pt spacing + 18pt controls)
+    /// way the original (stacked-cards) design's did — `DashboardTodaySection`
+    /// shows at most one event summary line regardless of how many events
+    /// exist. Concrete value is an estimate derived from the tallest
+    /// section (`DashboardMediaSection`'s fixed 52pt artwork height, which
+    /// its text column matches via `.frame(height: 52, alignment: .top)`)
     /// plus 14pt `CellSurface` padding plus chrome (nookbar/view tabs,
     /// ~55pt) — same "estimate, then eyeball-tune on a real device" status
     /// as `agentsBaseHeight`.
-    static let dashboardBaseHeight: CGFloat = 120
+    static let dashboardBaseHeight: CGFloat = 128
     /// Extra height when `DashboardTodaySection` is showing its "grant
     /// calendar access" prompt instead of the compact day/event state — its
     /// two-button `HStack` layout runs slightly taller.
@@ -314,7 +314,7 @@ final class NotchWindowController: NSObject {
     /// Absolute ceiling on the Dashboard tab height — same safety-net role
     /// as `agentsMaxHeight`. Set above the worst case the formula above can
     /// actually produce (`dashboardBaseHeight` + `dashboardPermissionPromptExtra`
-    /// + `dashboardDetailExpandedHeight` = 120 + 15 + 96 = 231) with a little
+    /// + `dashboardDetailExpandedHeight` = 128 + 15 + 96 = 239) with a little
     /// headroom — unlike Agents' cap (which exists specifically to hand off
     /// to `AgentsCell`'s own `ScrollView` once a real overflow risk exists),
     /// Dashboard has no scroll fallback, so a cap tighter than its own worst

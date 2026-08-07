@@ -2321,7 +2321,7 @@ private struct DashboardCell: View {
                     .frame(maxWidth: .infinity, alignment: .leading)
                 sectionDivider
                 DashboardTodaySection(model: today, focusEndsAt: $focusEndsAt)
-                    .frame(width: 152, alignment: .leading)
+                    .frame(width: 190, alignment: .leading)
                 sectionDivider
                 DashboardBatterySection(monitor: system)
                     .frame(width: 46, alignment: .leading)
@@ -2339,13 +2339,19 @@ private struct DashboardCell: View {
     }
 }
 
+/// Artwork-forward layout modeled on NotchNook's own reference screenshot
+/// (large square artwork, bold title allowed to wrap to two lines, controls
+/// beneath) rather than the single-line-marquee/small-icon treatment this
+/// file's other Media surfaces (`compactMediaContent`, `HoverPeekView`) use
+/// — those stay on `MarqueeText` since they're width-constrained in ways
+/// this wider Dashboard section isn't.
 private struct DashboardMediaSection: View {
     @ObservedObject var media: MediaController
 
     var body: some View {
-        HStack(spacing: 6) {
+        HStack(spacing: 10) {
             ZStack {
-                RoundedRectangle(cornerRadius: 7)
+                RoundedRectangle(cornerRadius: 10)
                     .fill(LinearGradient(colors: [.purple.opacity(0.75), .blue.opacity(0.55), .black], startPoint: .topLeading, endPoint: .bottomTrailing))
                 if let artwork = media.artwork {
                     Image(nsImage: artwork)
@@ -2353,24 +2359,27 @@ private struct DashboardMediaSection: View {
                         .scaledToFill()
                 } else {
                     Image(systemName: media.hasMedia ? "waveform" : "music.note")
-                        .font(.system(size: 14, weight: .light))
+                        .font(.system(size: 20, weight: .light))
                         .foregroundColor(.white.opacity(0.82))
                 }
             }
-            .frame(width: 34, height: 34)
-            .clipShape(RoundedRectangle(cornerRadius: 7, style: .continuous))
-            .overlay(RoundedRectangle(cornerRadius: 7, style: .continuous).stroke(Color.white.opacity(0.08), lineWidth: 0.5))
-            VStack(alignment: .leading, spacing: 2) {
-                MarqueeText(text: media.hasMedia ? media.title : String(localized: "media.noMediaPlaying", defaultValue: "No media playing"), size: 11, weight: .semibold, speed: 24)
-                    .frame(height: 14)
+            .frame(width: 52, height: 52)
+            .clipShape(RoundedRectangle(cornerRadius: 9, style: .continuous))
+            .overlay(RoundedRectangle(cornerRadius: 9, style: .continuous).stroke(Color.white.opacity(0.08), lineWidth: 0.5))
+            VStack(alignment: .leading, spacing: 3) {
+                Text(media.hasMedia ? media.title : String(localized: "media.noMediaPlaying", defaultValue: "No media playing"))
+                    .font(.system(size: 11.5, weight: .bold))
+                    .lineLimit(2)
+                    .fixedSize(horizontal: false, vertical: true)
                     .help(media.title)
                 Text(media.hasMedia ? media.artist : (media.isConnected ? media.source : String(localized: "media.unavailable", defaultValue: "Unavailable")))
-                    .font(.system(size: 9))
+                    .font(.system(size: 9.5))
                     .foregroundColor(DesignTokens.muted)
                     .lineLimit(1)
                     .help(media.artist)
+                Spacer(minLength: 0)
                 if media.hasMedia {
-                    HStack(spacing: 2) {
+                    HStack(spacing: 4) {
                         MediaControlButton(icon: "backward.fill", help: String(localized: "media.previous", defaultValue: "Previous"), action: media.previous)
                         MediaControlButton(icon: media.isPlaying ? "pause.fill" : "play.fill", help: media.isPlaying ? String(localized: "media.pause", defaultValue: "Pause") : String(localized: "media.play", defaultValue: "Play"), prominent: true, action: media.togglePlayback)
                         MediaControlButton(icon: "forward.fill", help: String(localized: "media.next", defaultValue: "Next"), action: media.next)
@@ -2391,6 +2400,7 @@ private struct DashboardMediaSection: View {
                     .help(String(localized: "media.checkNowPlayingHelp", defaultValue: "Check the current macOS media session"))
                 }
             }
+            .frame(height: 52, alignment: .top)
         }
         .foregroundColor(.white)
     }
@@ -2494,20 +2504,30 @@ private struct MediaControlButton: View {
             action()
         } label: {
             Image(systemName: icon)
-                .font(.system(size: 11))
-                .frame(width: prominent ? 22 : 18, height: 18)
+                .font(.system(size: 12))
+                .frame(width: prominent ? 24 : 20, height: 20)
                 .background(Circle().fill(Color.white.opacity(prominent ? 0.11 : 0)))
         }
         .buttonStyle(NotchPressStyle())
-        .hoverLift(cornerRadius: 9, strength: 0.08)
+        .hoverLift(cornerRadius: 10, strength: 0.08)
         .help(help)
         .accessibilityLabel(help)
     }
 }
 
+/// A week-strip + today's-agenda layout modeled on NotchNook's own reference
+/// screenshot (seven day columns, today's date circled, an agenda line
+/// beneath) instead of the "big single day number" layout this section
+/// used before.
 private struct DashboardTodaySection: View {
     @ObservedObject var model: TodayModel
     @Binding var focusEndsAt: Date?
+
+    private var weekDates: [Date] {
+        let calendar = Calendar.current
+        guard let interval = calendar.dateInterval(of: .weekOfYear, for: Date()) else { return [] }
+        return (0..<7).compactMap { calendar.date(byAdding: .day, value: $0, to: interval.start) }
+    }
 
     var body: some View {
         TimelineView(.periodic(from: .now, by: 1)) { context in
@@ -2522,30 +2542,23 @@ private struct DashboardTodaySection: View {
     }
 
     private func calendarContent(remaining: Int?) -> some View {
-        HStack(spacing: 6) {
-            VStack(spacing: 0) {
-                Text(Date.now.formatted(.dateTime.day()))
-                    .font(.system(size: 18, weight: .semibold, design: .rounded))
-                Text(Date.now.formatted(.dateTime.weekday(.abbreviated)).uppercased())
-                    .font(.system(size: 7, weight: .semibold))
-                    .tracking(0.5)
-                    .foregroundColor(DesignTokens.muted)
-            }
-            VStack(alignment: .leading, spacing: 2) {
-                if let event = model.events.first {
-                    Text(event.title)
-                        .font(.system(size: 10, weight: .semibold))
-                        .lineLimit(1)
-                        .help(event.title)
-                    Text(event.startDate.formatted(date: .omitted, time: .shortened))
-                        .font(.system(size: 8.5, design: .monospaced))
-                        .foregroundColor(DesignTokens.muted)
-                } else {
-                    Text(String(localized: "today.noMoreEventsToday", defaultValue: "No more events today"))
-                        .font(.system(size: 9.5, weight: .medium))
-                        .foregroundColor(.white.opacity(0.72))
-                        .lineLimit(2)
+        VStack(alignment: .leading, spacing: 5) {
+            HStack(spacing: 2) {
+                ForEach(weekDates, id: \.self) { day in
+                    WeekDayColumn(date: day)
+                        .frame(maxWidth: .infinity)
                 }
+            }
+            HStack(spacing: 5) {
+                Image(systemName: model.events.isEmpty ? "calendar.badge.checkmark" : "calendar")
+                    .font(.system(size: 8.5))
+                    .foregroundColor(DesignTokens.muted)
+                Text(model.events.first?.title ?? String(localized: "today.noMoreEventsToday", defaultValue: "No more events today"))
+                    .font(.system(size: 9, weight: .medium))
+                    .foregroundColor(model.events.isEmpty ? DesignTokens.muted : .white.opacity(0.85))
+                    .lineLimit(1)
+                    .help(model.events.first?.title ?? "")
+                Spacer(minLength: 4)
                 focusButton(remaining: remaining, prominent: false)
             }
         }
@@ -2599,6 +2612,32 @@ private struct DashboardTodaySection: View {
         guard let remaining, remaining > 0 else { return String(localized: "today.startFocus", defaultValue: "Start Focus") }
         let format = String(localized: "today.endFocusWithTime", defaultValue: "End Focus · %02d:%02d")
         return String(format: format, remaining / 60, remaining % 60)
+    }
+}
+
+/// One column of `DashboardTodaySection`'s week strip: a narrow weekday
+/// letter above the day-of-month number, with today's number circled —
+/// mirrors NotchNook's reference screenshot's calendar treatment.
+private struct WeekDayColumn: View {
+    let date: Date
+
+    private var isToday: Bool { Calendar.current.isDateInToday(date) }
+
+    var body: some View {
+        VStack(spacing: 1) {
+            Text(date.formatted(.dateTime.weekday(.narrow)))
+                .font(.system(size: 6.5, weight: .medium))
+                .foregroundColor(DesignTokens.muted)
+            Text(date.formatted(.dateTime.day()))
+                .font(.system(size: 9.5, weight: .semibold))
+                .foregroundColor(.white)
+                .frame(width: 16, height: 16)
+                .background(isToday ? AnyShapeStyle(DesignTokens.cyan) : AnyShapeStyle(Color.clear))
+                .clipShape(Circle())
+        }
+        .accessibilityElement(children: .ignore)
+        .accessibilityLabel(date.formatted(.dateTime.weekday(.wide).day()))
+        .accessibilityAddTraits(isToday ? [.isSelected] : [])
     }
 }
 
