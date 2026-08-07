@@ -16,6 +16,10 @@ enum DesignTokens {
 
     // Neutral text/surface colors
     static let muted = Color.white.opacity(0.48)
+    /// Fainter than `muted` — for a third tier of text (e.g. an album name
+    /// sitting below title/artist) that should recede further without
+    /// disappearing entirely.
+    static let mutedFaint = Color.white.opacity(0.34)
     static let line = Color.white.opacity(0.085)
 
     /// "done" status dot color (`#AEB4BF` in the mock).

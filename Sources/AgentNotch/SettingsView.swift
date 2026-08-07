@@ -33,6 +33,8 @@ struct SettingsView: View {
             Section(String(localized: "settings.section.general", defaultValue: "General")) {
                 Toggle(String(localized: "settings.soundEffects", defaultValue: "Sound effects"), isOn: $settings.soundEnabled)
                     .help(String(localized: "settings.soundEffectsHelp", defaultValue: "Plays a short tone for approvals, questions, and other notch events."))
+                Toggle(String(localized: "settings.hapticFeedback", defaultValue: "Haptic feedback"), isOn: $settings.hapticsEnabled)
+                    .help(String(localized: "settings.hapticFeedbackHelp", defaultValue: "Pulses the trackpad for approvals, questions, and other notch events (Force Touch trackpads only)."))
             }
 
             // Only shown once authorization has actually been requested and

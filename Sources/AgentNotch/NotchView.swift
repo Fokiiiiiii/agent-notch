@@ -493,6 +493,7 @@ struct NotchView: View {
             .buttonStyle(.plain)
             .frame(maxWidth: .infinity, minHeight: 24)
             .help(String(localized: "notch.clickBarToClose", defaultValue: "Click the notch bar to close"))
+            CompactBatteryIndicator(monitor: systemMonitor)
             Button {
                 NSApp.activate(ignoringOtherApps: true)
                 NSApp.sendAction(Selector(("showSettingsWindow:")), to: nil, from: nil)
@@ -556,7 +557,7 @@ struct NotchView: View {
                     case .agents:
                         AgentsCell(store: store, uiState: uiState)
                     case .dashboard:
-                        DashboardCell(media: media, today: todayModel, system: systemMonitor, focusEndsAt: $uiState.focusEndsAt)
+                        DashboardCell(media: media, today: todayModel, focusEndsAt: $uiState.focusEndsAt)
                     }
                 }
             }
@@ -2311,7 +2312,6 @@ private struct CellSurface<Content: View>: View {
 private struct DashboardCell: View {
     @ObservedObject var media: MediaController
     @ObservedObject var today: TodayModel
-    @ObservedObject var system: SystemMonitor
     @Binding var focusEndsAt: Date?
 
     var body: some View {
@@ -2321,10 +2321,7 @@ private struct DashboardCell: View {
                     .frame(maxWidth: .infinity, alignment: .leading)
                 sectionDivider
                 DashboardTodaySection(model: today, focusEndsAt: $focusEndsAt)
-                    .frame(width: 190, alignment: .leading)
-                sectionDivider
-                DashboardBatterySection(monitor: system)
-                    .frame(width: 46, alignment: .leading)
+                    .frame(width: 224, alignment: .leading)
             }
             .foregroundColor(.white)
         }
@@ -2334,8 +2331,8 @@ private struct DashboardCell: View {
     private var sectionDivider: some View {
         Divider()
             .overlay(DesignTokens.line)
-            .padding(.vertical, 4)
-            .padding(.horizontal, 5)
+            .padding(.vertical, 6)
+            .padding(.horizontal, 9)
     }
 }
 
@@ -2349,9 +2346,9 @@ private struct DashboardMediaSection: View {
     @ObservedObject var media: MediaController
 
     var body: some View {
-        HStack(spacing: 10) {
+        HStack(spacing: 14) {
             ZStack {
-                RoundedRectangle(cornerRadius: 10)
+                RoundedRectangle(cornerRadius: 11)
                     .fill(LinearGradient(colors: [.purple.opacity(0.75), .blue.opacity(0.55), .black], startPoint: .topLeading, endPoint: .bottomTrailing))
                 if let artwork = media.artwork {
                     Image(nsImage: artwork)
@@ -2359,27 +2356,34 @@ private struct DashboardMediaSection: View {
                         .scaledToFill()
                 } else {
                     Image(systemName: media.hasMedia ? "waveform" : "music.note")
-                        .font(.system(size: 20, weight: .light))
+                        .font(.system(size: 24, weight: .light))
                         .foregroundColor(.white.opacity(0.82))
                 }
             }
-            .frame(width: 52, height: 52)
-            .clipShape(RoundedRectangle(cornerRadius: 9, style: .continuous))
-            .overlay(RoundedRectangle(cornerRadius: 9, style: .continuous).stroke(Color.white.opacity(0.08), lineWidth: 0.5))
-            VStack(alignment: .leading, spacing: 3) {
-                Text(media.hasMedia ? media.title : String(localized: "media.noMediaPlaying", defaultValue: "No media playing"))
-                    .font(.system(size: 11.5, weight: .bold))
-                    .lineLimit(2)
-                    .fixedSize(horizontal: false, vertical: true)
-                    .help(media.title)
+            .frame(width: 68, height: 68)
+            .clipShape(RoundedRectangle(cornerRadius: 10, style: .continuous))
+            .overlay(RoundedRectangle(cornerRadius: 10, style: .continuous).stroke(Color.white.opacity(0.08), lineWidth: 0.5))
+            VStack(alignment: .leading, spacing: 4) {
+                // Marquee-scrolled (rather than truncated) so a long title
+                // stays fully readable, matching the compact/hover media
+                // rows elsewhere in the app — see `MarqueeText`.
+                MarqueeText(text: media.hasMedia ? media.title : String(localized: "media.noMediaPlaying", defaultValue: "No media playing"), size: 13, weight: .bold, speed: 18)
+                    .frame(height: 16)
                 Text(media.hasMedia ? media.artist : (media.isConnected ? media.source : String(localized: "media.unavailable", defaultValue: "Unavailable")))
-                    .font(.system(size: 9.5))
+                    .font(.system(size: 10.5))
                     .foregroundColor(DesignTokens.muted)
                     .lineLimit(1)
                     .help(media.artist)
+                if media.hasMedia, !media.album.isEmpty {
+                    Text(media.album)
+                        .font(.system(size: 9.5))
+                        .foregroundColor(DesignTokens.mutedFaint)
+                        .lineLimit(1)
+                        .help(media.album)
+                }
                 Spacer(minLength: 0)
                 if media.hasMedia {
-                    HStack(spacing: 4) {
+                    HStack(spacing: 6) {
                         MediaControlButton(icon: "backward.fill", help: String(localized: "media.previous", defaultValue: "Previous"), action: media.previous)
                         MediaControlButton(icon: media.isPlaying ? "pause.fill" : "play.fill", help: media.isPlaying ? String(localized: "media.pause", defaultValue: "Pause") : String(localized: "media.play", defaultValue: "Play"), prominent: true, action: media.togglePlayback)
                         MediaControlButton(icon: "forward.fill", help: String(localized: "media.next", defaultValue: "Next"), action: media.next)
@@ -2390,9 +2394,9 @@ private struct DashboardMediaSection: View {
                         media.refresh()
                     } label: {
                         Label(String(localized: "media.checkNowPlaying", defaultValue: "Check Now Playing"), systemImage: "arrow.clockwise")
-                            .font(.system(size: 8.5, weight: .medium))
-                            .padding(.horizontal, 8)
-                            .frame(height: 20)
+                            .font(.system(size: 9, weight: .medium))
+                            .padding(.horizontal, 9)
+                            .frame(height: 22)
                             .background(RoundedRectangle(cornerRadius: 7).fill(Color.white.opacity(0.09)))
                     }
                     .buttonStyle(NotchPressStyle())
@@ -2400,7 +2404,7 @@ private struct DashboardMediaSection: View {
                     .help(String(localized: "media.checkNowPlayingHelp", defaultValue: "Check the current macOS media session"))
                 }
             }
-            .frame(height: 52, alignment: .top)
+            .frame(height: 68, alignment: .top)
         }
         .foregroundColor(.white)
     }
@@ -2504,12 +2508,12 @@ private struct MediaControlButton: View {
             action()
         } label: {
             Image(systemName: icon)
-                .font(.system(size: 12))
-                .frame(width: prominent ? 24 : 20, height: 20)
+                .font(.system(size: 14))
+                .frame(width: prominent ? 30 : 24, height: 24)
                 .background(Circle().fill(Color.white.opacity(prominent ? 0.11 : 0)))
         }
         .buttonStyle(NotchPressStyle())
-        .hoverLift(cornerRadius: 10, strength: 0.08)
+        .hoverLift(cornerRadius: 12, strength: 0.08)
         .help(help)
         .accessibilityLabel(help)
     }
@@ -2532,8 +2536,11 @@ private struct DashboardTodaySection: View {
     var body: some View {
         TimelineView(.periodic(from: .now, by: 1)) { context in
             let remaining = focusEndsAt.map { max(Int($0.timeIntervalSince(context.date)), 0) }
-            VStack(alignment: .leading, spacing: 5) {
-                weekStrip
+            VStack(alignment: .leading, spacing: 9) {
+                HStack(spacing: 8) {
+                    monthBlock
+                    weekStrip
+                }
                 if model.canReadCalendar {
                     calendarContent(remaining: remaining)
                 } else {
@@ -2544,11 +2551,21 @@ private struct DashboardTodaySection: View {
         .foregroundColor(.white)
     }
 
+    /// Month label mirroring NotchNook's reference screenshot ("Sep" next to
+    /// the week strip). `Date.formatted` follows the system locale, so no
+    /// new localization key is needed (same precedent as `weekday(.narrow)`
+    /// below).
+    private var monthBlock: some View {
+        Text(Date().formatted(.dateTime.month(.abbreviated)))
+            .font(.system(size: 16, weight: .bold))
+            .foregroundColor(.white.opacity(0.9))
+    }
+
     /// Week-of-dates strip. Pure `Calendar` date arithmetic — independent of
     /// EventKit authorization, so it renders identically whether or not
     /// calendar access has been granted.
     private var weekStrip: some View {
-        HStack(spacing: 2) {
+        HStack(spacing: 4) {
             ForEach(weekDates, id: \.self) { day in
                 WeekDayColumn(date: day)
                     .frame(maxWidth: .infinity)
@@ -2557,12 +2574,12 @@ private struct DashboardTodaySection: View {
     }
 
     private func calendarContent(remaining: Int?) -> some View {
-        HStack(spacing: 5) {
+        HStack(spacing: 6) {
             Image(systemName: model.events.isEmpty ? "calendar.badge.checkmark" : "calendar")
-                .font(.system(size: 8.5))
+                .font(.system(size: 9.5))
                 .foregroundColor(DesignTokens.muted)
-            Text(model.events.first?.title ?? String(localized: "today.noMoreEventsToday", defaultValue: "No more events today"))
-                .font(.system(size: 9, weight: .medium))
+            Text(model.events.first?.title ?? String(localized: "today.nothingForToday", defaultValue: "Nothing for today"))
+                .font(.system(size: 10, weight: .medium))
                 .foregroundColor(model.events.isEmpty ? DesignTokens.muted : .white.opacity(0.85))
                 .lineLimit(1)
                 .help(model.events.first?.title ?? "")
@@ -2574,7 +2591,7 @@ private struct DashboardTodaySection: View {
     private func calendarPermissionContent(remaining: Int?) -> some View {
         HStack(spacing: 6) {
             Text(String(localized: "today.showCalendarEvents", defaultValue: "Show today's Calendar events"))
-                .font(.system(size: 9.5, weight: .medium))
+                .font(.system(size: 10, weight: .medium))
                 .foregroundColor(.white.opacity(0.8))
                 .lineLimit(1)
             Spacer(minLength: 4)
@@ -2584,8 +2601,8 @@ private struct DashboardTodaySection: View {
                 model.requestAccess()
             } label: {
                 Image(systemName: "calendar.badge.plus")
-                    .font(.system(size: 10, weight: .medium))
-                    .frame(width: 24, height: 20)
+                    .font(.system(size: 11, weight: .medium))
+                    .frame(width: 26, height: 22)
                     .background(RoundedRectangle(cornerRadius: 7).fill(Color.white.opacity(0.06)))
             }
             .buttonStyle(NotchPressStyle())
@@ -2595,21 +2612,34 @@ private struct DashboardTodaySection: View {
         }
     }
 
+    /// Focus toggle. AgentNotch-specific (NotchNook's reference screenshots
+    /// have no equivalent), so it stays icon-only while idle to keep the
+    /// panel close to the reference layout; once a countdown is running the
+    /// remaining time is worth the extra width.
     private func focusButton(remaining: Int?, prominent: Bool) -> some View {
-        Button {
+        let isIdle = remaining == nil || remaining == 0
+        return Button {
             SoundPlayer.shared.play(.action)
-            focusEndsAt = remaining == nil || remaining == 0 ? Date().addingTimeInterval(25 * 60) : nil
+            focusEndsAt = isIdle ? Date().addingTimeInterval(25 * 60) : nil
         } label: {
-            Label(focusLabel(remaining), systemImage: remaining == nil || remaining == 0 ? "moon.fill" : "stop.fill")
-                .font(.system(size: 8, weight: .semibold))
-                .padding(.horizontal, 6)
-                .frame(height: 17)
-                .background(RoundedRectangle(cornerRadius: 6).fill(Color.white.opacity(prominent ? 0.14 : 0.09)))
+            Group {
+                if isIdle {
+                    Label(focusLabel(remaining), systemImage: "moon.fill")
+                        .labelStyle(.iconOnly)
+                } else {
+                    Label(focusLabel(remaining), systemImage: "stop.fill")
+                        .labelStyle(.titleAndIcon)
+                }
+            }
+            .font(.system(size: 9, weight: .semibold))
+            .padding(.horizontal, 7)
+            .frame(height: 19)
+            .background(RoundedRectangle(cornerRadius: 6).fill(Color.white.opacity(prominent ? 0.14 : 0.09)))
         }
         .buttonStyle(NotchPressStyle())
         .hoverLift(cornerRadius: 7)
         .accessibilityIdentifier("today.focus")
-        .help(remaining == nil || remaining == 0 ? String(localized: "today.startFocusHelp", defaultValue: "Start a 25 minute local focus timer") : String(localized: "today.endFocus", defaultValue: "End Focus"))
+        .help(isIdle ? String(localized: "today.startFocusHelp", defaultValue: "Start a 25 minute local focus timer") : String(localized: "today.endFocus", defaultValue: "End Focus"))
     }
 
     private func focusLabel(_ remaining: Int?) -> String {
@@ -2628,17 +2658,16 @@ private struct WeekDayColumn: View {
     private var isToday: Bool { Calendar.current.isDateInToday(date) }
 
     var body: some View {
-        VStack(spacing: 1) {
+        VStack(spacing: 2) {
             Text(date.formatted(.dateTime.weekday(.narrow)))
-                .font(.system(size: 6.5, weight: .medium))
+                .font(.system(size: 7.5, weight: .medium))
                 .foregroundColor(DesignTokens.muted)
             Text(date.formatted(.dateTime.day()))
-                .font(.system(size: 9.5, weight: .semibold))
-                .foregroundColor(.white)
-                .frame(width: 16, height: 16)
-                .background(isToday ? AnyShapeStyle(DesignTokens.cyan) : AnyShapeStyle(Color.clear))
-                .clipShape(Circle())
+                .font(.system(size: isToday ? 15 : 10.5, weight: isToday ? .bold : .regular))
+                .foregroundColor(isToday ? DesignTokens.cyan : .white.opacity(0.55))
+                .frame(height: 19, alignment: .center)
         }
+        .frame(height: 33)
         .accessibilityElement(children: .ignore)
         .accessibilityLabel(date.formatted(.dateTime.weekday(.wide).day()))
         .accessibilityAddTraits(isToday ? [.isSelected] : [])
@@ -2650,27 +2679,26 @@ private struct WeekDayColumn: View {
 /// was cut. Memory/storage/uptime/background-activity remain reachable via
 /// `NotchView.expandedDetail`'s `.dashboard` case (Today/System `DetailStrip`
 /// rows), which this section does not duplicate.
-private struct DashboardBatterySection: View {
+private struct CompactBatteryIndicator: View {
     @ObservedObject var monitor: SystemMonitor
 
     var body: some View {
         Button {
             openSystemSettings("x-apple.systempreferences:com.apple.Battery-Settings.extension")
         } label: {
-            VStack(alignment: .leading, spacing: 1) {
+            HStack(spacing: 3) {
                 Image(systemName: monitor.isCharging ? "battery.100percent.bolt" : batteryIcon)
-                    .font(.system(size: 12))
-                Text(monitor.batteryLevel.map { "\($0)%" } ?? String(localized: "system.acPower", defaultValue: "AC"))
-                    .font(.system(size: 10, weight: .semibold))
-                Text(String(localized: "system.battery", defaultValue: "Battery"))
-                    .font(.system(size: 7.5))
-                    .foregroundColor(DesignTokens.muted)
+                    .font(.system(size: 11))
+                if let level = monitor.batteryLevel {
+                    Text("\(level)%")
+                        .font(.system(size: 9, weight: .medium))
+                }
             }
-            .frame(maxWidth: .infinity, alignment: .leading)
+            .foregroundColor(.white.opacity(0.62))
+            .frame(height: 28)
         }
         .buttonStyle(NotchPressStyle())
         .hoverLift(cornerRadius: 8)
-        .foregroundColor(.white)
         .accessibilityLabel(String(localized: "system.battery", defaultValue: "Battery"))
         .accessibilityValue(monitor.batteryLevel.map { "\($0)%" } ?? String(localized: "system.acPower", defaultValue: "AC"))
         .help(monitor.batteryLevel == nil ? String(localized: "system.noBatteryDetected", defaultValue: "No battery detected") : batteryDetail)
@@ -3353,6 +3381,7 @@ private struct QuestionChoiceButton: View {
     var body: some View {
         Button {
             SoundPlayer.shared.play(.approve)
+            HapticPlayer.shared.perform(.confirm)
             action()
         } label: {
             HStack(spacing: 9) {
@@ -3648,6 +3677,7 @@ private struct ApprovalOverlayView: View {
     private func decide(_ newDecision: ApprovalDecision) {
         guard decision == nil else { return }
         SoundPlayer.shared.play(newDecision == .allow ? .approve : .deny)
+        HapticPlayer.shared.perform(newDecision == .allow ? .confirm : .reject)
         withAnimation(reduceMotion ? .easeOut(duration: 0.12) : DesignTokens.scaledSpring()) {
             decision = newDecision
         }
@@ -3757,6 +3787,7 @@ private struct PlanApprovalOverlayView: View {
     private func decide(_ newDecision: ApprovalDecision) {
         guard decision == nil else { return }
         SoundPlayer.shared.play(newDecision == .allow ? .approve : .deny)
+        HapticPlayer.shared.perform(newDecision == .allow ? .confirm : .reject)
         withAnimation(reduceMotion ? .easeOut(duration: 0.12) : DesignTokens.scaledSpring()) {
             decision = newDecision
         }

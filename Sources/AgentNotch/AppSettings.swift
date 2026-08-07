@@ -12,6 +12,9 @@ final class AppSettings: ObservableObject {
     @Published var soundEnabled: Bool {
         didSet { UserDefaults.standard.set(soundEnabled, forKey: Keys.soundEnabled) }
     }
+    @Published var hapticsEnabled: Bool {
+        didSet { UserDefaults.standard.set(hapticsEnabled, forKey: Keys.hapticsEnabled) }
+    }
     @Published var languageOverride: String? {
         didSet { UserDefaults.standard.set(languageOverride, forKey: Keys.languageOverride) }
     }
@@ -46,6 +49,7 @@ final class AppSettings: ObservableObject {
 
     private enum Keys {
         static let soundEnabled = "agentnotch.soundEnabled"
+        static let hapticsEnabled = "agentnotch.hapticsEnabled"
         static let languageOverride = "agentnotch.languageOverride"
         static let uiScale = "agentnotch.uiScale"
         static let cornerRadiusScale = "agentnotch.cornerRadiusScale"
@@ -56,6 +60,7 @@ final class AppSettings: ObservableObject {
     private init() {
         let defaults = UserDefaults.standard
         soundEnabled = defaults.object(forKey: Keys.soundEnabled) as? Bool ?? true
+        hapticsEnabled = defaults.object(forKey: Keys.hapticsEnabled) as? Bool ?? true
         languageOverride = defaults.string(forKey: Keys.languageOverride)
         uiScale = defaults.object(forKey: Keys.uiScale) as? Double ?? 1.0
         cornerRadiusScale = defaults.object(forKey: Keys.cornerRadiusScale) as? Double ?? 1.0

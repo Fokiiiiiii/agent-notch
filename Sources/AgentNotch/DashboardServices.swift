@@ -105,6 +105,7 @@ final class MediaController: ObservableObject {
     @Published private(set) var source = String(localized: "media.noMedia", defaultValue: "No media")
     @Published private(set) var title = String(localized: "media.nothingPlaying", defaultValue: "Nothing Playing")
     @Published private(set) var artist = String(localized: "media.playInAnyApp", defaultValue: "Play media in any app")
+    @Published private(set) var album = ""
     @Published private(set) var isPlaying = false
     @Published private(set) var position = 0.0
     @Published private(set) var duration = 1.0
@@ -186,6 +187,7 @@ final class MediaController: ObservableObject {
             source = isConnected ? String(localized: "media.systemMedia", defaultValue: "System media") : String(localized: "media.mediaUnavailable", defaultValue: "Media unavailable")
             title = String(localized: "media.nothingPlaying", defaultValue: "Nothing Playing")
             artist = isConnected ? String(localized: "media.playInAnyApp", defaultValue: "Play media in any app") : String(localized: "media.adapterMissing", defaultValue: "Media adapter is missing")
+            album = ""
             isPlaying = false
             position = 0
             duration = 1
@@ -203,6 +205,7 @@ final class MediaController: ObservableObject {
         source = application ?? snapshot.bundleIdentifier ?? String(localized: "media.systemMedia", defaultValue: "System media")
         title = snapshot.title
         artist = snapshot.artist?.isEmpty == false ? snapshot.artist! : source
+        album = snapshot.album?.isEmpty == false ? snapshot.album! : ""
         isPlaying = snapshot.isPlaying
         position = snapshot.position
         duration = max(snapshot.duration, 1)
@@ -282,6 +285,7 @@ private struct SystemMediaSnapshot: Sendable {
     let bundleIdentifier: String?
     let title: String
     let artist: String?
+    let album: String?
     let isPlaying: Bool
     let position: Double
     let duration: Double
@@ -306,6 +310,7 @@ private enum SystemMediaBridge {
             bundleIdentifier: object["bundleIdentifier"] as? String,
             title: title,
             artist: object["artist"] as? String,
+            album: object["album"] as? String,
             isPlaying: object["playing"] as? Bool ?? false,
             position: number(object["elapsedTimeNow"] ?? object["elapsedTime"]),
             duration: number(object["duration"]),

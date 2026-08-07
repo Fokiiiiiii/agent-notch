@@ -25,6 +25,18 @@ final class AppSettingsTests: XCTestCase {
         static let cornerRadiusScale = "agentnotch.cornerRadiusScale"
         static let animationSpeedScale = "agentnotch.animationSpeedScale"
         static let languageOverride = "agentnotch.languageOverride"
+        static let hapticsEnabled = "agentnotch.hapticsEnabled"
+    }
+
+    func testHapticsEnabledPersistsToUserDefaults() {
+        let original = AppSettings.shared.hapticsEnabled
+        defer { AppSettings.shared.hapticsEnabled = original }
+
+        AppSettings.shared.hapticsEnabled = false
+        XCTAssertEqual(UserDefaults.standard.object(forKey: Keys.hapticsEnabled) as? Bool, false)
+
+        AppSettings.shared.hapticsEnabled = true
+        XCTAssertEqual(UserDefaults.standard.object(forKey: Keys.hapticsEnabled) as? Bool, true)
     }
 
     func testUiScalePersistsToUserDefaults() {

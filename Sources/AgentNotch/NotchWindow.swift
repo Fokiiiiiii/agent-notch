@@ -294,12 +294,16 @@ final class NotchWindowController: NSObject {
     /// way the original (stacked-cards) design's did — `DashboardTodaySection`
     /// shows at most one event summary line regardless of how many events
     /// exist. Concrete value is an estimate derived from the tallest
-    /// section (`DashboardMediaSection`'s fixed 52pt artwork height, which
-    /// its text column matches via `.frame(height: 52, alignment: .top)`)
+    /// section (`DashboardMediaSection`'s fixed 68pt artwork height, which
+    /// its text column matches via `.frame(height: 68, alignment: .top)`)
     /// plus 14pt `CellSurface` padding plus chrome (nookbar/view tabs,
-    /// ~55pt) — same "estimate, then eyeball-tune on a real device" status
-    /// as `agentsBaseHeight`.
-    static let dashboardBaseHeight: CGFloat = 128
+    /// ~55pt) — nudged up further after the whole Dashboard row (media
+    /// artwork/text, today's month+week strip, control buttons) was scaled
+    /// up in response to "this UI is too small" feedback, and after Battery
+    /// moved out of this row entirely into `nookbar`'s
+    /// `CompactBatteryIndicator` — same "estimate, then eyeball-tune on a
+    /// real device" status as `agentsBaseHeight`.
+    static let dashboardBaseHeight: CGFloat = 146
     /// Extra height when `DashboardTodaySection` is showing its "grant
     /// calendar access" prompt instead of the compact day/event state — its
     /// two-button `HStack` layout runs slightly taller.
@@ -314,7 +318,7 @@ final class NotchWindowController: NSObject {
     /// Absolute ceiling on the Dashboard tab height — same safety-net role
     /// as `agentsMaxHeight`. Set above the worst case the formula above can
     /// actually produce (`dashboardBaseHeight` + `dashboardPermissionPromptExtra`
-    /// + `dashboardDetailExpandedHeight` = 128 + 15 + 96 = 239) with a little
+    /// + `dashboardDetailExpandedHeight` = 146 + 15 + 96 = 257) with a little
     /// headroom — unlike Agents' cap (which exists specifically to hand off
     /// to `AgentsCell`'s own `ScrollView` once a real overflow risk exists),
     /// Dashboard has no scroll fallback, so a cap tighter than its own worst

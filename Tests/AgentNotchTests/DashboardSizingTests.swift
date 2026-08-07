@@ -41,4 +41,13 @@ final class DashboardSizingTests: XCTestCase {
         let size = NotchWindowController.dashboardOpenSize(width: 600, needsCalendarPermission: false, detailExpanded: false)
         XCTAssertEqual(size.width, 600)
     }
+
+    /// `DashboardMediaSection`'s three text lines (title/artist/album) plus
+    /// `DashboardTodaySection`'s two rows (month+week strip, event/prompt)
+    /// need more headroom than the original single-purpose estimate —
+    /// guards against the base height regressing below what that layout
+    /// actually requires.
+    func testDashboardBaseHeightAccountsForThreeLineMediaSection() {
+        XCTAssertGreaterThanOrEqual(NotchWindowController.dashboardBaseHeight, 130)
+    }
 }

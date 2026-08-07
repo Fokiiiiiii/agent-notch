@@ -16001,6 +16001,206 @@
         }
       }
     },
+    "settings.hapticFeedback": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Haptic feedback"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "触感反馈"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Retroalimentación háptica"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Retour haptique"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Haptisches Feedback"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Тактильная отдача"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "الاستجابة اللمسية"
+          }
+        },
+        "pt": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Feedback tátil"
+          }
+        },
+        "hi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "हैप्टिक फीडबैक"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "触覚フィードバック"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "햅틱 피드백"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Feedback aptico"
+          }
+        },
+        "id": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Umpan balik haptik"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Phản hồi haptic"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "การตอบสนองแบบสัมผัส"
+          }
+        },
+        "fil": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Haptic feedback"
+          }
+        }
+      }
+    },
+    "settings.hapticFeedbackHelp": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Pulses the trackpad for approvals, questions, and other notch events (Force Touch trackpads only)."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "在批准、问题和其他通知栏事件时使触控板震动（仅限支持 Force Touch 的触控板）。"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Hace vibrar el trackpad en aprobaciones, preguntas y otros eventos del panel (solo trackpads Force Touch)."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Fait vibrer le trackpad pour les approbations, questions et autres événements de l'encoche (trackpads Force Touch uniquement)."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Lässt das Trackpad bei Freigaben, Fragen und anderen Notch-Ereignissen vibrieren (nur Force-Touch-Trackpads)."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Активирует вибрацию трекпада при подтверждениях, вопросах и других событиях панели (только трекпады Force Touch)."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "يهتز لوحة التتبع عند الموافقات والأسئلة وأحداث أخرى (لوحات Force Touch فقط)."
+          }
+        },
+        "pt": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Faz o trackpad vibrar para aprovações, perguntas e outros eventos do notch (somente trackpads Force Touch)."
+          }
+        },
+        "hi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "अनुमोदन, प्रश्नों और अन्य नॉच इवेंट के लिए ट्रैकपैड को स्पंदित करता है (केवल Force Touch ट्रैकपैड)।"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "承認・質問・その他のノッチイベント時にトラックパッドを振動させます（Force Touch対応トラックパッドのみ）。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "승인, 질문 및 기타 노치 이벤트에 트랙패드를 진동시킵니다(Force Touch 트랙패드만 해당)."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Fa vibrare il trackpad per approvazioni, domande e altri eventi del notch (solo trackpad Force Touch)."
+          }
+        },
+        "id": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Menggetarkan trackpad untuk persetujuan, pertanyaan, dan peristiwa notch lainnya (hanya trackpad Force Touch)."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Làm rung trackpad khi phê duyệt, câu hỏi và các sự kiện notch khác (chỉ trackpad hỗ trợ Force Touch)."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "สั่นแทร็กแพดสำหรับการอนุมัติ คำถาม และเหตุการณ์อื่น ๆ ของ notch (เฉพาะแทร็กแพดที่รองรับ Force Touch)"
+          }
+        },
+        "fil": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Nagpapakurog ng trackpad para sa mga pag-apruba, tanong, at iba pang notch event (Force Touch trackpad lang)."
+          }
+        }
+      }
+    },
     "settings.notificationsDenied": {
       "localizations": {
         "en": {
@@ -18501,102 +18701,102 @@
         }
       }
     },
-    "today.noMoreEventsToday": {
+    "today.nothingForToday": {
       "localizations": {
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "No more events today"
+            "value": "Nothing for today"
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "今天没有更多日程了"
+            "value": "今天没有安排"
           }
         },
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "No hay más eventos hoy"
+            "value": "Nada para hoy"
           }
         },
         "fr": {
           "stringUnit": {
             "state": "translated",
-            "value": "Plus d'événements aujourd'hui"
+            "value": "Rien de prévu aujourd'hui"
           }
         },
         "de": {
           "stringUnit": {
             "state": "translated",
-            "value": "Keine weiteren Termine heute"
+            "value": "Nichts für heute geplant"
           }
         },
         "ru": {
           "stringUnit": {
             "state": "translated",
-            "value": "Больше событий сегодня нет"
+            "value": "На сегодня ничего нет"
           }
         },
         "ar": {
           "stringUnit": {
             "state": "translated",
-            "value": "لا مزيد من الأحداث اليوم"
+            "value": "لا شيء لهذا اليوم"
           }
         },
         "pt": {
           "stringUnit": {
             "state": "translated",
-            "value": "Não há mais eventos hoje"
+            "value": "Nada para hoje"
           }
         },
         "hi": {
           "stringUnit": {
             "state": "translated",
-            "value": "आज कोई और घटना नहीं"
+            "value": "आज के लिए कुछ नहीं"
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "本日の予定はこれ以上ありません"
+            "value": "本日の予定はありません"
           }
         },
         "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "오늘 더 이상 일정 없음"
+            "value": "오늘 일정 없음"
           }
         },
         "it": {
           "stringUnit": {
             "state": "translated",
-            "value": "Nessun altro evento oggi"
+            "value": "Niente per oggi"
           }
         },
         "id": {
           "stringUnit": {
             "state": "translated",
-            "value": "Tidak ada acara lagi hari ini"
+            "value": "Tidak ada untuk hari ini"
           }
         },
         "vi": {
           "stringUnit": {
             "state": "translated",
-            "value": "Không còn sự kiện nào hôm nay"
+            "value": "Không có gì cho hôm nay"
           }
         },
         "th": {
           "stringUnit": {
             "state": "translated",
-            "value": "ไม่มีกิจกรรมอื่นในวันนี้"
+            "value": "ไม่มีอะไรสำหรับวันนี้"
           }
         },
         "fil": {
           "stringUnit": {
             "state": "translated",
-            "value": "Wala nang ibang event ngayon"
+            "value": "Walang plano ngayon"
           }
         }
       }
