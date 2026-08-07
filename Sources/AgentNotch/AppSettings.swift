@@ -27,11 +27,15 @@ final class AppSettings: ObservableObject {
     @Published var animationSpeedScale: Double {
         didSet { UserDefaults.standard.set(animationSpeedScale, forKey: Keys.animationSpeedScale) }
     }
-    /// Per-tab widget layout (order/visibility/size). Keyed by a stable tab
-    /// identifier (e.g. `"agents"`, `"media"`, `"today"`, `"system"`). Not
-    /// yet editable from any UI — this is the storage foundation a future
-    /// "customize layout" settings screen will read/write. Absence of a key
-    /// means "use the built-in default order, all widgets visible."
+    /// Per-tab widget layout (order/visibility/size). Keyed by a stable
+    /// identifier — since Media/Today/System merged into one Dashboard Nook
+    /// page (see `NookView`), these keys (`"agents"`, `"today"`, `"system"`)
+    /// now identify `expandedDetail`'s per-source-tab item groups within
+    /// that merged page rather than top-level tabs; `orderedDetailItems`
+    /// is still the only actual consumer. Not yet editable from any UI —
+    /// this is the storage foundation a future "customize layout" settings
+    /// screen will read/write. Absence of a key means "use the built-in
+    /// default order, all widgets visible."
     @Published var tabLayouts: [String: TabLayoutConfiguration] {
         didSet {
             if let data = try? JSONEncoder().encode(tabLayouts) {
