@@ -556,7 +556,7 @@ struct NotchView: View {
                     case .agents:
                         AgentsCell(store: store, uiState: uiState)
                     case .dashboard:
-                        DashboardCell(media: media, today: todayModel, system: systemMonitor, background: backgroundActivity, focusEndsAt: $uiState.focusEndsAt)
+                        DashboardCell(media: media, today: todayModel, system: systemMonitor, focusEndsAt: $uiState.focusEndsAt)
                     }
                 }
             }
@@ -2296,119 +2296,103 @@ private struct CellSurface<Content: View>: View {
     }
 }
 
-/// The merged Media/Today/System page — three independently-`CellSurface`d
-/// cards stacked vertically, matching macOS Control Center's "grid of
-/// rounded cards" pattern (chosen over a slot-swap/paged design because the
-/// user's request was specifically for everything visible "in one screen"
-/// at once). Each card keeps its own pre-merge implementation almost
-/// unchanged; only their outer `.frame(..., maxHeight: .infinity, ...)`
-/// stretch was removed so three stacked cards don't fight each other for
-/// vertical space (see each card's own comment on this).
+/// The merged Media/Today/System page — a single flat panel with the three
+/// sections arranged side-by-side, separated by thin dividers, and each
+/// trimmed to its most glanceable content. Replaces a first pass that
+/// stacked three full-size, individually-`CellSurface`d cards vertically
+/// (macOS Control Center's "grid of cards" pattern) — user feedback called
+/// that "just three things thrown together" and pointed at NotchNook's own
+/// reference screenshot instead, which lays Media/Calendar out in one row
+/// inside a single panel. System is deliberately reduced to one glanceable
+/// metric (battery) per explicit follow-up feedback that the original
+/// 3-card/background-activity System section was "about half unnecessary
+/// information" — the dropped detail (memory, storage, uptime, background
+/// activity) remains reachable through this tab's `expandedDetail` panel.
 private struct DashboardCell: View {
     @ObservedObject var media: MediaController
     @ObservedObject var today: TodayModel
     @ObservedObject var system: SystemMonitor
-    @ObservedObject var background: BackgroundActivityMonitor
     @Binding var focusEndsAt: Date?
 
     var body: some View {
-        VStack(spacing: 4) {
-            MediaCell(media: media)
-            TodayCell(model: today, focusEndsAt: $focusEndsAt)
-            SystemCell(monitor: system, background: background)
+        CellSurface {
+            HStack(spacing: 0) {
+                DashboardMediaSection(media: media)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                sectionDivider
+                DashboardTodaySection(model: today, focusEndsAt: $focusEndsAt)
+                    .frame(width: 176, alignment: .leading)
+                sectionDivider
+                DashboardBatterySection(monitor: system)
+                    .frame(width: 60, alignment: .leading)
+            }
+            .foregroundColor(.white)
         }
+        .onAppear { today.refresh() }
+    }
+
+    private var sectionDivider: some View {
+        Divider()
+            .overlay(DesignTokens.line)
+            .padding(.vertical, 3)
+            .padding(.horizontal, 9)
     }
 }
 
-private struct MediaCell: View {
+private struct DashboardMediaSection: View {
     @ObservedObject var media: MediaController
 
     var body: some View {
-        CellSurface {
-            HStack(spacing: 8) {
-                ZStack {
-                    RoundedRectangle(cornerRadius: 10)
-                        .fill(LinearGradient(colors: [.purple.opacity(0.75), .blue.opacity(0.55), .black], startPoint: .topLeading, endPoint: .bottomTrailing))
-                    if let artwork = media.artwork {
-                        Image(nsImage: artwork)
-                            .resizable()
-                            .scaledToFill()
-                    } else {
-                        Image(systemName: media.hasMedia ? "waveform" : "music.note")
-                            .font(.system(size: 16, weight: .light))
-                            .foregroundColor(.white.opacity(0.82))
-                    }
+        HStack(spacing: 8) {
+            ZStack {
+                RoundedRectangle(cornerRadius: 8)
+                    .fill(LinearGradient(colors: [.purple.opacity(0.75), .blue.opacity(0.55), .black], startPoint: .topLeading, endPoint: .bottomTrailing))
+                if let artwork = media.artwork {
+                    Image(nsImage: artwork)
+                        .resizable()
+                        .scaledToFill()
+                } else {
+                    Image(systemName: media.hasMedia ? "waveform" : "music.note")
+                        .font(.system(size: 16, weight: .light))
+                        .foregroundColor(.white.opacity(0.82))
                 }
-                .frame(width: 40, height: 40)
-                .clipShape(RoundedRectangle(cornerRadius: 8, style: .continuous))
-                .overlay(RoundedRectangle(cornerRadius: 8, style: .continuous).stroke(Color.white.opacity(0.08), lineWidth: 0.5))
-                VStack(alignment: .leading, spacing: 3) {
-                    MarqueeText(text: media.title, size: 11, weight: .semibold, speed: 24)
-                        .frame(height: 14)
-                        .help(media.title)
-                    Text(media.artist)
-                        .font(.system(size: 9))
-                        .foregroundColor(DesignTokens.muted)
-                        .lineLimit(1)
-                        .help(media.artist)
-                    ProgressView(value: media.progress)
-                        .progressViewStyle(.linear)
-                        .tint(Color(nsColor: media.accentColor))
-                        .accessibilityLabel(String(localized: "media.playbackProgress", defaultValue: "Playback progress"))
-                        .accessibilityValue(timeLabel)
-                    HStack {
-                        if media.hasMedia {
-                            MediaControlButton(icon: "backward.fill", help: String(localized: "media.previous", defaultValue: "Previous"), action: media.previous)
-                            MediaControlButton(icon: media.isPlaying ? "pause.fill" : "play.fill", help: media.isPlaying ? String(localized: "media.pause", defaultValue: "Pause") : String(localized: "media.play", defaultValue: "Play"), prominent: true, action: media.togglePlayback)
-                            MediaControlButton(icon: "forward.fill", help: String(localized: "media.next", defaultValue: "Next"), action: media.next)
-                        } else {
-                            Button {
-                                SoundPlayer.shared.play(.action)
-                                media.refresh()
-                            } label: {
-                                Label(String(localized: "media.checkNowPlaying", defaultValue: "Check Now Playing"), systemImage: "arrow.clockwise")
-                                    .font(.system(size: 8.5, weight: .medium))
-                                    .padding(.horizontal, 9)
-                                    .frame(height: 24)
-                                    .background(RoundedRectangle(cornerRadius: 8).fill(Color.white.opacity(0.09)))
-                            }
-                            .buttonStyle(NotchPressStyle())
-                            .hoverLift(cornerRadius: 8)
-                            .help(String(localized: "media.checkNowPlayingHelp", defaultValue: "Check the current macOS media session"))
-                        }
-                        Spacer()
-                        Text(media.hasMedia ? timeLabel : (media.isConnected ? media.source : String(localized: "media.unavailable", defaultValue: "Unavailable")))
-                            .font(.system(size: 9, design: .rounded))
-                            .foregroundColor(DesignTokens.muted)
-                        if media.hasMedia {
-                            Text(media.source)
-                                .font(.system(size: 9))
-                                .foregroundColor(DesignTokens.muted)
-                                .lineLimit(1)
-                                .help(media.source)
-                        }
-                    }
-                    .font(.system(size: 11))
-                }
-                .frame(maxWidth: .infinity, alignment: .leading)
             }
-            .foregroundColor(.white)
-            // maxHeight: .infinity dropped (was `alignment: .center`
-            // stretch-and-center) now that this card sits stacked with
-            // Today/System in DashboardCell instead of alone filling the
-            // whole Media tab — stretching would push the other two cards
-            // off-screen.
-            .frame(maxWidth: .infinity, alignment: .center)
+            .frame(width: 40, height: 40)
+            .clipShape(RoundedRectangle(cornerRadius: 8, style: .continuous))
+            .overlay(RoundedRectangle(cornerRadius: 8, style: .continuous).stroke(Color.white.opacity(0.08), lineWidth: 0.5))
+            VStack(alignment: .leading, spacing: 3) {
+                MarqueeText(text: media.hasMedia ? media.title : String(localized: "media.noMediaPlaying", defaultValue: "No media playing"), size: 11, weight: .semibold, speed: 24)
+                    .frame(height: 14)
+                    .help(media.title)
+                Text(media.hasMedia ? media.artist : (media.isConnected ? media.source : String(localized: "media.unavailable", defaultValue: "Unavailable")))
+                    .font(.system(size: 9))
+                    .foregroundColor(DesignTokens.muted)
+                    .lineLimit(1)
+                    .help(media.artist)
+                if media.hasMedia {
+                    HStack(spacing: 2) {
+                        MediaControlButton(icon: "backward.fill", help: String(localized: "media.previous", defaultValue: "Previous"), action: media.previous)
+                        MediaControlButton(icon: media.isPlaying ? "pause.fill" : "play.fill", help: media.isPlaying ? String(localized: "media.pause", defaultValue: "Pause") : String(localized: "media.play", defaultValue: "Play"), prominent: true, action: media.togglePlayback)
+                        MediaControlButton(icon: "forward.fill", help: String(localized: "media.next", defaultValue: "Next"), action: media.next)
+                    }
+                } else {
+                    Button {
+                        SoundPlayer.shared.play(.action)
+                        media.refresh()
+                    } label: {
+                        Label(String(localized: "media.checkNowPlaying", defaultValue: "Check Now Playing"), systemImage: "arrow.clockwise")
+                            .font(.system(size: 8.5, weight: .medium))
+                            .padding(.horizontal, 8)
+                            .frame(height: 20)
+                            .background(RoundedRectangle(cornerRadius: 7).fill(Color.white.opacity(0.09)))
+                    }
+                    .buttonStyle(NotchPressStyle())
+                    .hoverLift(cornerRadius: 7)
+                    .help(String(localized: "media.checkNowPlayingHelp", defaultValue: "Check the current macOS media session"))
+                }
+            }
         }
-    }
-
-    private var timeLabel: String {
-        guard media.hasMedia, media.duration > 1 else { return String(localized: "media.positionUnavailable", defaultValue: "Position unavailable") }
-        func format(_ seconds: Double) -> String {
-            let value = max(Int(seconds.rounded()), 0)
-            return String(format: "%d:%02d", value / 60, value % 60)
-        }
-        return "\(format(media.position)) / \(format(media.duration))"
+        .foregroundColor(.white)
     }
 }
 
@@ -2521,90 +2505,77 @@ private struct MediaControlButton: View {
     }
 }
 
-private struct TodayCell: View {
+private struct DashboardTodaySection: View {
     @ObservedObject var model: TodayModel
     @Binding var focusEndsAt: Date?
 
     var body: some View {
-        CellSurface {
-            TimelineView(.periodic(from: .now, by: 1)) { context in
-                let remaining = focusEndsAt.map { max(Int($0.timeIntervalSince(context.date)), 0) }
-                if model.canReadCalendar {
-                    calendarContent(remaining: remaining)
-                } else {
-                    calendarPermissionContent(remaining: remaining)
-                }
+        TimelineView(.periodic(from: .now, by: 1)) { context in
+            let remaining = focusEndsAt.map { max(Int($0.timeIntervalSince(context.date)), 0) }
+            if model.canReadCalendar {
+                calendarContent(remaining: remaining)
+            } else {
+                calendarPermissionContent(remaining: remaining)
             }
-            .foregroundColor(.white)
         }
-        .onAppear { model.refresh() }
+        .foregroundColor(.white)
     }
 
     private func calendarContent(remaining: Int?) -> some View {
-        HStack(spacing: 10) {
-            VStack(spacing: 1) {
+        HStack(spacing: 8) {
+            VStack(spacing: 0) {
                 Text(Date.now.formatted(.dateTime.day()))
-                    .font(.system(size: 22, weight: .light, design: .rounded))
-                Text(Date.now.formatted(.dateTime.month(.abbreviated).weekday(.abbreviated)).uppercased())
-                    .font(.system(size: 8, weight: .semibold))
+                    .font(.system(size: 20, weight: .semibold, design: .rounded))
+                Text(Date.now.formatted(.dateTime.weekday(.abbreviated)).uppercased())
+                    .font(.system(size: 7.5, weight: .semibold))
                     .tracking(0.5)
                     .foregroundColor(DesignTokens.muted)
             }
-            .frame(width: 52)
-            Divider().overlay(DesignTokens.line)
-            VStack(alignment: .leading, spacing: 4) {
-                if model.events.isEmpty {
-                    Label(String(localized: "today.noMoreEventsToday", defaultValue: "No more events today"), systemImage: "calendar.badge.checkmark")
-                        .font(.system(size: 10, weight: .medium))
-                        .foregroundColor(.white.opacity(0.72))
+            VStack(alignment: .leading, spacing: 3) {
+                if let event = model.events.first {
+                    Text(event.title)
+                        .font(.system(size: 10, weight: .semibold))
+                        .lineLimit(1)
+                        .help(event.title)
+                    Text(event.startDate.formatted(date: .omitted, time: .shortened))
+                        .font(.system(size: 8.5, design: .monospaced))
+                        .foregroundColor(DesignTokens.muted)
                 } else {
-                    ForEach(model.events.prefix(2)) { event in
-                        ScheduleRow(
-                            time: event.startDate.formatted(date: .omitted, time: .shortened),
-                            title: event.title,
-                            detail: event.calendar
-                        )
-                    }
+                    Text(String(localized: "today.noMoreEventsToday", defaultValue: "No more events today"))
+                        .font(.system(size: 9.5, weight: .medium))
+                        .foregroundColor(.white.opacity(0.72))
+                        .lineLimit(2)
                 }
-                Spacer(minLength: 0)
                 focusButton(remaining: remaining, prominent: false)
             }
         }
     }
 
     private func calendarPermissionContent(remaining: Int?) -> some View {
-        VStack(spacing: 5) {
-            Label(remaining == nil || remaining == 0 ? String(localized: "today.focusFor25Minutes", defaultValue: "Focus for 25 minutes") : String(localized: "today.focusIsActive", defaultValue: "Focus is active"), systemImage: remaining == nil || remaining == 0 ? "moon.stars.fill" : "timer")
-                .font(.system(size: 11, weight: .semibold))
-            Text(remaining == nil || remaining == 0 ? String(localized: "today.focusLocalTimerDescription", defaultValue: "A local timer keeps the current task in view.") : String(localized: "today.focusContinuesDescription", defaultValue: "The timer continues when you switch views or close the Nook."))
-                .font(.system(size: 9))
-                .foregroundColor(DesignTokens.muted)
-                .multilineTextAlignment(.center)
-            focusButton(remaining: remaining, prominent: true)
-            Button {
-                SoundPlayer.shared.play(.action)
-                model.requestAccess()
-            } label: {
-                Label(String(localized: "today.showCalendarEvents", defaultValue: "Show today's Calendar events"), systemImage: "calendar.badge.plus")
-                    .font(.system(size: 9.5, weight: .medium))
-                    .padding(.horizontal, 9)
-                    .frame(height: 24)
-                    .background(RoundedRectangle(cornerRadius: 8).fill(Color.white.opacity(0.06)))
-            }
-            .buttonStyle(NotchPressStyle())
-            .hoverLift(cornerRadius: 8)
-            .accessibilityIdentifier("today.enable-calendar")
-            .help(String(localized: "today.allowAccessHelp", defaultValue: "Allow access to today's events"))
-            if let error = model.errorMessage {
-                Text(error)
-                    .font(.system(size: 9.5))
-                    .foregroundColor(DesignTokens.red)
-                    .lineLimit(1)
-                    .help(error)
+        HStack(spacing: 6) {
+            Text(String(localized: "today.showCalendarEvents", defaultValue: "Show today's Calendar events"))
+                .font(.system(size: 9.5, weight: .medium))
+                .foregroundColor(.white.opacity(0.8))
+                .lineLimit(2)
+                .fixedSize(horizontal: false, vertical: true)
+            Spacer(minLength: 4)
+            VStack(spacing: 4) {
+                focusButton(remaining: remaining, prominent: false)
+                Button {
+                    SoundPlayer.shared.play(.action)
+                    model.requestAccess()
+                } label: {
+                    Image(systemName: "calendar.badge.plus")
+                        .font(.system(size: 10, weight: .medium))
+                        .frame(width: 24, height: 20)
+                        .background(RoundedRectangle(cornerRadius: 7).fill(Color.white.opacity(0.06)))
+                }
+                .buttonStyle(NotchPressStyle())
+                .hoverLift(cornerRadius: 7)
+                .accessibilityIdentifier("today.enable-calendar")
+                .help(model.errorMessage ?? String(localized: "today.allowAccessHelp", defaultValue: "Allow access to today's events"))
             }
         }
-        // maxHeight: .infinity dropped — same reasoning as MediaCell above.
-        .frame(maxWidth: .infinity)
     }
 
     private func focusButton(remaining: Int?, prominent: Bool) -> some View {
@@ -2613,13 +2584,13 @@ private struct TodayCell: View {
             focusEndsAt = remaining == nil || remaining == 0 ? Date().addingTimeInterval(25 * 60) : nil
         } label: {
             Label(focusLabel(remaining), systemImage: remaining == nil || remaining == 0 ? "moon.fill" : "stop.fill")
-                .font(.system(size: 9.5, weight: .semibold))
-                .padding(.horizontal, 10)
-                .frame(height: prominent ? 28 : 24)
-                .background(RoundedRectangle(cornerRadius: 8).fill(Color.white.opacity(prominent ? 0.14 : 0.09)))
+                .font(.system(size: 8.5, weight: .semibold))
+                .padding(.horizontal, 8)
+                .frame(height: 20)
+                .background(RoundedRectangle(cornerRadius: 7).fill(Color.white.opacity(prominent ? 0.14 : 0.09)))
         }
         .buttonStyle(NotchPressStyle())
-        .hoverLift(cornerRadius: 9)
+        .hoverLift(cornerRadius: 7)
         .accessibilityIdentifier("today.focus")
         .help(remaining == nil || remaining == 0 ? String(localized: "today.startFocusHelp", defaultValue: "Start a 25 minute local focus timer") : String(localized: "today.endFocus", defaultValue: "End Focus"))
     }
@@ -2631,92 +2602,47 @@ private struct TodayCell: View {
     }
 }
 
-private struct ScheduleRow: View {
-    let time: String
-    let title: String
-    let detail: String
-    var body: some View {
-        HStack(alignment: .top, spacing: 8) {
-            Text(time).font(.system(size: 9.5, design: .monospaced)).foregroundColor(DesignTokens.muted).frame(width: 38, alignment: .leading)
-            VStack(alignment: .leading, spacing: 1) {
-                Text(title).font(.system(size: 10.5, weight: .semibold)).lineLimit(1)
-                Text(detail).font(.system(size: 9.5)).foregroundColor(DesignTokens.muted).lineLimit(1)
-            }
-        }
-    }
-}
-
-private struct SystemCell: View {
+/// Reduced to a single glanceable metric (battery) — see `DashboardCell`'s
+/// doc comment for why the original 3-card + background-activity layout
+/// was cut. Memory/storage/uptime/background-activity remain reachable via
+/// `NotchView.expandedDetail`'s `.dashboard` case (Today/System `DetailStrip`
+/// rows), which this section does not duplicate.
+private struct DashboardBatterySection: View {
     @ObservedObject var monitor: SystemMonitor
-    @ObservedObject var background: BackgroundActivityMonitor
 
     var body: some View {
-        CellSurface {
-            VStack(spacing: 5) {
-                if let activity = background.activities.first {
-                    VStack(alignment: .leading, spacing: 5) {
-                        HStack(spacing: 8) {
-                            Image(systemName: activity.symbol)
-                                .font(.system(size: 15, weight: .medium))
-                                .foregroundColor(.white.opacity(0.82))
-                                .frame(width: 26, height: 26)
-                                .background(RoundedRectangle(cornerRadius: 8).fill(Color.white.opacity(0.07)))
-                            VStack(alignment: .leading, spacing: 2) {
-                                Text(activity.title).font(.system(size: 11, weight: .semibold))
-                                Text(activity.detail).font(.system(size: 9)).foregroundColor(DesignTokens.muted).lineLimit(1)
-                            }
-                            Spacer()
-                            ProgressView().controlSize(.small).tint(.white.opacity(0.8))
-                        }
-                        HStack {
-                            Label(String(localized: "system.runningInBackground", defaultValue: "Running in background"), systemImage: "clock.arrow.circlepath")
-                                .font(.system(size: 8.5, weight: .medium))
-                                .foregroundColor(.white.opacity(0.58))
-                            if background.activities.count > 1 {
-                                Text(String(localized: "system.moreActivities", defaultValue: "+\(String(background.activities.count - 1)) more"))
-                                    .font(.system(size: 8.5, weight: .medium))
-                                    .foregroundColor(DesignTokens.muted)
-                            }
-                            Spacer()
-                            activityMonitorButton
-                        }
-                    }
-                    .padding(.horizontal, 10)
-                    .padding(.vertical, 8)
-                    // maxHeight: .infinity dropped — same reasoning as
-                    // MediaCell/TodayCell above.
-                    .frame(maxWidth: .infinity)
-                    .background(RoundedRectangle(cornerRadius: 10).fill(Color.white.opacity(0.055)))
-                    .help(activity.detail)
-                } else {
-                    HStack(spacing: 6) {
-                        SystemActionCard(
-                            icon: monitor.isCharging ? "battery.100percent.bolt" : "battery.75percent",
-                            title: monitor.batteryLevel == nil ? String(localized: "system.power", defaultValue: "Power") : String(localized: "system.battery", defaultValue: "Battery"),
-                            value: monitor.batteryLevel.map { "\($0)%" } ?? String(localized: "system.acPower", defaultValue: "AC power"),
-                            detail: monitor.batteryLevel == nil ? String(localized: "system.noBatteryDetected", defaultValue: "No battery detected") : batteryDetail
-                        ) { openSystemSettings("x-apple.systempreferences:com.apple.Battery-Settings.extension") }
-                        SystemActionCard(icon: "memorychip", title: String(localized: "system.memory", defaultValue: "Memory"), value: monitor.memoryUsed, detail: monitor.memoryDetail) {
-                            NSWorkspace.shared.open(URL(fileURLWithPath: "/System/Applications/Utilities/Activity Monitor.app"))
-                        }
-                        SystemActionCard(icon: "externaldrive", title: String(localized: "system.freeStorage", defaultValue: "Free storage"), value: monitor.storageAvailable, detail: monitor.storageDetail) {
-                            openSystemSettings("x-apple.systempreferences:com.apple.settings.Storage")
-                        }
-                    }
-                    HStack(spacing: 6) {
-                        Image(systemName: "checkmark.circle")
-                            .font(.system(size: 10, weight: .medium))
-                            .foregroundColor(.white.opacity(0.55))
-                        Text(String(localized: "system.noActiveBackgroundWork", defaultValue: "No active background work"))
-                            .font(.system(size: 9.5, weight: .medium))
-                        Spacer()
-                        activityMonitorButton
-                    }
-                    .padding(.horizontal, 8)
-                    .frame(height: 26)
-                    .background(RoundedRectangle(cornerRadius: 8).fill(Color.white.opacity(0.045)))
-                }
-            }.foregroundColor(.white)
+        Button {
+            openSystemSettings("x-apple.systempreferences:com.apple.Battery-Settings.extension")
+        } label: {
+            VStack(alignment: .leading, spacing: 2) {
+                Image(systemName: monitor.isCharging ? "battery.100percent.bolt" : batteryIcon)
+                    .font(.system(size: 13))
+                Text(monitor.batteryLevel.map { "\($0)%" } ?? String(localized: "system.acPower", defaultValue: "AC"))
+                    .font(.system(size: 11, weight: .semibold))
+                Text(String(localized: "system.battery", defaultValue: "Battery"))
+                    .font(.system(size: 8))
+                    .foregroundColor(DesignTokens.muted)
+            }
+            .frame(maxWidth: .infinity, alignment: .leading)
+        }
+        .buttonStyle(NotchPressStyle())
+        .hoverLift(cornerRadius: 8)
+        .foregroundColor(.white)
+        .accessibilityLabel(String(localized: "system.battery", defaultValue: "Battery"))
+        .accessibilityValue(monitor.batteryLevel.map { "\($0)%" } ?? String(localized: "system.acPower", defaultValue: "AC"))
+        .help(monitor.batteryLevel == nil ? String(localized: "system.noBatteryDetected", defaultValue: "No battery detected") : batteryDetail)
+    }
+
+    /// The pre-merge `SystemCell` hardcoded `"battery.75percent"` for every
+    /// non-charging level; picking the closest SF Symbol bucket here is a
+    /// (small, incidental) correctness fix alongside the redesign.
+    private var batteryIcon: String {
+        guard let level = monitor.batteryLevel else { return "battery.100percent" }
+        switch level {
+        case ..<20: return "battery.25percent"
+        case ..<50: return "battery.50percent"
+        case ..<80: return "battery.75percent"
+        default: return "battery.100percent"
         }
     }
 
@@ -2727,51 +2653,9 @@ private struct SystemCell: View {
         return monitor.isCharging ? String(localized: "system.chargingRemaining", defaultValue: "Charging · \(remaining) remaining") : String(localized: "system.remaining", defaultValue: "\(remaining) remaining")
     }
 
-    private var activityMonitorButton: some View {
-        Button {
-            NSWorkspace.shared.open(URL(fileURLWithPath: "/System/Applications/Utilities/Activity Monitor.app"))
-        } label: {
-            Label(String(localized: "system.activityMonitor", defaultValue: "Activity Monitor"), systemImage: "gauge.with.dots.needle.50percent")
-                .font(.system(size: 8.5, weight: .medium))
-                .padding(.horizontal, 8)
-                .frame(height: 22)
-                .background(RoundedRectangle(cornerRadius: 7).fill(Color.white.opacity(0.075)))
-        }
-        .buttonStyle(NotchPressStyle())
-        .hoverLift(cornerRadius: 8)
-        .accessibilityIdentifier("system.activity-monitor")
-    }
-
     private func openSystemSettings(_ rawURL: String) {
         guard let url = URL(string: rawURL) else { return }
         NSWorkspace.shared.open(url)
-    }
-}
-
-private struct SystemActionCard: View {
-    let icon: String, title: String, value: String, detail: String
-    let action: () -> Void
-    var body: some View {
-        Button {
-            SoundPlayer.shared.play(.action)
-            action()
-        } label: {
-            HStack(spacing: 6) {
-                Image(systemName: icon).font(.system(size: 11)).foregroundColor(.white.opacity(0.76))
-                VStack(alignment: .leading, spacing: 1) {
-                    Text(title).font(.system(size: 8.5)).foregroundColor(DesignTokens.muted)
-                    Text(value).font(.system(size: 10, weight: .semibold)).lineLimit(1)
-                    Text(detail).font(.system(size: 8)).foregroundColor(.white.opacity(0.46)).lineLimit(1)
-                }
-                Spacer(minLength: 0)
-            }
-            .padding(.horizontal, 8)
-            .frame(maxWidth: .infinity, minHeight: 38)
-            .background(RoundedRectangle(cornerRadius: 9).fill(Color.white.opacity(0.055)))
-        }
-        .buttonStyle(NotchPressStyle())
-        .hoverLift(cornerRadius: 10)
-        .help(String(localized: "system.openDetailsHelp", defaultValue: "Open \(title) details"))
     }
 }
 
