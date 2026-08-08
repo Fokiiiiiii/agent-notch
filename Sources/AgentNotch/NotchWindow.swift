@@ -1826,17 +1826,81 @@ final class NotchWindowController: NSObject {
 
     private func handleScroll(_ event: NSEvent) {
         guard uiState.isVisible,
-              uiState.mode == .open,
               uiState.overlay == nil,
               event.window === panel || panel.frame.contains(NSEvent.mouseLocation) else { return }
 
         let deltaX = event.scrollingDeltaX
         let deltaY = event.scrollingDeltaY
+        let isHorizontal = abs(deltaX) > abs(deltaY) * 1.15 && abs(deltaX) > 0.25
+
+        // Compact/hover: sideways scrolling steps tracks. Vertical is left
+        // alone there — opening and closing stay a click or the dwell
+        // gesture, so a stray scroll over the pill can't resize the panel.
+        guard uiState.mode == .open else {
+            if isHorizontal { handleCompactMediaScroll(event, delta: deltaX) }
+            return
+        }
+
         if abs(deltaY) > abs(deltaX) * 1.15, abs(deltaY) > 0.25 {
             handleVerticalScroll(event, delta: deltaY)
-        } else if abs(deltaX) > abs(deltaY) * 1.15, abs(deltaX) > 0.25 {
+        } else if isHorizontal {
             handleHorizontalScroll(event, delta: deltaX)
         }
+    }
+
+    /// Track-stepping via sideways scroll over the compact/hover pill. Uses
+    /// the same accumulate-then-commit shape as `handleHorizontalScroll`,
+    /// and can safely share its accumulator state: that one only ever runs
+    /// while `.open`, this one only while not.
+    private func handleCompactMediaScroll(_ event: NSEvent, delta deltaX: CGFloat) {
+        guard AppSettings.shared.mediaSwipeEnabled, MediaController.shared.hasMedia else { return }
+
+        if event.phase == .began {
+            horizontalScrollTotal = 0
+            didCommitCurrentScroll = false
+        }
+
+        horizontalScrollTotal += deltaX
+        let isDiscreteWheel = event.phase.isEmpty && event.momentumPhase.isEmpty
+        let now = event.timestamp
+        let canCommit = isDiscreteWheel
+            ? now - lastDiscreteScrollSwitch > 0.34
+            : !didCommitCurrentScroll
+
+        guard canCommit, abs(horizontalScrollTotal) >= 18 else {
+            if event.phase == .ended || event.phase == .cancelled {
+                horizontalScrollTotal = 0
+                didCommitCurrentScroll = false
+            }
+            return
+        }
+
+        didCommitCurrentScroll = true
+        lastDiscreteScrollSwitch = now
+        if NotchWindowController.swipeAdvancesTrack(
+            scrollTotal: horizontalScrollTotal,
+            inverted: AppSettings.shared.invertMediaSwipe
+        ) {
+            MediaController.shared.next()
+        } else {
+            MediaController.shared.previous()
+        }
+        SoundPlayer.shared.play(.navigation)
+        HapticPlayer.shared.perform(.confirm)
+
+        if isDiscreteWheel {
+            horizontalScrollTotal = 0
+            didCommitCurrentScroll = false
+        }
+    }
+
+    /// Whether a swipe should advance to the next track rather than go back.
+    /// Swiping left (negative scroll total) advances by default — the
+    /// content flicks away in the direction of travel — and `inverted`
+    /// swaps that, matching the "invert media gesture" setting.
+    static func swipeAdvancesTrack(scrollTotal: CGFloat, inverted: Bool) -> Bool {
+        let advances = scrollTotal < 0
+        return inverted ? !advances : advances
     }
 
     /// How far either side of today the week strip can be scrolled. Well

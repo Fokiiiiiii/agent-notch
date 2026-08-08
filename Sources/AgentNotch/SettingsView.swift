@@ -37,6 +37,14 @@ struct SettingsView: View {
                     .help(String(localized: "settings.hapticFeedbackHelp", defaultValue: "Pulses the trackpad for approvals, questions, and other notch events (Force Touch trackpads only)."))
             }
 
+            Section(String(localized: "settings.section.gestures", defaultValue: "Gestures")) {
+                Toggle(String(localized: "settings.mediaSwipe", defaultValue: "Swipe sideways to change track"), isOn: $settings.mediaSwipeEnabled)
+                    .help(String(localized: "settings.mediaSwipeHelp", defaultValue: "Scroll sideways over the compact notch to skip tracks. While the notch is open the same gesture switches pages instead."))
+                Toggle(String(localized: "settings.invertMediaSwipe", defaultValue: "Invert track-change direction"), isOn: $settings.invertMediaSwipe)
+                    .disabled(!settings.mediaSwipeEnabled)
+                    .help(String(localized: "settings.invertMediaSwipeHelp", defaultValue: "By default swiping left plays the next track."))
+            }
+
             // Only shown once authorization has actually been requested and
             // came back denied — never on cold start, where `isAuthorized`
             // is still `false` simply because the async system prompt

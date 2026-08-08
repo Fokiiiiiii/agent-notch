@@ -15,6 +15,17 @@ final class AppSettings: ObservableObject {
     @Published var hapticsEnabled: Bool {
         didSet { UserDefaults.standard.set(hapticsEnabled, forKey: Keys.hapticsEnabled) }
     }
+    /// Sideways scrolling over the compact/hover pill steps tracks. Only
+    /// applies while the panel is *not* open — open uses that same gesture
+    /// to switch pages.
+    @Published var mediaSwipeEnabled: Bool {
+        didSet { UserDefaults.standard.set(mediaSwipeEnabled, forKey: Keys.mediaSwipeEnabled) }
+    }
+    /// Swaps which direction advances: off, swiping left plays the next
+    /// track (the content flicks away with the gesture).
+    @Published var invertMediaSwipe: Bool {
+        didSet { UserDefaults.standard.set(invertMediaSwipe, forKey: Keys.invertMediaSwipe) }
+    }
     @Published var languageOverride: String? {
         didSet { UserDefaults.standard.set(languageOverride, forKey: Keys.languageOverride) }
     }
@@ -50,6 +61,8 @@ final class AppSettings: ObservableObject {
     private enum Keys {
         static let soundEnabled = "agentnotch.soundEnabled"
         static let hapticsEnabled = "agentnotch.hapticsEnabled"
+        static let mediaSwipeEnabled = "agentnotch.mediaSwipeEnabled"
+        static let invertMediaSwipe = "agentnotch.invertMediaSwipe"
         static let languageOverride = "agentnotch.languageOverride"
         static let uiScale = "agentnotch.uiScale"
         static let cornerRadiusScale = "agentnotch.cornerRadiusScale"
@@ -61,6 +74,8 @@ final class AppSettings: ObservableObject {
         let defaults = UserDefaults.standard
         soundEnabled = defaults.object(forKey: Keys.soundEnabled) as? Bool ?? true
         hapticsEnabled = defaults.object(forKey: Keys.hapticsEnabled) as? Bool ?? true
+        mediaSwipeEnabled = defaults.object(forKey: Keys.mediaSwipeEnabled) as? Bool ?? true
+        invertMediaSwipe = defaults.object(forKey: Keys.invertMediaSwipe) as? Bool ?? false
         languageOverride = defaults.string(forKey: Keys.languageOverride)
         uiScale = defaults.object(forKey: Keys.uiScale) as? Double ?? 1.0
         cornerRadiusScale = defaults.object(forKey: Keys.cornerRadiusScale) as? Double ?? 1.0

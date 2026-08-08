@@ -248,4 +248,18 @@ final class HoverStateTests: XCTestCase {
 
         XCTAssertEqual(window, hoverContent)
     }
+
+    // MARK: - swipeAdvancesTrack
+
+    /// Swiping left flicks the current track away, so it advances; swiping
+    /// right goes back. `scrollingDeltaX` is negative for a leftward swipe.
+    func testSwipingLeftAdvancesToTheNextTrack() {
+        XCTAssertTrue(NotchWindowController.swipeAdvancesTrack(scrollTotal: -30, inverted: false))
+        XCTAssertFalse(NotchWindowController.swipeAdvancesTrack(scrollTotal: 30, inverted: false))
+    }
+
+    func testInvertedSwipeSwapsBothDirections() {
+        XCTAssertFalse(NotchWindowController.swipeAdvancesTrack(scrollTotal: -30, inverted: true))
+        XCTAssertTrue(NotchWindowController.swipeAdvancesTrack(scrollTotal: 30, inverted: true))
+    }
 }
