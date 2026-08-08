@@ -94,6 +94,24 @@ struct SettingsView: View {
                 )
             }
 
+            // Only shown while the permission is actually missing — once
+            // granted there is nothing to act on, and this used to be a
+            // system dialog on every launch instead.
+            if !MediaKeyMonitor.isAccessibilityTrusted {
+                Section(String(localized: "settings.section.mediaKeys", defaultValue: "Media keys")) {
+                    VStack(alignment: .leading, spacing: 6) {
+                        Text(String(localized: "settings.mediaKeysNeedAccessibility", defaultValue: "Allow Accessibility access to show a skip indicator when you press the media keys."))
+                            .font(.caption)
+                            .foregroundColor(.secondary)
+                        Button(String(localized: "settings.grantAccessibility", defaultValue: "Allow Accessibility Access…")) {
+                            MediaKeyMonitor.requestAccessibilityTrust()
+                        }
+                        .buttonStyle(.link)
+                    }
+                    .padding(.vertical, 2)
+                }
+            }
+
             Section(String(localized: "settings.section.help", defaultValue: "Help")) {
                 Button(String(localized: "settings.showWelcome", defaultValue: "Show Welcome Screen…")) {
                     NotificationCenter.default.post(name: .agentNotchReplayOnboarding, object: nil)

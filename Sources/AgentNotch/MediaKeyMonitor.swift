@@ -55,14 +55,27 @@ final class MediaKeyMonitor {
 
     private var monitor: Any?
 
+    /// Whether Accessibility trust has been granted, checked *without*
+    /// prompting.
+    static var isAccessibilityTrusted: Bool {
+        AXIsProcessTrusted()
+    }
+
+    /// Shows the system's Accessibility prompt. Only ever called from an
+    /// explicit user action (the Settings button) — never on launch.
+    /// `kAXTrustedCheckOptionPrompt` re-asks on *every* call while trust is
+    /// missing, so having `start()` do it meant a system dialog on every
+    /// single app start for anyone who hadn't granted it.
+    static func requestAccessibilityTrust() {
+        _ = AXIsProcessTrustedWithOptions([kAXTrustedCheckOptionPrompt.takeUnretainedValue(): true] as CFDictionary)
+    }
+
     func start() {
         guard monitor == nil else { return }
         // Global `.systemDefined` media-key delivery is gated behind
-        // Accessibility trust; requesting it (rather than silently relying
-        // on whatever trust state already exists) prompts the user the
-        // first time this runs, matching how any well-behaved app using
-        // this API is expected to ask.
-        _ = AXIsProcessTrustedWithOptions([kAXTrustedCheckOptionPrompt.takeUnretainedValue(): true] as CFDictionary)
+        // Accessibility trust. Install the monitor regardless: without
+        // trust it simply never fires, which costs only the skip indicator,
+        // and asking here would nag on every launch.
         monitor = NSEvent.addGlobalMonitorForEvents(matching: .systemDefined) { [weak self] event in
             guard let self,
                   let direction = MediaKeyDecoder.decodeSkipDirection(subtypeRawValue: event.subtype.rawValue, data1: event.data1)
