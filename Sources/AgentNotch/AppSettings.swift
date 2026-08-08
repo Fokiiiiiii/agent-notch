@@ -228,7 +228,7 @@ struct WidgetLayoutItem: Codable, Identifiable, Equatable {
 /// `AppSettings.tabLayouts[DashboardWidget.layoutKey]`, so renaming a case's
 /// raw value would orphan an existing user layout.
 enum DashboardWidget: String, CaseIterable, Identifiable {
-    case media, today
+    case media, today, camera
 
     /// Key under which the Dashboard's arrangement is stored. Distinct from
     /// the `"today"`/`"system"` keys already in `tabLayouts`, which group
@@ -246,6 +246,17 @@ enum DashboardWidget: String, CaseIterable, Identifiable {
         switch self {
         case .media: return nil
         case .today: return 236
+        case .camera: return 132
+        }
+    }
+
+    /// Whether the widget is on for someone who has never opened Settings.
+    /// The camera mirror is opt-in: showing it by default would turn on the
+    /// webcam (and its indicator light) the first time the panel opened.
+    var isEnabledByDefault: Bool {
+        switch self {
+        case .media, .today: return true
+        case .camera: return false
         }
     }
 
@@ -253,6 +264,7 @@ enum DashboardWidget: String, CaseIterable, Identifiable {
         switch self {
         case .media: return String(localized: "widget.media", defaultValue: "Media")
         case .today: return String(localized: "widget.today", defaultValue: "Calendar")
+        case .camera: return String(localized: "widget.camera", defaultValue: "Mirror")
         }
     }
 
@@ -260,6 +272,7 @@ enum DashboardWidget: String, CaseIterable, Identifiable {
         switch self {
         case .media: return "music.note"
         case .today: return "calendar"
+        case .camera: return "web.camera"
         }
     }
 
@@ -267,8 +280,18 @@ enum DashboardWidget: String, CaseIterable, Identifiable {
     /// Separate from the view so the ordering/visibility rules are testable
     /// without standing up SwiftUI.
     static func resolved(from configuration: TabLayoutConfiguration?) -> [DashboardWidget] {
-        let ids = configuration?.applying(to: defaultOrder) ?? defaultOrder
-        return ids.compactMap(DashboardWidget.init(rawValue:))
+        guard let configuration else {
+            return allCases.filter(\.isEnabledByDefault)
+        }
+        return configuration.applying(to: defaultOrder)
+            .compactMap(DashboardWidget.init(rawValue:))
+            // `applying(to:)` appends ids the stored layout has never seen,
+            // so that a widget added in a later build isn't invisible to
+            // existing users. An opt-in widget must not be swept in that
+            // way — it stays off until it's explicitly in the layout.
+            .filter { widget in
+                configuration.widgets.contains { $0.id == widget.id } || widget.isEnabledByDefault
+            }
     }
 }
 

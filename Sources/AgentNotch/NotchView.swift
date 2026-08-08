@@ -2491,6 +2491,8 @@ private struct DashboardCell: View {
                 DashboardMediaSection(media: media)
             case .today:
                 DashboardTodaySection(model: today, uiState: uiState)
+            case .camera:
+                DashboardCameraSection()
             }
         }
         if let width = widget.preferredWidth {
@@ -2517,6 +2519,49 @@ private struct DashboardCell: View {
             .overlay(DesignTokens.line)
             .padding(.vertical, 2)
             .padding(.horizontal, 14)
+    }
+}
+
+/// Live webcam mirror. Off by default (see `isEnabledByDefault`) and
+/// capturing only while this view is on screen — `addViewer`/`removeViewer`
+/// tie the camera's indicator light to something the user can actually see.
+private struct DashboardCameraSection: View {
+    @ObservedObject private var controller = CameraPreviewController.shared
+
+    var body: some View {
+        ZStack {
+            RoundedRectangle(cornerRadius: 10)
+                .fill(Color.white.opacity(0.05))
+            if controller.isRunning {
+                CameraPreviewView(session: controller.session)
+                    .clipShape(RoundedRectangle(cornerRadius: 10))
+            } else {
+                placeholder
+            }
+        }
+        .frame(maxHeight: .infinity)
+        .padding(.vertical, 2)
+        .onAppear { controller.addViewer() }
+        .onDisappear { controller.removeViewer() }
+        .accessibilityLabel(String(localized: "widget.camera", defaultValue: "Mirror"))
+    }
+
+    /// Covers three states with one shape so the widget's size never shifts:
+    /// starting up, no camera/denied, and access not yet requested.
+    private var placeholder: some View {
+        VStack(spacing: 5) {
+            Image(systemName: controller.errorMessage == nil ? "web.camera" : "exclamationmark.triangle")
+                .font(.system(size: 15))
+                .foregroundColor(DesignTokens.muted)
+            if let message = controller.errorMessage {
+                Text(message)
+                    .font(.system(size: 9))
+                    .foregroundColor(DesignTokens.muted)
+                    .multilineTextAlignment(.center)
+                    .lineLimit(2)
+            }
+        }
+        .padding(.horizontal, 6)
     }
 }
 

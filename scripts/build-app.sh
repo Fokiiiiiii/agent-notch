@@ -63,6 +63,8 @@ cat > "$APP/Contents/Info.plist" <<'EOF'
     <string>AgentNotch shows today's upcoming events in the Today tab.</string>
     <key>NSRemindersFullAccessUsageDescription</key>
     <string>AgentNotch shows reminders due today alongside your calendar.</string>
+    <key>NSCameraUsageDescription</key>
+    <string>AgentNotch shows a live mirror in the Dashboard when you enable the Mirror widget.</string>
     <key>NSAppleEventsUsageDescription</key>
     <string>AgentNotch can fall back to Apple Events for legacy media players.</string>
     <key>LSMinimumSystemVersion</key>

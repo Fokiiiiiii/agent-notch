@@ -5,8 +5,38 @@ import XCTest
 /// these cover the ordering/visibility rules that decide what actually gets
 /// drawn — without standing up SwiftUI.
 final class DashboardWidgetLayoutTests: XCTestCase {
-    func testResolvedWithNoStoredConfigurationUsesShippedOrder() {
+    /// Opt-in widgets (the camera mirror) stay off for a user who has never
+    /// touched Settings — turning the webcam on unprompted would be a
+    /// privacy surprise, not a default.
+    func testResolvedWithNoStoredConfigurationUsesShippedDefaultsOnly() {
         XCTAssertEqual(DashboardWidget.resolved(from: nil), [.media, .today])
+    }
+
+    func testResolvedIncludesAnOptInWidgetOnceItIsInTheStoredLayout() {
+        let config = TabLayoutConfiguration(widgets: [
+            WidgetLayoutItem(id: "media", order: 0),
+            WidgetLayoutItem(id: "camera", order: 1),
+            WidgetLayoutItem(id: "today", order: 2),
+        ])
+        XCTAssertEqual(DashboardWidget.resolved(from: config), [.media, .camera, .today])
+    }
+
+    /// `applying(to:)` appends unknown ids so a widget added in a later build
+    /// reaches existing users — but that must not drag an opt-in widget in
+    /// with it.
+    func testResolvedDoesNotAppendAnOptInWidgetMissingFromTheStoredLayout() {
+        let config = TabLayoutConfiguration(widgets: [
+            WidgetLayoutItem(id: "today", order: 0),
+        ])
+        XCTAssertEqual(DashboardWidget.resolved(from: config), [.today, .media])
+    }
+
+    func testResolvedDropsAnOptInWidgetTurnedBackOff() {
+        let config = TabLayoutConfiguration(widgets: [
+            WidgetLayoutItem(id: "media", order: 0),
+            WidgetLayoutItem(id: "camera", isVisible: false, order: 1),
+        ])
+        XCTAssertEqual(DashboardWidget.resolved(from: config), [.media, .today])
     }
 
     func testResolvedRespectsStoredOrder() {
@@ -47,18 +77,9 @@ final class DashboardWidgetLayoutTests: XCTestCase {
         XCTAssertEqual(DashboardWidget.resolved(from: config), [.today, .media])
     }
 
-    /// `applying(to:)` appends ids it has never seen, which is what keeps a
-    /// widget added in a later build from being invisible to users who
-    /// already have a stored layout.
-    func testResolvedAppendsWidgetsMissingFromStoredLayout() {
-        let config = TabLayoutConfiguration(widgets: [
-            WidgetLayoutItem(id: "today", order: 0),
-        ])
-        XCTAssertEqual(DashboardWidget.resolved(from: config), [.today, .media])
-    }
-
-    func testOnlyTodayDeclaresAFixedWidth() {
+    func testOnlyMediaAbsorbsTheRemainingWidth() {
         XCTAssertNil(DashboardWidget.media.preferredWidth)
         XCTAssertEqual(DashboardWidget.today.preferredWidth, 236)
+        XCTAssertEqual(DashboardWidget.camera.preferredWidth, 132)
     }
 }

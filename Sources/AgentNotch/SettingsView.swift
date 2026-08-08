@@ -359,7 +359,10 @@ private struct NookSettingsTab: View {
 
     private func binding(for widget: DashboardWidget) -> Binding<Bool> {
         Binding(
-            get: { item(for: widget)?.isVisible ?? true },
+            // Falls back to the widget's own default, not a blanket `true`:
+            // an opt-in widget with nothing stored yet is off, and the
+            // toggle has to say so.
+            get: { item(for: widget)?.isVisible ?? widget.isEnabledByDefault },
             set: { newValue in
                 var config = normalized()
                 if let index = config.widgets.firstIndex(where: { $0.id == widget.id }) {
@@ -381,7 +384,11 @@ private struct NookSettingsTab: View {
         let ordered = rows
         let existing = Dictionary(uniqueKeysWithValues: configuration.widgets.map { ($0.id, $0) })
         let widgets = ordered.enumerated().map { index, widget -> WidgetLayoutItem in
-            var item = existing[widget.id] ?? WidgetLayoutItem(id: widget.id, order: index)
+            var item = existing[widget.id]
+                // `WidgetLayoutItem`'s own `isVisible` default is `true`, so
+                // materializing an opt-in widget without this would silently
+                // switch it on the first time any row is edited.
+                ?? WidgetLayoutItem(id: widget.id, isVisible: widget.isEnabledByDefault, order: index)
             item.order = index
             item.displayName = widget.displayName
             return item
