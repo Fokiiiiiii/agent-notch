@@ -2796,6 +2796,15 @@ private struct DashboardTodaySection: View {
             .buttonStyle(NotchPressStyle())
             .accessibilityIdentifier("today.enable-calendar")
             .help(model.errorMessage ?? String(localized: "today.allowAccessHelp", defaultValue: "Allow access to today's events"))
+        } else if let reminder = nextReminder, isReminderSoonerThanFirstEvent(reminder) {
+            // An overdue or imminent reminder outranks a later event: it's
+            // the thing actually needing attention now.
+            agendaBody(
+                icon: reminder.isOverdue ? "exclamationmark.circle" : "checklist",
+                text: "\(reminder.title)  \(reminder.dueDate.formatted(.dateTime.hour().minute()))",
+                color: reminder.isOverdue ? DesignTokens.orange : .white.opacity(0.85)
+            )
+            .help(reminder.title)
         } else if let event = selectedDayEvents.first {
             agendaBody(
                 icon: "calendar",
@@ -2818,6 +2827,22 @@ private struct DashboardTodaySection: View {
                 color: DesignTokens.muted
             )
         }
+    }
+
+    /// Reminders are only fetched for today, so they're only offered while
+    /// the strip is actually showing today — on a scrolled-to date they'd be
+    /// describing a different day than the one on screen.
+    private var nextReminder: TodayReminder? {
+        guard Calendar.current.isDateInToday(selectedDate) else { return nil }
+        return model.reminders.first
+    }
+
+    /// Which of the two competing lines gets the single agenda slot. Overdue
+    /// reminders always win; otherwise whichever comes first by time.
+    private func isReminderSoonerThanFirstEvent(_ reminder: TodayReminder) -> Bool {
+        if reminder.isOverdue { return true }
+        guard let event = selectedDayEvents.first else { return true }
+        return reminder.dueDate < event.startDate
     }
 
     private func agendaBody(icon: String, text: String, color: Color) -> some View {

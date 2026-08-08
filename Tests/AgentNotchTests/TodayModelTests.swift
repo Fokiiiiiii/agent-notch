@@ -91,4 +91,74 @@ final class TodayModelTests: XCTestCase {
 
         XCTAssertTrue(TodayModel.events(on: target, in: events, calendar: utcCalendar).isEmpty)
     }
+
+    // MARK: - Reminders
+
+    /// `now` for every reminder test: 2026-08-13 12:00 UTC.
+    private var referenceNow: Date {
+        DateComponents(calendar: utcCalendar, year: 2026, month: 8, day: 13, hour: 12).date!
+    }
+
+    private func makeReminder(
+        _ id: String,
+        hour: Int?,
+        day: Int = 13,
+        isCompleted: Bool = false
+    ) -> RawReminderRecord {
+        let due = hour.map { DateComponents(calendar: utcCalendar, year: 2026, month: 8, day: day, hour: $0).date! }
+        return RawReminderRecord(id: id, title: "Reminder \(id)", dueDate: due, isCompleted: isCompleted)
+    }
+
+    private func filtered(_ records: [RawReminderRecord]) -> [TodayReminder] {
+        TodayModel.filterAndSortToday(records, now: referenceNow, calendar: utcCalendar)
+    }
+
+    func testFilterExcludesCompletedReminders() {
+        let result = filtered([
+            makeReminder("done", hour: 9, isCompleted: true),
+            makeReminder("open", hour: 9),
+        ])
+        XCTAssertEqual(result.map(\.id), ["open"])
+    }
+
+    /// A reminder with no due date has nothing to place it on today's
+    /// timeline, so it can't be shown on a line that's about "today".
+    func testFilterExcludesRemindersWithNoDueDate() {
+        XCTAssertTrue(filtered([makeReminder("someday", hour: nil)]).isEmpty)
+    }
+
+    func testFilterExcludesRemindersDueAfterToday() {
+        XCTAssertTrue(filtered([makeReminder("tomorrow", hour: 9, day: 14)]).isEmpty)
+    }
+
+    /// Yesterday's unfinished reminder is still outstanding, so it belongs
+    /// on the line — flagged as overdue.
+    func testFilterKeepsOverdueRemindersFromEarlierDays() {
+        let result = filtered([makeReminder("late", hour: 9, day: 12)])
+        XCTAssertEqual(result.map(\.id), ["late"])
+        XCTAssertEqual(result.first?.isOverdue, true)
+    }
+
+    func testFilterMarksOverdueRelativeToNowNotToStartOfDay() {
+        let result = filtered([
+            makeReminder("past", hour: 9),
+            makeReminder("future", hour: 18),
+        ])
+        XCTAssertEqual(result.map(\.id), ["past", "future"])
+        XCTAssertEqual(result.map(\.isOverdue), [true, false])
+    }
+
+    func testFilterSortsBySoonestDueFirst() {
+        let result = filtered([
+            makeReminder("c", hour: 20),
+            makeReminder("a", hour: 8),
+            makeReminder("b", hour: 14),
+        ])
+        XCTAssertEqual(result.map(\.id), ["a", "b", "c"])
+    }
+
+    func testFilterCapsAtTheDisplayLimit() {
+        let records = (0..<10).map { makeReminder("r\($0)", hour: $0 % 24) }
+        XCTAssertEqual(filtered(records).count, TodayModel.reminderDisplayLimit)
+    }
 }

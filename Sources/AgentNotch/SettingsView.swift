@@ -416,13 +416,18 @@ enum AgentIntegration {
 
 // MARK: - Permissions
 
-/// Surfaces the two permissions AgentNotch can't function fully without, and
+/// Surfaces the permissions AgentNotch can't function fully without, and
 /// which otherwise fail silently: notifications (see `NativeNotifier`'s
-/// "best-effort only" doc comment) and Accessibility for media keys. Both
-/// are shown whether granted or not, so this tab always answers "is it set
-/// up?" rather than only appearing when something is broken.
+/// "best-effort only" doc comment), Accessibility for media keys, and
+/// Reminders for the Today widget's agenda line. All are shown whether
+/// granted or not, so this tab always answers "is it set up?" rather than
+/// only appearing when something is broken.
 private struct PermissionSettingsTab: View {
     @ObservedObject private var notifier = NativeNotifier.shared
+    /// Reminder access is requested here rather than from the notch itself:
+    /// the Today widget has one agenda line and no room for a second
+    /// permission button next to the calendar one.
+    @ObservedObject private var today = TodayModel.shared
     /// Accessibility trust can be granted in System Settings while this
     /// window is open, and nothing notifies us — re-read it when the view
     /// reappears (tab switch) so it can't sit indefinitely stale.
@@ -441,6 +446,17 @@ private struct PermissionSettingsTab: View {
                     detail: notifier.lastAuthorizationError,
                     actionTitle: String(localized: "settings.openNotificationSettings", defaultValue: "Open Notification Settings…"),
                     action: { openSystemSettings("x-apple.systempreferences:com.apple.Notifications-Settings.extension") }
+                )
+            }
+
+            Section(String(localized: "settings.section.reminders", defaultValue: "Reminders")) {
+                permissionRow(
+                    granted: today.canReadReminders,
+                    pending: today.reminderAuthorizationStatus == .notDetermined,
+                    description: String(localized: "settings.remindersPurpose", defaultValue: "Shows reminders due today in the Dashboard's calendar widget, alongside your events."),
+                    detail: nil,
+                    actionTitle: String(localized: "settings.grantReminders", defaultValue: "Allow Reminders Access…"),
+                    action: { today.requestRemindersAccess() }
                 )
             }
 

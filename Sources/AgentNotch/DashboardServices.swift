@@ -14,6 +14,27 @@ struct TodayEvent: Identifiable {
     let attendeeCount: Int?
 }
 
+/// A reminder due today. Kept separate from `TodayEvent` because reminders
+/// have no duration and can be overdue, neither of which an event models.
+struct TodayReminder: Identifiable, Equatable {
+    let id: String
+    let title: String
+    /// Reminders with no due time at all are filtered out before this type
+    /// is built (see `filterAndSortToday`), so this is always set.
+    let dueDate: Date
+    let isOverdue: Bool
+}
+
+/// The subset of `EKReminder` this app reads. Exists so the filtering rules
+/// can be tested without constructing EventKit objects, which can't be made
+/// standalone.
+struct RawReminderRecord {
+    let id: String
+    let title: String
+    let dueDate: Date?
+    let isCompleted: Bool
+}
+
 @MainActor
 final class TodayModel: ObservableObject {
     /// Shared instance so `NotchWindowController` (which needs to read
@@ -39,6 +60,12 @@ final class TodayModel: ObservableObject {
     /// cheaper than re-querying EventKit on every scroll step.
     @Published private(set) var nearbyEvents: [TodayEvent] = []
     @Published private(set) var authorizationStatus = EKEventStore.authorizationStatus(for: .event)
+    /// Reminders due today (or already overdue), soonest first. Empty
+    /// whenever reminder access hasn't been granted — the calendar and
+    /// reminder permissions are separate prompts, so one can be granted
+    /// without the other.
+    @Published private(set) var reminders: [TodayReminder] = []
+    @Published private(set) var reminderAuthorizationStatus = EKEventStore.authorizationStatus(for: .reminder)
     @Published private(set) var errorMessage: String?
 
     /// How far either side of today `refresh()` fetches. Comfortably wider
@@ -49,6 +76,10 @@ final class TodayModel: ObservableObject {
     /// calendar (hundreds of entries in a month) can't blow up memory or
     /// the per-day lookups the week strip does.
     private static let eventFetchLimit = 400
+    /// Matches `events`' own display cap — the Today widget has room for a
+    /// short list, not a full reminder app. `nonisolated` because
+    /// `filterAndSortToday` (itself nonisolated, for testability) reads it.
+    nonisolated static let reminderDisplayLimit = 4
 
     private let store = EKEventStore()
     private var timer: AnyCancellable?
@@ -58,25 +89,34 @@ final class TodayModel: ObservableObject {
         if authorizationStatus == .fullAccess {
             refresh()
         }
+        if reminderAuthorizationStatus == .fullAccess {
+            refreshReminders()
+        }
         // Periodic refresh so the day's events stay current across midnight
         // rollovers even if no calendar change notification fires.
         timer = Timer.publish(every: 300, on: .main, in: .common)
             .autoconnect()
             .sink { [weak self] _ in
                 self?.refresh()
+                self?.refreshReminders()
             }
-        // EventKit posts this whenever calendar data changes (new/edited/
-        // deleted events, account sync, etc.) so we can reflect edits
-        // immediately instead of waiting for the next timer tick.
+        // EventKit posts this whenever calendar *or* reminder data changes
+        // (new/edited/deleted items, account sync, etc.) so we can reflect
+        // edits immediately instead of waiting for the next timer tick.
         storeChangeObserver = NotificationCenter.default
             .publisher(for: .EKEventStoreChanged, object: store)
             .sink { [weak self] _ in
                 self?.refresh()
+                self?.refreshReminders()
             }
     }
 
     var canReadCalendar: Bool {
         authorizationStatus == .fullAccess
+    }
+
+    var canReadReminders: Bool {
+        reminderAuthorizationStatus == .fullAccess
     }
 
     func requestAccess() {
@@ -125,6 +165,74 @@ final class TodayModel: ObservableObject {
         events
             .filter { calendar.isDate($0.startDate, inSameDayAs: date) }
             .sorted { $0.startDate < $1.startDate }
+    }
+
+    func requestRemindersAccess() {
+        Task {
+            do {
+                let granted = try await store.requestFullAccessToReminders()
+                reminderAuthorizationStatus = EKEventStore.authorizationStatus(for: .reminder)
+                if granted { refreshReminders() }
+            } catch {
+                errorMessage = error.localizedDescription
+            }
+        }
+    }
+
+    /// Unlike events, EventKit exposes reminders only through an async
+    /// callback (`fetchReminders(matching:)`), so this can't mirror
+    /// `refresh()`'s synchronous shape.
+    func refreshReminders() {
+        guard canReadReminders else {
+            reminders = []
+            return
+        }
+        let predicate = store.predicateForIncompleteReminders(
+            withDueDateStarting: nil,
+            ending: nil,
+            calendars: nil
+        )
+        store.fetchReminders(matching: predicate) { [weak self] fetched in
+            let records = (fetched ?? []).map { reminder in
+                RawReminderRecord(
+                    id: reminder.calendarItemIdentifier,
+                    title: reminder.title ?? String(localized: "today.untitledReminder", defaultValue: "Untitled reminder"),
+                    dueDate: reminder.dueDateComponents?.date,
+                    isCompleted: reminder.isCompleted
+                )
+            }
+            // The completion handler runs off the main thread.
+            Task { @MainActor [weak self] in
+                self?.reminders = Self.filterAndSortToday(records)
+            }
+        }
+    }
+
+    /// Reminders worth showing today: incomplete, with a due time, due
+    /// today or already past — soonest first, capped for display.
+    /// `nonisolated static` so it can be tested without EventKit.
+    nonisolated static func filterAndSortToday(
+        _ records: [RawReminderRecord],
+        now: Date = Date(),
+        calendar: Calendar = .current
+    ) -> [TodayReminder] {
+        // Anything due later than today is deliberately excluded: this is a
+        // "what's left today" line, not an inbox.
+        let endOfToday = calendar.startOfDay(for: now).addingTimeInterval(86_400)
+        return records
+            .filter { !$0.isCompleted }
+            .compactMap { record -> TodayReminder? in
+                guard let due = record.dueDate, due < endOfToday else { return nil }
+                return TodayReminder(
+                    id: record.id,
+                    title: record.title,
+                    dueDate: due,
+                    isOverdue: due < now
+                )
+            }
+            .sorted { $0.dueDate < $1.dueDate }
+            .prefix(reminderDisplayLimit)
+            .map { $0 }
     }
 }
 
