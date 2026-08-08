@@ -2601,6 +2601,106 @@
         }
       }
     },
+    "airpods.unnamedDevice": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Headphones"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "耳机"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Auriculares"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Casque"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Kopfhörer"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Наушники"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "سماعات"
+          }
+        },
+        "pt": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Fones de ouvido"
+          }
+        },
+        "hi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "हेडफ़ोन"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ヘッドフォン"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "헤드폰"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cuffie"
+          }
+        },
+        "id": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Headphone"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Tai nghe"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "หูฟัง"
+          }
+        },
+        "fil": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Headphone"
+          }
+        }
+      }
+    },
     "approval.allowOnce": {
       "localizations": {
         "en": {
@@ -16601,6 +16701,306 @@
         }
       }
     },
+    "settings.airPodsPrivateAPINote": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "macOS exposes no supported way to read this, so AgentNotch uses an undocumented one. It may stop reporting after a macOS update, in which case the indicator simply disappears."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "macOS 没有提供读取该信息的正式方式，因此 AgentNotch 使用了未公开的接口。macOS 更新后可能失效，届时该指示器会直接消失。"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "macOS no ofrece una forma admitida de leer esto, así que AgentNotch usa una no documentada. Puede dejar de funcionar tras una actualización de macOS; en ese caso el indicador simplemente desaparece."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "macOS n'offre aucun moyen pris en charge de lire cette information ; AgentNotch en utilise donc un non documenté. Cela peut cesser de fonctionner après une mise à jour de macOS, auquel cas l'indicateur disparaît simplement."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "macOS bietet keinen unterstützten Weg, das auszulesen, daher nutzt AgentNotch einen undokumentierten. Nach einem macOS-Update kann es ausfallen – dann verschwindet die Anzeige einfach."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "macOS не предоставляет поддерживаемого способа это прочитать, поэтому AgentNotch использует недокументированный. После обновления macOS он может перестать работать — тогда индикатор просто исчезнет."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "لا توفّر macOS طريقة مدعومة لقراءة ذلك، لذا يستخدم AgentNotch طريقة غير موثّقة. قد تتوقف بعد تحديث macOS، وحينها يختفي المؤشر ببساطة."
+          }
+        },
+        "pt": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "O macOS não oferece uma forma suportada de ler isso, então o AgentNotch usa uma não documentada. Pode parar de funcionar após uma atualização do macOS; nesse caso o indicador simplesmente desaparece."
+          }
+        },
+        "hi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "macOS इसे पढ़ने का कोई समर्थित तरीका नहीं देता, इसलिए AgentNotch एक अनौपचारिक तरीका इस्तेमाल करता है। macOS अपडेट के बाद यह बंद हो सकता है, तब यह संकेतक बस गायब हो जाएगा।"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "macOS にはこれを読むための正式な手段が無いため、AgentNotch は非公開の手段を使っています。macOS のアップデートで動かなくなる可能性があり、その場合この表示は単に出なくなります。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "macOS에는 이를 읽는 공식적인 방법이 없어 AgentNotch는 비공개 방식을 사용합니다. macOS 업데이트 후 동작하지 않을 수 있으며, 그 경우 표시가 그냥 사라집니다."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "macOS non offre un modo supportato per leggerlo, quindi AgentNotch ne usa uno non documentato. Potrebbe smettere di funzionare dopo un aggiornamento di macOS: in tal caso l'indicatore semplicemente scompare."
+          }
+        },
+        "id": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "macOS tidak menyediakan cara resmi untuk membacanya, jadi AgentNotch memakai cara tak terdokumentasi. Bisa berhenti bekerja setelah pembaruan macOS; indikatornya akan hilang begitu saja."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "macOS không có cách chính thức để đọc thông tin này nên AgentNotch dùng cách không được ghi nhận. Nó có thể ngừng hoạt động sau khi cập nhật macOS, khi đó chỉ báo sẽ biến mất."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "macOS ไม่มีวิธีที่รองรับให้อ่านค่านี้ AgentNotch จึงใช้วิธีที่ไม่ได้เปิดเผย อาจหยุดทำงานหลังอัปเดต macOS ซึ่งตัวบ่งชี้จะหายไปเฉย ๆ"
+          }
+        },
+        "fil": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Walang suportadong paraan ang macOS para basahin ito, kaya gumagamit ang AgentNotch ng hindi opisyal. Maaari itong tumigil pagkatapos ng update ng macOS — mawawala na lang ang indicator."
+          }
+        }
+      }
+    },
+    "settings.airPodsStatus": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Show AirPods battery"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "显示 AirPods 电量"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Mostrar la batería de los AirPods"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Afficher la batterie des AirPods"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "AirPods-Batterie anzeigen"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Показывать заряд AirPods"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "إظهار بطارية AirPods"
+          }
+        },
+        "pt": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Mostrar a bateria dos AirPods"
+          }
+        },
+        "hi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "AirPods बैटरी दिखाएँ"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "AirPods のバッテリーを表示"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "AirPods 배터리 표시"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Mostra la batteria degli AirPods"
+          }
+        },
+        "id": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Tampilkan baterai AirPods"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Hiện pin AirPods"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "แสดงแบตเตอรี่ AirPods"
+          }
+        },
+        "fil": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ipakita ang baterya ng AirPods"
+          }
+        }
+      }
+    },
+    "settings.airPodsStatusHelp": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Adds the connected headphones' battery level next to the Mac's own, in the panel's top bar."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "在面板顶栏中，把已连接耳机的电量显示在 Mac 电量旁边。"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Añade el nivel de batería de los auriculares conectados junto al del Mac, en la barra superior del panel."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ajoute le niveau de batterie du casque connecté à côté de celui du Mac, dans la barre supérieure du panneau."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Zeigt den Batteriestand der verbundenen Kopfhörer neben dem des Macs in der oberen Leiste des Panels."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Добавляет заряд подключённых наушников рядом с зарядом Mac в верхней панели."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "يضيف مستوى بطارية السماعات المتصلة بجانب بطارية الـ Mac في الشريط العلوي للوحة."
+          }
+        },
+        "pt": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Adiciona o nível de bateria dos fones conectados ao lado do nível do Mac, na barra superior do painel."
+          }
+        },
+        "hi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "पैनल की ऊपरी पट्टी में, जुड़े हेडफ़ोन की बैटरी Mac की बैटरी के बगल में दिखाता है।"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "パネル上部のバーに、接続中のヘッドフォンのバッテリー残量を Mac の残量の隣に表示します。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "패널 상단 막대에 연결된 헤드폰의 배터리 잔량을 Mac 잔량 옆에 표시합니다."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Aggiunge il livello di batteria delle cuffie collegate accanto a quello del Mac, nella barra superiore del pannello."
+          }
+        },
+        "id": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Menambahkan level baterai headphone yang terhubung di samping milik Mac, pada bilah atas panel."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Thêm mức pin của tai nghe đang kết nối cạnh mức pin của Mac, ở thanh trên của bảng."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "เพิ่มระดับแบตเตอรี่ของหูฟังที่เชื่อมต่อไว้ข้างของ Mac ในแถบด้านบนของแผง"
+          }
+        },
+        "fil": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Idinaragdag ang antas ng baterya ng nakakonektang headphone katabi ng sa Mac, sa itaas na bar ng panel."
+          }
+        }
+      }
+    },
     "settings.animationSpeed": {
       "localizations": {
         "en": {
@@ -19897,6 +20297,106 @@
           "stringUnit": {
             "state": "translated",
             "value": "I-reset sa default na layout"
+          }
+        }
+      }
+    },
+    "settings.section.airPods": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "AirPods"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "AirPods"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "AirPods"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "AirPods"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "AirPods"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "AirPods"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "AirPods"
+          }
+        },
+        "pt": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "AirPods"
+          }
+        },
+        "hi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "AirPods"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "AirPods"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "AirPods"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "AirPods"
+          }
+        },
+        "id": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "AirPods"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "AirPods"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "AirPods"
+          }
+        },
+        "fil": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "AirPods"
           }
         }
       }

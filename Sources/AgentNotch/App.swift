@@ -61,6 +61,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         if AppSettings.shared.visualizerEnabled {
             Task { await AudioVisualizer.shared.start() }
         }
+        // Same shape, and the same reason to gate it: polling touches
+        // IOBluetooth, which needs Bluetooth permission.
+        if AppSettings.shared.airPodsStatusEnabled {
+            AirPodsBatteryMonitor.shared.setEnabled(true)
+        }
 
         let watcher = ClaudeWatcher(store: store)
         watcher.start()

@@ -185,6 +185,21 @@ private struct GeneralSettingsTab: View {
                 }
             }
 
+            Section(String(localized: "settings.section.airPods", defaultValue: "AirPods")) {
+                Toggle(String(localized: "settings.airPodsStatus", defaultValue: "Show AirPods battery"), isOn: Binding(
+                    get: { settings.airPodsStatusEnabled },
+                    set: { newValue in
+                        settings.airPodsStatusEnabled = newValue
+                        AirPodsBatteryMonitor.shared.setEnabled(newValue)
+                    }
+                ))
+                .help(String(localized: "settings.airPodsStatusHelp", defaultValue: "Adds the connected headphones' battery level next to the Mac's own, in the panel's top bar."))
+                Text(String(localized: "settings.airPodsPrivateAPINote", defaultValue: "macOS exposes no supported way to read this, so AgentNotch uses an undocumented one. It may stop reporting after a macOS update, in which case the indicator simply disappears."))
+                    .font(.caption)
+                    .foregroundColor(.secondary)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+
             Section(String(localized: "settings.section.appearance", defaultValue: "Appearance")) {
                 ScaleRow(
                     title: String(localized: "settings.panelSize", defaultValue: "Panel size"),

@@ -69,6 +69,13 @@ final class AppSettings: ObservableObject {
         }
     }
 
+    /// Whether the nook bar shows connected AirPods' battery level. Off by
+    /// default: it reads private IOBluetooth API and needs Bluetooth
+    /// permission (see `AirPodsBatteryMonitor`). Read by the nook bar's
+    /// indicator and the Settings toggle.
+    @Published var airPodsStatusEnabled: Bool {
+        didSet { UserDefaults.standard.set(airPodsStatusEnabled, forKey: Keys.airPodsStatusEnabled) }
+    }
     /// Whether the compact waveform is driven by real system audio instead
     /// of its synthetic animation. Off by default: turning it on starts a
     /// ScreenCaptureKit stream, which needs Screen Recording permission.
@@ -101,6 +108,7 @@ final class AppSettings: ObservableObject {
         static let tabLayouts = "agentnotch.tabLayouts"
         static let registeredShortcuts = "agentnotch.registeredShortcuts"
         static let visualizerEnabled = "agentnotch.visualizerEnabled"
+        static let airPodsStatusEnabled = "agentnotch.airPodsStatusEnabled"
     }
 
     private init() {
@@ -116,6 +124,7 @@ final class AppSettings: ObservableObject {
         cornerRadiusScale = defaults.object(forKey: Keys.cornerRadiusScale) as? Double ?? 1.0
         animationSpeedScale = defaults.object(forKey: Keys.animationSpeedScale) as? Double ?? 1.0
         visualizerEnabled = defaults.object(forKey: Keys.visualizerEnabled) as? Bool ?? false
+        airPodsStatusEnabled = defaults.object(forKey: Keys.airPodsStatusEnabled) as? Bool ?? false
         if let data = defaults.data(forKey: Keys.tabLayouts),
            let decoded = try? JSONDecoder().decode([String: TabLayoutConfiguration].self, from: data) {
             tabLayouts = decoded

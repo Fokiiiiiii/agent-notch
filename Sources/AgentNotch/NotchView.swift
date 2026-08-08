@@ -526,6 +526,7 @@ struct NotchView: View {
             .buttonStyle(.plain)
             .frame(maxWidth: .infinity, minHeight: 24)
             .help(String(localized: "notch.clickBarToClose", defaultValue: "Click the notch bar to close"))
+            AirPodsBatteryIndicator()
             CompactBatteryIndicator(monitor: systemMonitor)
             // Opens our own window rather than the SwiftUI `Settings` scene
             // — see `SettingsWindowController` for why that scene never
@@ -3111,6 +3112,34 @@ func centeredWeekStrip(around referenceDate: Date, count: Int, calendar: Calenda
         let offset = index - before
         guard let date = calendar.date(byAdding: .day, value: offset, to: referenceDate) else { return nil }
         return WeekStripDay(date: date, offset: offset)
+    }
+}
+
+/// Connected AirPods' battery, next to the Mac's own. Renders nothing at
+/// all when the feature is off or nothing is connected — an empty slot
+/// beside the battery would be worse than no slot, and this way the bar's
+/// layout is unchanged for anyone not using it.
+private struct AirPodsBatteryIndicator: View {
+    @ObservedObject private var monitor = AirPodsBatteryMonitor.shared
+    @ObservedObject private var settings = AppSettings.shared
+
+    var body: some View {
+        if settings.airPodsStatusEnabled,
+           let battery = monitor.battery,
+           let label = AirPodsBatteryMonitor.summaryLabel(for: battery) {
+            HStack(spacing: 3) {
+                Image(systemName: "airpods.gen3")
+                    .font(.system(size: 11))
+                Text(label)
+                    .font(.system(size: 9, weight: .medium))
+            }
+            .foregroundColor(.white.opacity(0.62))
+            .frame(height: 28)
+            .accessibilityElement(children: .combine)
+            .accessibilityLabel(battery.name)
+            .accessibilityValue(label)
+            .help(battery.name)
+        }
     }
 }
 
