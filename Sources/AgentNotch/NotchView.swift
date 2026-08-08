@@ -82,7 +82,7 @@ struct NotchView: View {
     /// read of the same signal without adding a second `@Published` property.
     private var hasRealNotch: Bool { uiState.hoverTopClearance > 0 }
 
-    private var shellShape: UnevenRoundedRectangle {
+    private var shellShape: NotchShellShape {
         let radius: CGFloat
         if uiState.mode == .open {
             radius = DesignTokens.scaledOpenRadius()
@@ -95,17 +95,14 @@ struct NotchView: View {
         } else {
             radius = DesignTokens.scaledClosedRadius()
         }
-        // Top corners stay square in every mode: the shell hangs off the
-        // menu bar / notch cutout, so a rounded top edge reads as an
-        // inward-curving seam rather than as the panel continuing upward.
-        // (Briefly rounded for `.open` on notch-less Macs — reverted after
-        // it produced exactly that inward-seam look on a real screen.)
-        return UnevenRoundedRectangle(
-            topLeadingRadius: 0,
-            bottomLeadingRadius: radius,
-            bottomTrailingRadius: radius,
-            topTrailingRadius: 0,
-            style: .continuous
+        // Only `.open` gets the concave flare where the panel meets the menu
+        // bar. `.closed`/`.hover`/`.notice` are the compact pill fused to the
+        // bar itself — square top corners already read correctly there, and
+        // an ordinary *convex* top radius was tried and rejected for looking
+        // like an inward seam.
+        return NotchShellShape(
+            bottomRadius: radius,
+            topFlareRadius: uiState.mode == .open ? DesignTokens.scaledNotchFlareRadius() : 0
         )
     }
 
@@ -2788,6 +2785,80 @@ private struct WeekDayColumn: View {
 struct WeekStripDay: Equatable {
     let date: Date
     let offset: Int
+}
+
+/// The notch panel's outline: square-cornered at the top where it meets the
+/// menu bar, rounded at the bottom, and — when `topFlareRadius > 0` —
+/// joined to the bar by a *concave* curve on each top corner.
+///
+/// That flare is the piece `UnevenRoundedRectangle` can't express. An
+/// ordinary corner radius bends toward the panel's interior, which reads as
+/// the panel being a separate slab tucked under the bar. Curving the other
+/// way makes the top edge the widest point, with the body tucking in
+/// beneath it, so the panel looks like it grows out of the bar.
+///
+/// `InsettableShape` because `shapeBackground` strokes it with
+/// `strokeBorder`, which insets by half the line width to keep the stroke
+/// inside the fill.
+struct NotchShellShape: Shape, InsettableShape {
+    var bottomRadius: CGFloat
+    /// `0` draws plain square top corners (every mode except `.open`).
+    var topFlareRadius: CGFloat
+    var insetAmount: CGFloat = 0
+
+    func path(in rect: CGRect) -> Path {
+        let r = rect.insetBy(dx: insetAmount, dy: insetAmount)
+        // Never let the curves overlap on a panel too small to hold them.
+        let bottom = min(bottomRadius, r.width / 2, r.height / 2)
+        let flare = min(topFlareRadius, r.width / 2, r.height / 2)
+
+        var path = Path()
+        // Top-left, at the panel's widest point.
+        path.move(to: CGPoint(x: r.minX, y: r.minY))
+        if flare > 0 {
+            // Curve away from the interior: down and inward, leaving the
+            // corner scooped out rather than filled in.
+            path.addQuadCurve(
+                to: CGPoint(x: r.minX + flare, y: r.minY + flare),
+                control: CGPoint(x: r.minX + flare, y: r.minY)
+            )
+            path.addLine(to: CGPoint(x: r.minX + flare, y: r.maxY - bottom))
+            path.addQuadCurve(
+                to: CGPoint(x: r.minX + flare + bottom, y: r.maxY),
+                control: CGPoint(x: r.minX + flare, y: r.maxY)
+            )
+            path.addLine(to: CGPoint(x: r.maxX - flare - bottom, y: r.maxY))
+            path.addQuadCurve(
+                to: CGPoint(x: r.maxX - flare, y: r.maxY - bottom),
+                control: CGPoint(x: r.maxX - flare, y: r.maxY)
+            )
+            path.addLine(to: CGPoint(x: r.maxX - flare, y: r.minY + flare))
+            path.addQuadCurve(
+                to: CGPoint(x: r.maxX, y: r.minY),
+                control: CGPoint(x: r.maxX - flare, y: r.minY)
+            )
+        } else {
+            path.addLine(to: CGPoint(x: r.minX, y: r.maxY - bottom))
+            path.addQuadCurve(
+                to: CGPoint(x: r.minX + bottom, y: r.maxY),
+                control: CGPoint(x: r.minX, y: r.maxY)
+            )
+            path.addLine(to: CGPoint(x: r.maxX - bottom, y: r.maxY))
+            path.addQuadCurve(
+                to: CGPoint(x: r.maxX, y: r.maxY - bottom),
+                control: CGPoint(x: r.maxX, y: r.maxY)
+            )
+            path.addLine(to: CGPoint(x: r.maxX, y: r.minY))
+        }
+        path.closeSubpath()
+        return path
+    }
+
+    func inset(by amount: CGFloat) -> NotchShellShape {
+        var copy = self
+        copy.insetAmount += amount
+        return copy
+    }
 }
 
 /// An SF Symbol describing what kind of thing is playing, chosen from the

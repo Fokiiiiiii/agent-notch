@@ -48,6 +48,21 @@ enum DesignTokens {
     /// visibly diverging from it. Approximate — tune after visual QA.
     static let notchHuggingRadius: CGFloat = 10
 
+    /// Radius of the concave corners where `.open`'s top edge meets the menu
+    /// bar. Unlike an ordinary (convex) rounded corner, this curves *away*
+    /// from the panel, so the widest point is the top edge itself and the
+    /// body tucks in beneath it — reading as the panel growing out of the
+    /// bar rather than being pasted below it. `.closed`/`.hover` keep square
+    /// top corners: they're the compact pill fused to the bar, which has no
+    /// visible seam to soften. Approximate — tune after visual QA.
+    static let notchFlareRadius: CGFloat = 11
+
+    /// `notchFlareRadius` scaled by `AppSettings.cornerRadiusScale`.
+    @MainActor
+    static func scaledNotchFlareRadius(_ settings: AppSettings? = nil) -> CGFloat {
+        notchFlareRadius * (settings ?? .shared).cornerRadiusScale
+    }
+
     /// Minimum width `compactAgentContent` (see `NotchView.swift`) needs to
     /// avoid clipping: 22pt icon + spacing + status text + horizontal padding
     /// (12pt each side), estimated conservatively.
