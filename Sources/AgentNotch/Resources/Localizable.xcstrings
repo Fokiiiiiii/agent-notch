@@ -16301,6 +16301,206 @@
         }
       }
     },
+    "settings.autoOpenOnAttention": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Open the notch for approvals and questions"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "收到批准或提问时展开刘海"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Abrir la muesca para aprobaciones y preguntas"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ouvrir l'encoche pour les approbations et les questions"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Notch bei Freigaben und Fragen öffnen"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Открывать панель для подтверждений и вопросов"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "افتح النوتش للموافقات والأسئلة"
+          }
+        },
+        "pt": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Abrir o notch para aprovações e perguntas"
+          }
+        },
+        "hi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "अनुमोदन और प्रश्नों के लिए नॉच खोलें"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "承認や質問が来たらノッチを開く"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "승인과 질문이 오면 노치 열기"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Apri il notch per approvazioni e domande"
+          }
+        },
+        "id": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Buka notch untuk persetujuan dan pertanyaan"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Mở notch khi có phê duyệt và câu hỏi"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "เปิดโน้ตช์เมื่อมีการอนุมัติและคำถาม"
+          }
+        },
+        "fil": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Buksan ang notch para sa mga pag-apruba at tanong"
+          }
+        }
+      }
+    },
+    "settings.autoOpenOnAttentionHelp": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "When off, an incoming request only shows the compact badge and waits for you to click it — nothing is auto-approved either way."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "关闭后，收到请求时只显示小徽标并等待你点击——无论如何都不会自动批准。"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Si se desactiva, una solicitud entrante solo muestra la insignia compacta y espera a que hagas clic; en ningún caso se aprueba automáticamente."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Désactivé, une demande entrante n'affiche que le badge compact et attend votre clic — rien n'est approuvé automatiquement dans les deux cas."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Deaktiviert zeigt eine eingehende Anfrage nur das kompakte Abzeichen und wartet auf deinen Klick – automatisch freigegeben wird ohnehin nichts."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Если выключено, входящий запрос только покажет компактный значок и будет ждать нажатия — автоматически ничего не подтверждается в любом случае."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "عند الإيقاف، يعرض الطلب الوارد الشارة المصغّرة فقط وينتظر نقرتك — ولا تتم الموافقة تلقائيًا في الحالتين."
+          }
+        },
+        "pt": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Quando desativado, uma solicitação só mostra o selo compacto e aguarda seu clique — nada é aprovado automaticamente de qualquer forma."
+          }
+        },
+        "hi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "बंद होने पर, आने वाला अनुरोध सिर्फ़ कॉम्पैक्ट बैज दिखाता है और आपके क्लिक की प्रतीक्षा करता है — किसी भी हाल में कुछ भी स्वतः स्वीकृत नहीं होता।"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "オフのときは、リクエストが来てもコンパクト表示のバッジを出すだけで、クリックを待ちます。どちらの設定でも自動承認は行いません。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "끄면 들어온 요청이 축소된 배지만 표시하고 클릭을 기다립니다 — 어느 쪽이든 자동 승인은 하지 않습니다."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Se disattivato, una richiesta in arrivo mostra solo il badge compatto e attende il tuo clic: in nessun caso viene approvata automaticamente."
+          }
+        },
+        "id": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Jika mati, permintaan yang masuk hanya menampilkan lencana ringkas dan menunggu klik Anda — tidak ada yang disetujui otomatis."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Khi tắt, yêu cầu đến chỉ hiện huy hiệu thu gọn và chờ bạn nhấp — dù thế nào cũng không tự động phê duyệt."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "เมื่อปิด คำขอที่เข้ามาจะแสดงเพียงป้ายแบบย่อและรอให้คุณคลิก — ไม่มีการอนุมัติอัตโนมัติในทั้งสองกรณี"
+          }
+        },
+        "fil": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Kapag naka-off, ang papasok na request ay nagpapakita lang ng compact badge at naghihintay ng click mo — walang awtomatikong pag-apruba sa alinmang kaso."
+          }
+        }
+      }
+    },
     "settings.cornerRoundness": {
       "localizations": {
         "en": {
@@ -16797,6 +16997,306 @@
           "stringUnit": {
             "state": "translated",
             "value": "Nagpapakurog ng trackpad para sa mga pag-apruba, tanong, at iba pang notch event (Force Touch trackpad lang)."
+          }
+        }
+      }
+    },
+    "settings.integrationHelp": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Hooks let Claude and Codex send approvals, questions, and session status to the notch. Run this in a terminal to install or repair them:"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "钩子让 Claude 和 Codex 把批准、提问和会话状态发送到刘海。在终端运行以下命令来安装或修复："
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Los hooks permiten que Claude y Codex envíen aprobaciones, preguntas y estado de sesión a la muesca. Ejecuta esto en una terminal para instalarlos o repararlos:"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Les hooks permettent à Claude et Codex d'envoyer approbations, questions et état de session à l'encoche. Exécutez ceci dans un terminal pour les installer ou les réparer :"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Hooks lassen Claude und Codex Freigaben, Fragen und Sitzungsstatus an die Notch senden. Führe dies im Terminal aus, um sie zu installieren oder zu reparieren:"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Хуки позволяют Claude и Codex отправлять подтверждения, вопросы и статус сессии в панель. Выполните это в терминале, чтобы установить или починить их:"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "تتيح الخطافات لـ Claude وCodex إرسال الموافقات والأسئلة وحالة الجلسة إلى النوتش. نفّذ هذا في الطرفية للتثبيت أو الإصلاح:"
+          }
+        },
+        "pt": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Os hooks permitem que Claude e Codex enviem aprovações, perguntas e status de sessão ao notch. Execute isto em um terminal para instalar ou reparar:"
+          }
+        },
+        "hi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "हुक Claude और Codex को अनुमोदन, प्रश्न और सत्र स्थिति नॉच पर भेजने देते हैं। इंस्टॉल या ठीक करने के लिए टर्मिनल में यह चलाएँ:"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "hook を入れると、Claude と Codex から承認・質問・セッション状態がノッチに届きます。インストールまたは修復するには、ターミナルで次を実行してください:"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "훅을 설치하면 Claude와 Codex가 승인, 질문, 세션 상태를 노치로 보냅니다. 설치하거나 복구하려면 터미널에서 다음을 실행하세요:"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Gli hook consentono a Claude e Codex di inviare approvazioni, domande e stato della sessione al notch. Esegui questo in un terminale per installarli o ripararli:"
+          }
+        },
+        "id": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Hook memungkinkan Claude dan Codex mengirim persetujuan, pertanyaan, dan status sesi ke notch. Jalankan ini di terminal untuk memasang atau memperbaikinya:"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Hook cho phép Claude và Codex gửi phê duyệt, câu hỏi và trạng thái phiên tới notch. Chạy lệnh này trong terminal để cài hoặc sửa:"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ฮุกทำให้ Claude และ Codex ส่งการอนุมัติ คำถาม และสถานะเซสชันไปยังโน้ตช์ รันคำสั่งนี้ในเทอร์มินัลเพื่อติดตั้งหรือซ่อมแซม:"
+          }
+        },
+        "fil": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Sa pamamagitan ng hooks, naipapadala ng Claude at Codex ang mga pag-apruba, tanong, at status ng session sa notch. Patakbuhin ito sa terminal para i-install o ayusin:"
+          }
+        }
+      }
+    },
+    "settings.integrationInstalled": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Integration helper installed"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "已安装集成助手"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Asistente de integración instalado"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Assistant d'intégration installé"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Integrations-Helfer installiert"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Помощник интеграции установлен"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "تم تثبيت أداة التكامل"
+          }
+        },
+        "pt": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Auxiliar de integração instalado"
+          }
+        },
+        "hi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "इंटीग्रेशन हेल्पर इंस्टॉल है"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "連携ヘルパーはインストール済み"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "연동 도우미 설치됨"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Assistente di integrazione installato"
+          }
+        },
+        "id": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Pembantu integrasi terpasang"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Đã cài trình hỗ trợ tích hợp"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ติดตั้งตัวช่วยการเชื่อมต่อแล้ว"
+          }
+        },
+        "fil": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Naka-install ang integration helper"
+          }
+        }
+      }
+    },
+    "settings.integrationMissing": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Integration helper not found"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "未找到集成助手"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "No se encontró el asistente de integración"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Assistant d'intégration introuvable"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Integrations-Helfer nicht gefunden"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Помощник интеграции не найден"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "لم يتم العثور على أداة التكامل"
+          }
+        },
+        "pt": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Auxiliar de integração não encontrado"
+          }
+        },
+        "hi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "इंटीग्रेशन हेल्पर नहीं मिला"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "連携ヘルパーが見つかりません"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "연동 도우미를 찾을 수 없음"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Assistente di integrazione non trovato"
+          }
+        },
+        "id": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Pembantu integrasi tidak ditemukan"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Không tìm thấy trình hỗ trợ tích hợp"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ไม่พบตัวช่วยการเชื่อมต่อ"
+          }
+        },
+        "fil": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Hindi natagpuan ang integration helper"
           }
         }
       }
@@ -17301,102 +17801,102 @@
         }
       }
     },
-    "settings.notificationsDenied": {
+    "settings.notificationsPurpose": {
       "localizations": {
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Notifications are off. AgentNotch can't alert you when the notch itself isn't visible (e.g. while in full screen)."
+            "value": "Lets AgentNotch alert you when the notch itself isn't visible (for example, in full screen)."
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "通知已关闭。当灵动岛本身不可见时（例如全屏时），AgentNotch 将无法提醒你。"
+            "value": "在刘海不可见时（例如全屏状态）让 AgentNotch 提醒你。"
           }
         },
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "Las notificaciones están desactivadas. AgentNotch no puede avisarte cuando la muesca no es visible (por ejemplo, en pantalla completa)."
+            "value": "Permite que AgentNotch te avise cuando la muesca no está visible (por ejemplo, en pantalla completa)."
           }
         },
         "fr": {
           "stringUnit": {
             "state": "translated",
-            "value": "Les notifications sont désactivées. AgentNotch ne peut pas vous alerter lorsque l'encoche elle-même n'est pas visible (par exemple en plein écran)."
+            "value": "Permet à AgentNotch de vous avertir quand l'encoche n'est pas visible (en plein écran, par exemple)."
           }
         },
         "de": {
           "stringUnit": {
             "state": "translated",
-            "value": "Benachrichtigungen sind deaktiviert. AgentNotch kann dich nicht benachrichtigen, wenn der Notch selbst nicht sichtbar ist (z. B. im Vollbildmodus)."
+            "value": "Ermöglicht AgentNotch, dich zu benachrichtigen, wenn die Notch nicht sichtbar ist (etwa im Vollbild)."
           }
         },
         "ru": {
           "stringUnit": {
             "state": "translated",
-            "value": "Уведомления отключены. AgentNotch не сможет предупредить вас, если сама панель не видна (например, в полноэкранном режиме)."
+            "value": "Позволяет AgentNotch уведомлять вас, когда панель не видна (например, в полноэкранном режиме)."
           }
         },
         "ar": {
           "stringUnit": {
             "state": "translated",
-            "value": "الإشعارات متوقفة. لا يمكن لـ AgentNotch تنبيهك عندما لا يكون الشق نفسه مرئيًا (مثل وضع ملء الشاشة)."
+            "value": "يتيح لـ AgentNotch تنبيهك عندما لا يكون النوتش مرئيًا (في وضع ملء الشاشة مثلًا)."
           }
         },
         "pt": {
           "stringUnit": {
             "state": "translated",
-            "value": "As notificações estão desativadas. O AgentNotch não pode avisá-lo quando o notch não estiver visível (por exemplo, em tela cheia)."
+            "value": "Permite que o AgentNotch avise você quando o notch não estiver visível (por exemplo, em tela cheia)."
           }
         },
         "hi": {
           "stringUnit": {
             "state": "translated",
-            "value": "सूचनाएं बंद हैं। जब नॉच स्वयं दिखाई नहीं देता (जैसे फ़ुल स्क्रीन में), तो AgentNotch आपको सचेत नहीं कर सकता।"
+            "value": "जब नॉच दिखाई न दे (जैसे फ़ुल स्क्रीन में) तब AgentNotch को सूचित करने देता है।"
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "通知がオフになっています。ノッチ自体が表示されていない場合（フルスクリーン時など）、AgentNotchは通知できません。"
+            "value": "ノッチが見えていないとき（フルスクリーン中など）に AgentNotch から通知できるようにします。"
           }
         },
         "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "알림이 꺼져 있습니다. 노치 자체가 보이지 않을 때(예: 전체 화면 사용 중) AgentNotch가 알려드릴 수 없습니다."
+            "value": "노치가 보이지 않을 때(예: 전체 화면) AgentNotch가 알릴 수 있게 합니다."
           }
         },
         "it": {
           "stringUnit": {
             "state": "translated",
-            "value": "Le notifiche sono disattivate. AgentNotch non può avvisarti quando il notch stesso non è visibile (ad es. a schermo intero)."
+            "value": "Consente ad AgentNotch di avvisarti quando il notch non è visibile (ad esempio a schermo intero)."
           }
         },
         "id": {
           "stringUnit": {
             "state": "translated",
-            "value": "Notifikasi mati. AgentNotch tidak dapat memberi tahu Anda saat notch itu sendiri tidak terlihat (misalnya saat layar penuh)."
+            "value": "Memungkinkan AgentNotch memberi tahu Anda saat notch tidak terlihat (misalnya saat layar penuh)."
           }
         },
         "vi": {
           "stringUnit": {
             "state": "translated",
-            "value": "Thông báo đang tắt. AgentNotch không thể cảnh báo bạn khi notch không hiển thị (ví dụ: khi ở chế độ toàn màn hình)."
+            "value": "Cho phép AgentNotch thông báo khi notch không hiển thị (ví dụ khi toàn màn hình)."
           }
         },
         "th": {
           "stringUnit": {
             "state": "translated",
-            "value": "การแจ้งเตือนปิดอยู่ AgentNotch ไม่สามารถแจ้งเตือนคุณได้เมื่อรอยบากเองไม่ปรากฏให้เห็น (เช่น ขณะอยู่ในโหมดเต็มหน้าจอ)"
+            "value": "ให้ AgentNotch แจ้งเตือนคุณเมื่อมองไม่เห็นโน้ตช์ (เช่น ตอนเต็มหน้าจอ)"
           }
         },
         "fil": {
           "stringUnit": {
             "state": "translated",
-            "value": "Naka-off ang mga notification. Hindi maaabisuhan ka ng AgentNotch kapag hindi nakikita ang notch mismo (hal. habang naka-full screen)."
+            "value": "Hinahayaan ang AgentNotch na mag-alerto kapag hindi nakikita ang notch (halimbawa, sa full screen)."
           }
         }
       }
@@ -17701,6 +18201,306 @@
         }
       }
     },
+    "settings.permissionGranted": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Allowed"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "已允许"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Permitido"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Autorisé"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Erlaubt"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Разрешено"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "مسموح"
+          }
+        },
+        "pt": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Permitido"
+          }
+        },
+        "hi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "अनुमति है"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "許可済み"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "허용됨"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Consentito"
+          }
+        },
+        "id": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Diizinkan"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Đã cho phép"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "อนุญาตแล้ว"
+          }
+        },
+        "fil": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Pinayagan"
+          }
+        }
+      }
+    },
+    "settings.permissionMissing": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Not allowed"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "未允许"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "No permitido"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Non autorisé"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Nicht erlaubt"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Не разрешено"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "غير مسموح"
+          }
+        },
+        "pt": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Não permitido"
+          }
+        },
+        "hi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "अनुमति नहीं"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "未許可"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "허용 안 됨"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Non consentito"
+          }
+        },
+        "id": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Tidak diizinkan"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Chưa cho phép"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ยังไม่อนุญาต"
+          }
+        },
+        "fil": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Hindi pinayagan"
+          }
+        }
+      }
+    },
+    "settings.permissionPending": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Not requested yet"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "尚未请求"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Aún no solicitado"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Pas encore demandé"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Noch nicht angefragt"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ещё не запрошено"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "لم يُطلب بعد"
+          }
+        },
+        "pt": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ainda não solicitado"
+          }
+        },
+        "hi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "अभी अनुरोध नहीं किया"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "未リクエスト"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "아직 요청 안 함"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Non ancora richiesto"
+          }
+        },
+        "id": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Belum diminta"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Chưa yêu cầu"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ยังไม่ได้ขอ"
+          }
+        },
+        "fil": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Hindi pa hinihiling"
+          }
+        }
+      }
+    },
     "settings.reset": {
       "localizations": {
         "en": {
@@ -17901,202 +18701,202 @@
         }
       }
     },
-    "settings.section.general": {
+    "settings.section.builtInGestures": {
       "localizations": {
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "General"
+            "value": "Built in"
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "通用"
+            "value": "内置"
           }
         },
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "General"
+            "value": "Integrados"
           }
         },
         "fr": {
           "stringUnit": {
             "state": "translated",
-            "value": "Général"
+            "value": "Intégrés"
           }
         },
         "de": {
           "stringUnit": {
             "state": "translated",
-            "value": "Allgemein"
+            "value": "Integriert"
           }
         },
         "ru": {
           "stringUnit": {
             "state": "translated",
-            "value": "Общие"
+            "value": "Встроенные"
           }
         },
         "ar": {
           "stringUnit": {
             "state": "translated",
-            "value": "عام"
+            "value": "مدمجة"
           }
         },
         "pt": {
           "stringUnit": {
             "state": "translated",
-            "value": "Geral"
+            "value": "Integrados"
           }
         },
         "hi": {
           "stringUnit": {
             "state": "translated",
-            "value": "सामान्य"
+            "value": "अंतर्निहित"
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "一般"
+            "value": "標準"
           }
         },
         "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "일반"
+            "value": "기본 제공"
           }
         },
         "it": {
           "stringUnit": {
             "state": "translated",
-            "value": "Generale"
+            "value": "Integrati"
           }
         },
         "id": {
           "stringUnit": {
             "state": "translated",
-            "value": "Umum"
+            "value": "Bawaan"
           }
         },
         "vi": {
           "stringUnit": {
             "state": "translated",
-            "value": "Chung"
+            "value": "Có sẵn"
           }
         },
         "th": {
           "stringUnit": {
             "state": "translated",
-            "value": "ทั่วไป"
+            "value": "มีมาให้"
           }
         },
         "fil": {
           "stringUnit": {
             "state": "translated",
-            "value": "Pangkalahatan"
+            "value": "Built-in"
           }
         }
       }
     },
-    "settings.section.gestures": {
+    "settings.section.feedback": {
       "localizations": {
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Gestures"
+            "value": "Feedback"
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "手势"
+            "value": "反馈"
           }
         },
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "Gestos"
+            "value": "Respuesta"
           }
         },
         "fr": {
           "stringUnit": {
             "state": "translated",
-            "value": "Gestes"
+            "value": "Retour"
           }
         },
         "de": {
           "stringUnit": {
             "state": "translated",
-            "value": "Gesten"
+            "value": "Rückmeldung"
           }
         },
         "ru": {
           "stringUnit": {
             "state": "translated",
-            "value": "Жесты"
+            "value": "Отклик"
           }
         },
         "ar": {
           "stringUnit": {
             "state": "translated",
-            "value": "الإيماءات"
+            "value": "الاستجابة"
           }
         },
         "pt": {
           "stringUnit": {
             "state": "translated",
-            "value": "Gestos"
+            "value": "Retorno"
           }
         },
         "hi": {
           "stringUnit": {
             "state": "translated",
-            "value": "जेस्चर"
+            "value": "फ़ीडबैक"
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "ジェスチャー"
+            "value": "フィードバック"
           }
         },
         "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "제스처"
+            "value": "피드백"
           }
         },
         "it": {
           "stringUnit": {
             "state": "translated",
-            "value": "Gesti"
+            "value": "Feedback"
           }
         },
         "id": {
           "stringUnit": {
             "state": "translated",
-            "value": "Gestur"
+            "value": "Umpan balik"
           }
         },
         "vi": {
           "stringUnit": {
             "state": "translated",
-            "value": "Cử chỉ"
+            "value": "Phản hồi"
           }
         },
         "th": {
           "stringUnit": {
             "state": "translated",
-            "value": "ท่าทาง"
+            "value": "การตอบสนอง"
           }
         },
         "fil": {
           "stringUnit": {
             "state": "translated",
-            "value": "Mga galaw"
+            "value": "Feedback"
           }
         }
       }
@@ -18197,6 +18997,206 @@
           "stringUnit": {
             "state": "translated",
             "value": "Tulong"
+          }
+        }
+      }
+    },
+    "settings.section.integration": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "CLI integration"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "CLI 集成"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Integración con la CLI"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Intégration CLI"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "CLI-Integration"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Интеграция с CLI"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "تكامل سطر الأوامر"
+          }
+        },
+        "pt": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Integração com a CLI"
+          }
+        },
+        "hi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "CLI एकीकरण"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "CLI 連携"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "CLI 연동"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Integrazione CLI"
+          }
+        },
+        "id": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Integrasi CLI"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Tích hợp CLI"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "การเชื่อมต่อ CLI"
+          }
+        },
+        "fil": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Integrasyon sa CLI"
+          }
+        }
+      }
+    },
+    "settings.section.media": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Media"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "媒体"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Multimedia"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Médias"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Medien"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Медиа"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "الوسائط"
+          }
+        },
+        "pt": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Mídia"
+          }
+        },
+        "hi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "मीडिया"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "メディア"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "미디어"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Media"
+          }
+        },
+        "id": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Media"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Phương tiện"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "สื่อ"
+          }
+        },
+        "fil": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Media"
           }
         }
       }
@@ -18397,6 +19397,106 @@
           "stringUnit": {
             "state": "translated",
             "value": "Mga Notification"
+          }
+        }
+      }
+    },
+    "settings.section.requests": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Requests"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "请求"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Solicitudes"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Demandes"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Anfragen"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Запросы"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "الطلبات"
+          }
+        },
+        "pt": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Solicitações"
+          }
+        },
+        "hi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "अनुरोध"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "リクエスト"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "요청"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Richieste"
+          }
+        },
+        "id": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Permintaan"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Yêu cầu"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "คำขอ"
+          }
+        },
+        "fil": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Mga request"
           }
         }
       }
@@ -18801,6 +19901,506 @@
         }
       }
     },
+    "settings.tab.about": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "About"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "关于"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Información"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "À propos"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Über"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "О программе"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "حول"
+          }
+        },
+        "pt": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Sobre"
+          }
+        },
+        "hi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "परिचय"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "情報"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "정보"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Informazioni"
+          }
+        },
+        "id": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Tentang"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Giới thiệu"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "เกี่ยวกับ"
+          }
+        },
+        "fil": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Tungkol"
+          }
+        }
+      }
+    },
+    "settings.tab.agents": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Agents"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "智能体"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Agentes"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Agents"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Agents"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Агенты"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "الوكلاء"
+          }
+        },
+        "pt": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Agentes"
+          }
+        },
+        "hi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "एजेंट"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "エージェント"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "에이전트"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Agenti"
+          }
+        },
+        "id": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Agen"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Tác nhân"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "เอเจนต์"
+          }
+        },
+        "fil": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Mga agent"
+          }
+        }
+      }
+    },
+    "settings.tab.general": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "General"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "通用"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "General"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Général"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Allgemein"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Основные"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "عام"
+          }
+        },
+        "pt": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Geral"
+          }
+        },
+        "hi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "सामान्य"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "一般"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "일반"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Generali"
+          }
+        },
+        "id": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Umum"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Chung"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ทั่วไป"
+          }
+        },
+        "fil": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Pangkalahatan"
+          }
+        }
+      }
+    },
+    "settings.tab.gestures": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Gestures"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "手势"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Gestos"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Gestes"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Gesten"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Жесты"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "الإيماءات"
+          }
+        },
+        "pt": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Gestos"
+          }
+        },
+        "hi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "जेस्चर"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ジェスチャー"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "제스처"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Gesti"
+          }
+        },
+        "id": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Gestur"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cử chỉ"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ท่าทาง"
+          }
+        },
+        "fil": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Mga galaw"
+          }
+        }
+      }
+    },
+    "settings.tab.permissions": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Permissions"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "权限"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Permisos"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Autorisations"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Berechtigungen"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Разрешения"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "الأذونات"
+          }
+        },
+        "pt": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Permissões"
+          }
+        },
+        "hi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "अनुमतियाँ"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "権限"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "권한"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Autorizzazioni"
+          }
+        },
+        "id": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Izin"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Quyền"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "การอนุญาต"
+          }
+        },
+        "fil": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Mga pahintulot"
+          }
+        }
+      }
+    },
     "settings.title": {
       "localizations": {
         "en": {
@@ -18997,6 +20597,106 @@
           "stringUnit": {
             "state": "translated",
             "value": "Bersyon %@"
+          }
+        }
+      }
+    },
+    "settings.windowTitle": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "AgentNotch Settings"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "AgentNotch 设置"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ajustes de AgentNotch"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Réglages AgentNotch"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "AgentNotch-Einstellungen"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Настройки AgentNotch"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "إعدادات AgentNotch"
+          }
+        },
+        "pt": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ajustes do AgentNotch"
+          }
+        },
+        "hi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "AgentNotch सेटिंग्स"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "AgentNotch 設定"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "AgentNotch 설정"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Impostazioni AgentNotch"
+          }
+        },
+        "id": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Pengaturan AgentNotch"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cài đặt AgentNotch"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "การตั้งค่า AgentNotch"
+          }
+        },
+        "fil": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Mga Setting ng AgentNotch"
           }
         }
       }

@@ -503,9 +503,11 @@ struct NotchView: View {
             .frame(maxWidth: .infinity, minHeight: 24)
             .help(String(localized: "notch.clickBarToClose", defaultValue: "Click the notch bar to close"))
             CompactBatteryIndicator(monitor: systemMonitor)
+            // Opens our own window rather than the SwiftUI `Settings` scene
+            // — see `SettingsWindowController` for why that scene never
+            // appeared in this `.accessory` app.
             Button {
-                NSApp.activate(ignoringOtherApps: true)
-                NSApp.sendAction(Selector(("showSettingsWindow:")), to: nil, from: nil)
+                SettingsWindowController.shared.show()
             } label: {
                 Image(systemName: "gearshape")
                     .font(.system(size: 13))

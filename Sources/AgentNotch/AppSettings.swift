@@ -31,6 +31,14 @@ final class AppSettings: ObservableObject {
     @Published var hasSeenOnboarding: Bool {
         didSet { UserDefaults.standard.set(hasSeenOnboarding, forKey: Keys.hasSeenOnboarding) }
     }
+    /// Whether an approval/question/plan request expands the panel on
+    /// arrival (the long-standing behavior) or only surfaces the compact
+    /// badge, leaving the user to click into it. Off is for people who
+    /// don't want the panel taking over the screen mid-task; the request
+    /// still waits either way. Read by `NotchWindowController.showAttention`.
+    @Published var autoOpenOnAttention: Bool {
+        didSet { UserDefaults.standard.set(autoOpenOnAttention, forKey: Keys.autoOpenOnAttention) }
+    }
     @Published var languageOverride: String? {
         didSet { UserDefaults.standard.set(languageOverride, forKey: Keys.languageOverride) }
     }
@@ -69,6 +77,7 @@ final class AppSettings: ObservableObject {
         static let mediaSwipeEnabled = "agentnotch.mediaSwipeEnabled"
         static let invertMediaSwipe = "agentnotch.invertMediaSwipe"
         static let hasSeenOnboarding = "agentnotch.hasSeenOnboarding"
+        static let autoOpenOnAttention = "agentnotch.autoOpenOnAttention"
         static let languageOverride = "agentnotch.languageOverride"
         static let uiScale = "agentnotch.uiScale"
         static let cornerRadiusScale = "agentnotch.cornerRadiusScale"
@@ -83,6 +92,7 @@ final class AppSettings: ObservableObject {
         mediaSwipeEnabled = defaults.object(forKey: Keys.mediaSwipeEnabled) as? Bool ?? true
         invertMediaSwipe = defaults.object(forKey: Keys.invertMediaSwipe) as? Bool ?? false
         hasSeenOnboarding = defaults.object(forKey: Keys.hasSeenOnboarding) as? Bool ?? false
+        autoOpenOnAttention = defaults.object(forKey: Keys.autoOpenOnAttention) as? Bool ?? true
         languageOverride = defaults.string(forKey: Keys.languageOverride)
         uiScale = defaults.object(forKey: Keys.uiScale) as? Double ?? 1.0
         cornerRadiusScale = defaults.object(forKey: Keys.cornerRadiusScale) as? Double ?? 1.0

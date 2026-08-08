@@ -1,23 +1,394 @@
+import AppKit
 import SwiftUI
 
-/// The app's settings window (SwiftUI `Settings` scene). Every control here
-/// is bound to an `AppSettings` property that's genuinely read somewhere
-/// else in the app — see each property's own doc comment in
+/// Owns the settings window.
+///
+/// Not the SwiftUI `Settings` scene: in this `.accessory` app that scene
+/// never actually opened. `NSApp.sendAction(Selector(("showSettingsWindow:")))`
+/// returned `true` — claiming something had handled it — while no window
+/// appeared, and `SettingsLink` (its supported replacement) behaved the
+/// same. A plain `NSWindow` is created on demand instead, the same approach
+/// the welcome screen's window originally used and the only one observed to
+/// work here.
+@MainActor
+final class SettingsWindowController {
+    static let shared = SettingsWindowController()
+
+    private var window: NSWindow?
+
+    private init() {}
+
+    func show() {
+        if let window {
+            NSApp.activate(ignoringOtherApps: true)
+            window.makeKeyAndOrderFront(nil)
+            return
+        }
+
+        let hosting = NSHostingController(rootView: SettingsView(settings: AppSettings.shared))
+        let window = NSWindow(contentViewController: hosting)
+        window.title = String(localized: "settings.windowTitle", defaultValue: "AgentNotch Settings")
+        window.styleMask = [.titled, .closable]
+        // Kept alive across closes so reopening restores the previous tab
+        // rather than rebuilding from scratch.
+        window.isReleasedWhenClosed = false
+        window.center()
+        self.window = window
+
+        NSApp.activate(ignoringOtherApps: true)
+        window.makeKeyAndOrderFront(nil)
+    }
+}
+
+/// The app's settings window contents, split into tabs the
+/// way macOS settings windows conventionally are — a single scrolling Form
+/// had grown long enough that unrelated controls (a gesture toggle, a
+/// permission warning, an animation slider) sat side by side with nothing
+/// tying them together.
+///
+/// Every control here is bound to an `AppSettings` property that's genuinely
+/// read somewhere else in the app — see each property's own doc comment in
 /// `AppSettings.swift` for its consuming call sites. Properties that are
 /// only persisted but not yet consumed anywhere (`languageOverride`,
 /// `tabLayouts`) get no control here on purpose, per the Phase 7 roadmap
 /// note: "未実装・未接続の項目はUIに表示しない" (don't surface controls for
-/// unimplemented/unwired settings). The one exception is the notification
-/// status section below: it doesn't bind to an `AppSettings` property at
-/// all — it surfaces `NativeNotifier.shared`'s live authorization state
-/// (previously visible only via `agent-notch ping`'s debug JSON) plus a
-/// link out to System Settings, since a denied/unauthorized notification
-/// permission otherwise fails completely silently (see `NativeNotifier`'s
-/// own "best-effort only" doc comment).
+/// unimplemented/unwired settings).
 struct SettingsView: View {
     @ObservedObject var settings: AppSettings
-    @ObservedObject private var notifier = NativeNotifier.shared
+    @State private var selection: SettingsTab = .general
 
+    var body: some View {
+        VStack(spacing: 0) {
+            tabBar
+            Divider()
+            Group {
+                switch selection {
+                case .general: GeneralSettingsTab(settings: settings)
+                case .gestures: GestureSettingsTab(settings: settings)
+                case .agents: AgentSettingsTab(settings: settings)
+                case .permissions: PermissionSettingsTab()
+                case .about: AboutSettingsTab()
+                }
+            }
+            .frame(maxWidth: .infinity, maxHeight: .infinity)
+        }
+        .frame(width: 520, height: 430)
+    }
+
+    /// Hand-rolled rather than `TabView` + `.tabItem`: that renders as a
+    /// plain text segmented control here, dropping the SF Symbols entirely.
+    /// An icon-over-label row is both what the reference settings windows
+    /// use and what makes the tabs scannable at a glance.
+    private var tabBar: some View {
+        HStack(spacing: 2) {
+            ForEach(SettingsTab.allCases) { tab in
+                Button {
+                    selection = tab
+                } label: {
+                    VStack(spacing: 3) {
+                        Image(systemName: tab.icon)
+                            .font(.system(size: 19, weight: .regular))
+                            .frame(height: 22)
+                        Text(tab.title)
+                            .font(.system(size: 11))
+                    }
+                    .foregroundColor(selection == tab ? .accentColor : .primary.opacity(0.8))
+                    .frame(width: 84, height: 52)
+                    .background(
+                        RoundedRectangle(cornerRadius: 7)
+                            .fill(selection == tab ? Color.accentColor.opacity(0.15) : .clear)
+                    )
+                    .contentShape(Rectangle())
+                }
+                .buttonStyle(.plain)
+                .accessibilityLabel(tab.title)
+                .accessibilityAddTraits(selection == tab ? [.isButton, .isSelected] : [.isButton])
+                .accessibilityIdentifier("settings.tab.\(tab.rawValue)")
+            }
+        }
+        .padding(.horizontal, 10)
+        .padding(.vertical, 8)
+        .frame(maxWidth: .infinity)
+    }
+}
+
+enum SettingsTab: String, CaseIterable, Identifiable {
+    case general, gestures, agents, permissions, about
+
+    var id: String { rawValue }
+
+    var icon: String {
+        switch self {
+        case .general: return "gearshape"
+        case .gestures: return "hand.draw"
+        case .agents: return "terminal"
+        case .permissions: return "lock.shield"
+        case .about: return "info.circle"
+        }
+    }
+
+    var title: String {
+        switch self {
+        case .general: return String(localized: "settings.tab.general", defaultValue: "General")
+        case .gestures: return String(localized: "settings.tab.gestures", defaultValue: "Gestures")
+        case .agents: return String(localized: "settings.tab.agents", defaultValue: "Agents")
+        case .permissions: return String(localized: "settings.tab.permissions", defaultValue: "Permissions")
+        case .about: return String(localized: "settings.tab.about", defaultValue: "About")
+        }
+    }
+}
+
+// MARK: - General
+
+private struct GeneralSettingsTab: View {
+    @ObservedObject var settings: AppSettings
+
+    var body: some View {
+        Form {
+            Section(String(localized: "settings.section.feedback", defaultValue: "Feedback")) {
+                Toggle(String(localized: "settings.soundEffects", defaultValue: "Sound effects"), isOn: $settings.soundEnabled)
+                    .help(String(localized: "settings.soundEffectsHelp", defaultValue: "Plays a short tone for approvals, questions, and other notch events."))
+                Toggle(String(localized: "settings.hapticFeedback", defaultValue: "Haptic feedback"), isOn: $settings.hapticsEnabled)
+                    .help(String(localized: "settings.hapticFeedbackHelp", defaultValue: "Pulses the trackpad for approvals, questions, and other notch events (Force Touch trackpads only)."))
+            }
+
+            Section(String(localized: "settings.section.appearance", defaultValue: "Appearance")) {
+                ScaleRow(
+                    title: String(localized: "settings.panelSize", defaultValue: "Panel size"),
+                    help: String(localized: "settings.panelSizeHelp", defaultValue: "Scales the notch panel's width and height."),
+                    value: $settings.uiScale,
+                    range: 0.8...1.3,
+                    defaultValue: 1.0
+                )
+                ScaleRow(
+                    title: String(localized: "settings.cornerRoundness", defaultValue: "Corner roundness"),
+                    help: String(localized: "settings.cornerRoundnessHelp", defaultValue: "Scales the panel's corner radius."),
+                    value: $settings.cornerRadiusScale,
+                    range: 0.5...1.5,
+                    defaultValue: 1.0
+                )
+                ScaleRow(
+                    title: String(localized: "settings.animationSpeed", defaultValue: "Animation speed"),
+                    help: String(localized: "settings.animationSpeedHelp", defaultValue: "Scales how long spring/fade animations take. Lower is faster."),
+                    value: $settings.animationSpeedScale,
+                    range: 0.5...2.0,
+                    defaultValue: 1.0,
+                    formatter: { String(format: "%.1f×", $0) }
+                )
+            }
+        }
+        .formStyle(.grouped)
+    }
+}
+
+// MARK: - Gestures
+
+private struct GestureSettingsTab: View {
+    @ObservedObject var settings: AppSettings
+
+    var body: some View {
+        Form {
+            Section(String(localized: "settings.section.media", defaultValue: "Media")) {
+                Toggle(String(localized: "settings.mediaSwipe", defaultValue: "Swipe sideways to change track"), isOn: $settings.mediaSwipeEnabled)
+                    .help(String(localized: "settings.mediaSwipeHelp", defaultValue: "Scroll sideways over the compact notch to skip tracks. While the notch is open the same gesture switches pages instead."))
+                Toggle(String(localized: "settings.invertMediaSwipe", defaultValue: "Invert track-change direction"), isOn: $settings.invertMediaSwipe)
+                    .disabled(!settings.mediaSwipeEnabled)
+                    .help(String(localized: "settings.invertMediaSwipeHelp", defaultValue: "By default swiping left plays the next track."))
+            }
+
+            Section(String(localized: "settings.section.builtInGestures", defaultValue: "Built in")) {
+                gestureRow(
+                    icon: "arrow.up.and.down",
+                    text: String(localized: "onboarding.swipeVertical", defaultValue: "Swipe up or down to open, close, or hide the notch")
+                )
+                gestureRow(
+                    icon: "cursorarrow.click.2",
+                    text: String(localized: "onboarding.click", defaultValue: "Click to open the Nook, where your widgets live")
+                )
+                gestureRow(
+                    icon: "tray.and.arrow.down.fill",
+                    text: String(localized: "onboarding.dragDrop", defaultValue: "Drag and drop files onto the notch to stash them in the Tray")
+                )
+            }
+        }
+        .formStyle(.grouped)
+    }
+
+    /// Read-only reference for the gestures that have no setting to change —
+    /// they're listed so this tab answers "what gestures exist?", not only
+    /// "which ones can I configure?".
+    private func gestureRow(icon: String, text: String) -> some View {
+        HStack(spacing: 10) {
+            Image(systemName: icon)
+                .foregroundColor(.secondary)
+                .frame(width: 18)
+            Text(text)
+                .font(.callout)
+                .foregroundColor(.secondary)
+                .fixedSize(horizontal: false, vertical: true)
+        }
+        .padding(.vertical, 1)
+    }
+}
+
+// MARK: - Agents
+
+/// AgentNotch's own tab — the part of this app that has no counterpart in a
+/// general-purpose notch utility. Covers how agent requests interrupt you,
+/// and whether the CLI hooks that feed them are installed at all.
+private struct AgentSettingsTab: View {
+    @ObservedObject var settings: AppSettings
+    /// Re-read on appear: `agent-notch setup` can be run from a terminal
+    /// while this window is open, and nothing notifies us.
+    @State private var hasIntegrationHelper = AgentIntegration.isHelperInstalled
+
+    var body: some View {
+        Form {
+            Section(String(localized: "settings.section.requests", defaultValue: "Requests")) {
+                Toggle(String(localized: "settings.autoOpenOnAttention", defaultValue: "Open the notch for approvals and questions"), isOn: $settings.autoOpenOnAttention)
+                    .help(String(localized: "settings.autoOpenOnAttentionHelp", defaultValue: "When off, an incoming request only shows the compact badge and waits for you to click it — nothing is auto-approved either way."))
+            }
+
+            Section(String(localized: "settings.section.integration", defaultValue: "CLI integration")) {
+                VStack(alignment: .leading, spacing: 6) {
+                    HStack(spacing: 6) {
+                        Image(systemName: hasIntegrationHelper ? "checkmark.circle.fill" : "exclamationmark.triangle.fill")
+                            .foregroundColor(hasIntegrationHelper ? .green : .orange)
+                        Text(hasIntegrationHelper
+                             ? String(localized: "settings.integrationInstalled", defaultValue: "Integration helper installed")
+                             : String(localized: "settings.integrationMissing", defaultValue: "Integration helper not found"))
+                            .font(.callout.weight(.medium))
+                    }
+                    Text(String(localized: "settings.integrationHelp", defaultValue: "Hooks let Claude and Codex send approvals, questions, and session status to the notch. Run this in a terminal to install or repair them:"))
+                        .font(.caption)
+                        .foregroundColor(.secondary)
+                        .fixedSize(horizontal: false, vertical: true)
+                    // Shown as copyable text rather than run from a button:
+                    // the helper is interactive and its output matters, so
+                    // it belongs in a terminal the user can actually read.
+                    Text(verbatim: "agent-notch setup")
+                        .font(.system(.caption, design: .monospaced))
+                        .textSelection(.enabled)
+                        .padding(.horizontal, 6)
+                        .padding(.vertical, 3)
+                        .background(RoundedRectangle(cornerRadius: 5).fill(Color.secondary.opacity(0.12)))
+                }
+                .padding(.vertical, 2)
+            }
+        }
+        .formStyle(.grouped)
+        .onAppear { hasIntegrationHelper = AgentIntegration.isHelperInstalled }
+    }
+}
+
+/// Where the CLI's `setup` subcommand looks for its installer, mirrored here
+/// so Settings can report whether integration was ever set up. Kept in sync
+/// with `agent-notch-bridge/main.swift`'s own path.
+enum AgentIntegration {
+    static var helperURL: URL {
+        FileManager.default.homeDirectoryForCurrentUser
+            .appendingPathComponent(".agent-notch/bin/setup-integrations")
+    }
+
+    static var isHelperInstalled: Bool {
+        FileManager.default.isExecutableFile(atPath: helperURL.path)
+    }
+}
+
+// MARK: - Permissions
+
+/// Surfaces the two permissions AgentNotch can't function fully without, and
+/// which otherwise fail silently: notifications (see `NativeNotifier`'s
+/// "best-effort only" doc comment) and Accessibility for media keys. Both
+/// are shown whether granted or not, so this tab always answers "is it set
+/// up?" rather than only appearing when something is broken.
+private struct PermissionSettingsTab: View {
+    @ObservedObject private var notifier = NativeNotifier.shared
+    /// Accessibility trust can be granted in System Settings while this
+    /// window is open, and nothing notifies us — re-read it when the view
+    /// reappears (tab switch) so it can't sit indefinitely stale.
+    @State private var isAccessibilityTrusted = MediaKeyMonitor.isAccessibilityTrusted
+
+    var body: some View {
+        Form {
+            Section(String(localized: "settings.section.notifications", defaultValue: "Notifications")) {
+                permissionRow(
+                    granted: notifier.isAuthorized,
+                    // Before the async system prompt resolves, `isAuthorized`
+                    // is still false for a perfectly healthy install — don't
+                    // call that denied.
+                    pending: !notifier.didRequestAuthorization,
+                    description: String(localized: "settings.notificationsPurpose", defaultValue: "Lets AgentNotch alert you when the notch itself isn't visible (for example, in full screen)."),
+                    detail: notifier.lastAuthorizationError,
+                    actionTitle: String(localized: "settings.openNotificationSettings", defaultValue: "Open Notification Settings…"),
+                    action: { openSystemSettings("x-apple.systempreferences:com.apple.Notifications-Settings.extension") }
+                )
+            }
+
+            Section(String(localized: "settings.section.mediaKeys", defaultValue: "Media keys")) {
+                permissionRow(
+                    granted: isAccessibilityTrusted,
+                    pending: false,
+                    description: String(localized: "settings.mediaKeysNeedAccessibility", defaultValue: "Allow Accessibility access to show a skip indicator when you press the media keys."),
+                    detail: nil,
+                    actionTitle: String(localized: "settings.grantAccessibility", defaultValue: "Allow Accessibility Access…"),
+                    action: { MediaKeyMonitor.requestAccessibilityTrust() }
+                )
+            }
+        }
+        .formStyle(.grouped)
+        .onAppear { isAccessibilityTrusted = MediaKeyMonitor.isAccessibilityTrusted }
+    }
+
+    @ViewBuilder
+    private func permissionRow(
+        granted: Bool,
+        pending: Bool,
+        description: String,
+        detail: String?,
+        actionTitle: String,
+        action: @escaping () -> Void
+    ) -> some View {
+        VStack(alignment: .leading, spacing: 6) {
+            HStack(spacing: 6) {
+                Image(systemName: granted ? "checkmark.circle.fill" : (pending ? "clock" : "exclamationmark.triangle.fill"))
+                    .foregroundColor(granted ? .green : (pending ? .secondary : .orange))
+                Text(granted
+                     ? String(localized: "settings.permissionGranted", defaultValue: "Allowed")
+                     : (pending
+                        ? String(localized: "settings.permissionPending", defaultValue: "Not requested yet")
+                        : String(localized: "settings.permissionMissing", defaultValue: "Not allowed")))
+                    .font(.callout.weight(.medium))
+            }
+            Text(description)
+                .font(.caption)
+                .foregroundColor(.secondary)
+                .fixedSize(horizontal: false, vertical: true)
+            if let detail {
+                Text(detail)
+                    .font(.caption)
+                    .foregroundColor(.secondary)
+            }
+            if !granted {
+                Button(actionTitle, action: action)
+                    .buttonStyle(.link)
+            }
+        }
+        .padding(.vertical, 2)
+    }
+
+    /// Same `NSWorkspace.shared.open` pattern as `CompactBatteryIndicator`'s
+    /// own settings link in `NotchView.swift` — duplicated locally rather
+    /// than shared because that one is `private` to its own file.
+    private func openSystemSettings(_ rawURL: String) {
+        guard let url = URL(string: rawURL) else { return }
+        NSWorkspace.shared.open(url)
+    }
+}
+
+// MARK: - About
+
+private struct AboutSettingsTab: View {
     var body: some View {
         Form {
             Section {
@@ -28,88 +399,7 @@ struct SettingsView: View {
                         .font(.caption)
                         .foregroundColor(.secondary)
                 }
-            }
-
-            Section(String(localized: "settings.section.general", defaultValue: "General")) {
-                Toggle(String(localized: "settings.soundEffects", defaultValue: "Sound effects"), isOn: $settings.soundEnabled)
-                    .help(String(localized: "settings.soundEffectsHelp", defaultValue: "Plays a short tone for approvals, questions, and other notch events."))
-                Toggle(String(localized: "settings.hapticFeedback", defaultValue: "Haptic feedback"), isOn: $settings.hapticsEnabled)
-                    .help(String(localized: "settings.hapticFeedbackHelp", defaultValue: "Pulses the trackpad for approvals, questions, and other notch events (Force Touch trackpads only)."))
-            }
-
-            Section(String(localized: "settings.section.gestures", defaultValue: "Gestures")) {
-                Toggle(String(localized: "settings.mediaSwipe", defaultValue: "Swipe sideways to change track"), isOn: $settings.mediaSwipeEnabled)
-                    .help(String(localized: "settings.mediaSwipeHelp", defaultValue: "Scroll sideways over the compact notch to skip tracks. While the notch is open the same gesture switches pages instead."))
-                Toggle(String(localized: "settings.invertMediaSwipe", defaultValue: "Invert track-change direction"), isOn: $settings.invertMediaSwipe)
-                    .disabled(!settings.mediaSwipeEnabled)
-                    .help(String(localized: "settings.invertMediaSwipeHelp", defaultValue: "By default swiping left plays the next track."))
-            }
-
-            // Only shown once authorization has actually been requested and
-            // came back denied — never on cold start, where `isAuthorized`
-            // is still `false` simply because the async system prompt
-            // hasn't resolved yet (that transient state would otherwise
-            // flash a false warning on every launch).
-            if notifier.didRequestAuthorization, !notifier.isAuthorized {
-                Section(String(localized: "settings.section.notifications", defaultValue: "Notifications")) {
-                    VStack(alignment: .leading, spacing: 4) {
-                        Text(String(localized: "settings.notificationsDenied", defaultValue: "Notifications are off. AgentNotch can't alert you when the notch itself isn't visible (e.g. while in full screen)."))
-                            .font(.callout)
-                        if let error = notifier.lastAuthorizationError {
-                            Text(error)
-                                .font(.caption)
-                                .foregroundColor(.secondary)
-                        }
-                        Button(String(localized: "settings.openNotificationSettings", defaultValue: "Open Notification Settings…")) {
-                            openSystemSettings("x-apple.systempreferences:com.apple.Notifications-Settings.extension")
-                        }
-                        .buttonStyle(.link)
-                    }
-                    .padding(.vertical, 2)
-                }
-            }
-
-            Section(String(localized: "settings.section.appearance", defaultValue: "Appearance")) {
-                scaleRow(
-                    title: String(localized: "settings.panelSize", defaultValue: "Panel size"),
-                    help: String(localized: "settings.panelSizeHelp", defaultValue: "Scales the notch panel's width and height."),
-                    value: $settings.uiScale,
-                    range: 0.8...1.3,
-                    defaultValue: 1.0
-                )
-                scaleRow(
-                    title: String(localized: "settings.cornerRoundness", defaultValue: "Corner roundness"),
-                    help: String(localized: "settings.cornerRoundnessHelp", defaultValue: "Scales the panel's corner radius."),
-                    value: $settings.cornerRadiusScale,
-                    range: 0.5...1.5,
-                    defaultValue: 1.0
-                )
-                scaleRow(
-                    title: String(localized: "settings.animationSpeed", defaultValue: "Animation speed"),
-                    help: String(localized: "settings.animationSpeedHelp", defaultValue: "Scales how long spring/fade animations take. Lower is faster."),
-                    value: $settings.animationSpeedScale,
-                    range: 0.5...2.0,
-                    defaultValue: 1.0,
-                    formatter: { String(format: "%.1f×", $0) }
-                )
-            }
-
-            // Only shown while the permission is actually missing — once
-            // granted there is nothing to act on, and this used to be a
-            // system dialog on every launch instead.
-            if !MediaKeyMonitor.isAccessibilityTrusted {
-                Section(String(localized: "settings.section.mediaKeys", defaultValue: "Media keys")) {
-                    VStack(alignment: .leading, spacing: 6) {
-                        Text(String(localized: "settings.mediaKeysNeedAccessibility", defaultValue: "Allow Accessibility access to show a skip indicator when you press the media keys."))
-                            .font(.caption)
-                            .foregroundColor(.secondary)
-                        Button(String(localized: "settings.grantAccessibility", defaultValue: "Allow Accessibility Access…")) {
-                            MediaKeyMonitor.requestAccessibilityTrust()
-                        }
-                        .buttonStyle(.link)
-                    }
-                    .padding(.vertical, 2)
-                }
+                .padding(.vertical, 2)
             }
 
             Section(String(localized: "settings.section.help", defaultValue: "Help")) {
@@ -120,47 +410,42 @@ struct SettingsView: View {
             }
         }
         .formStyle(.grouped)
-        .frame(width: 400, height: 380)
     }
+}
 
-    /// One labeled slider row with a live value readout and a reset button
-    /// that only appears once the value has actually drifted from
-    /// `defaultValue` — keeps the common (untouched) case visually quiet.
-    private func scaleRow(
-        title: String,
-        help: String,
-        value: Binding<Double>,
-        range: ClosedRange<Double>,
-        defaultValue: Double,
-        formatter: @escaping (Double) -> String = { String(format: "%.0f%%", $0 * 100) }
-    ) -> some View {
+// MARK: - Shared rows
+
+/// One labeled slider row with a live value readout and a reset button that
+/// only appears once the value has actually drifted from `defaultValue` —
+/// keeps the common (untouched) case visually quiet.
+private struct ScaleRow: View {
+    let title: String
+    let help: String
+    @Binding var value: Double
+    let range: ClosedRange<Double>
+    let defaultValue: Double
+    var formatter: (Double) -> String = { String(format: "%.0f%%", $0 * 100) }
+
+    var body: some View {
         VStack(alignment: .leading, spacing: 4) {
             HStack {
                 Text(title)
                 Spacer()
-                Text(formatter(value.wrappedValue))
+                Text(formatter(value))
                     .foregroundColor(.secondary)
                     .monospacedDigit()
-                if abs(value.wrappedValue - defaultValue) > 0.001 {
+                if abs(value - defaultValue) > 0.001 {
                     Button(String(localized: "settings.reset", defaultValue: "Reset")) {
-                        value.wrappedValue = defaultValue
+                        value = defaultValue
                     }
                     .buttonStyle(.plain)
                     .foregroundColor(.accentColor)
                     .font(.caption)
                 }
             }
-            Slider(value: value, in: range)
+            Slider(value: $value, in: range)
         }
         .help(help)
         .padding(.vertical, 2)
-    }
-
-    /// Same `NSWorkspace.shared.open` pattern as `SystemCell.openSystemSettings`
-    /// in `NotchView.swift` — duplicated locally rather than shared because
-    /// that one is `private` to its own file.
-    private func openSystemSettings(_ rawURL: String) {
-        guard let url = URL(string: rawURL) else { return }
-        NSWorkspace.shared.open(url)
     }
 }

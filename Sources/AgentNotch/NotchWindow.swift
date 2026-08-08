@@ -1585,6 +1585,14 @@ final class NotchWindowController: NSObject {
         isClickPinned = false
         uiState.isVisible = true
         syncOverlay()
+        guard AppSettings.shared.autoOpenOnAttention else {
+            // Badge only. The request still sits in its queue waiting — this
+            // just declines to take over the screen to announce it, leaving
+            // the click to the user. `scheduleHideIfIdle` won't hide it
+            // either: it bails while any attention queue is non-empty.
+            setMode(.closed, forceResize: true)
+            return
+        }
         setMode(.open, forceResize: true)
     }
 

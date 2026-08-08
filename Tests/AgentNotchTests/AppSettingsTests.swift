@@ -28,6 +28,34 @@ final class AppSettingsTests: XCTestCase {
         static let hapticsEnabled = "agentnotch.hapticsEnabled"
     }
 
+    /// Read by `NotchWindowController.showAttention` to decide between
+    /// expanding the panel and only badging it, so it has to survive a
+    /// relaunch like every other preference.
+    func testAutoOpenOnAttentionPersistsToUserDefaults() {
+        let original = AppSettings.shared.autoOpenOnAttention
+        defer { AppSettings.shared.autoOpenOnAttention = original }
+
+        AppSettings.shared.autoOpenOnAttention = false
+        XCTAssertEqual(UserDefaults.standard.object(forKey: "agentnotch.autoOpenOnAttention") as? Bool, false)
+
+        AppSettings.shared.autoOpenOnAttention = true
+        XCTAssertEqual(UserDefaults.standard.object(forKey: "agentnotch.autoOpenOnAttention") as? Bool, true)
+    }
+
+    func testMediaSwipeSettingsPersistToUserDefaults() {
+        let originalEnabled = AppSettings.shared.mediaSwipeEnabled
+        let originalInverted = AppSettings.shared.invertMediaSwipe
+        defer {
+            AppSettings.shared.mediaSwipeEnabled = originalEnabled
+            AppSettings.shared.invertMediaSwipe = originalInverted
+        }
+
+        AppSettings.shared.mediaSwipeEnabled = false
+        AppSettings.shared.invertMediaSwipe = true
+        XCTAssertEqual(UserDefaults.standard.object(forKey: "agentnotch.mediaSwipeEnabled") as? Bool, false)
+        XCTAssertEqual(UserDefaults.standard.object(forKey: "agentnotch.invertMediaSwipe") as? Bool, true)
+    }
+
     func testHapticsEnabledPersistsToUserDefaults() {
         let original = AppSettings.shared.hapticsEnabled
         defer { AppSettings.shared.hapticsEnabled = original }
