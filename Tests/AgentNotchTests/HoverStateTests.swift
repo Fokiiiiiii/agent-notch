@@ -217,4 +217,35 @@ final class HoverStateTests: XCTestCase {
         let mediaHeight = NotchWindowController.computeHoverContentHeight(topClearance: clearance, isMediaPlaying: true)
         XCTAssertGreaterThan(mediaHeight, sessionHeight)
     }
+
+    // MARK: - hoverWindowSize
+
+    /// Regression guard for the open/closed flicker: a pointer resting
+    /// between the two window heights left hover toggling forever, because
+    /// entering hover shrank the window out from under it. The hover window
+    /// must cover the closed one on both axes.
+    func testHoverWindowNeverShrinksBelowTheClosedWindow() {
+        // The real numbers from a notchless screen: closed is padded to
+        // 272x104 for drag hit-testing, hover content is only 320x90.
+        let closedSize = CGSize(width: 272, height: 104)
+        let hoverContent = CGSize(width: 320, height: 90)
+
+        let window = NotchWindowController.hoverWindowSize(contentSize: hoverContent, closedSize: closedSize)
+
+        XCTAssertGreaterThanOrEqual(window.width, closedSize.width)
+        XCTAssertGreaterThanOrEqual(window.height, closedSize.height)
+        // Wider content keeps its own width — the clamp is a floor, not a
+        // replacement.
+        XCTAssertEqual(window.width, 320)
+        XCTAssertEqual(window.height, 104)
+    }
+
+    func testHoverWindowKeepsContentSizeWhenAlreadyLargerThanClosed() {
+        let closedSize = CGSize(width: 200, height: 60)
+        let hoverContent = CGSize(width: 320, height: 120)
+
+        let window = NotchWindowController.hoverWindowSize(contentSize: hoverContent, closedSize: closedSize)
+
+        XCTAssertEqual(window, hoverContent)
+    }
 }

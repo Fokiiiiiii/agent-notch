@@ -304,12 +304,18 @@ final class NotchWindowController: NSObject {
     /// calendar-permission state: `DashboardTodaySection` renders one agenda
     /// line in every state. Concrete value is an estimate derived from the
     /// tallest widget plus `DashboardCell`'s 12pt vertical padding plus
-    /// chrome (nookbar/view tabs, ~74pt). Today is now the taller of the two
-    /// (~74pt: 37pt week strip + 8pt spacing + ~29pt two-line agenda block),
-    /// having overtaken Media's 68pt artwork when its agenda line became an
-    /// icon-over-text stack — same "estimate, then eyeball-tune on a real
-    /// device" status as `agentsBaseHeight`.
-    static let dashboardBaseHeight: CGFloat = 160
+    /// chrome. Today is the taller of the two widgets (~74pt: 37pt week
+    /// strip + 8pt spacing + ~29pt two-line agenda block), having overtaken
+    /// Media's 68pt artwork when its agenda line became an icon-over-text
+    /// stack.
+    ///
+    /// Summed rather than estimated, after a too-small value clipped the
+    /// view-tab row off the bottom of the panel: `openContent`'s 6pt top
+    /// padding + 30pt nookbar + its 7pt `VStack` spacing + 86pt
+    /// `DashboardCell` (74pt Today + 12pt vertical padding) +
+    /// `nookContentView`'s 4pt spacing + 28pt `viewTabs` + 10pt bottom
+    /// padding = 171pt, plus a 5pt cushion for font-metric drift.
+    static let dashboardBaseHeight: CGFloat = 176
     /// Extra height for `expandedDetail`'s `.dashboard` case — two stacked
     /// `DetailStrip`s (Today's 3 items + System's 2) plus the focus-timer
     /// row that moved here out of `DashboardTodaySection`.
@@ -317,12 +323,12 @@ final class NotchWindowController: NSObject {
     /// Absolute ceiling on the Dashboard tab height — same safety-net role
     /// as `agentsMaxHeight`. Set above the worst case the formula above can
     /// actually produce (`dashboardBaseHeight` +
-    /// `dashboardDetailExpandedHeight` = 160 + 126 = 286) with a little
+    /// `dashboardDetailExpandedHeight` = 176 + 126 = 302) with a little
     /// headroom — unlike Agents' cap (which exists specifically to hand off
     /// to `AgentsCell`'s own `ScrollView` once a real overflow risk exists),
     /// Dashboard has no scroll fallback, so a cap tighter than its own worst
     /// case would silently clip real content instead of protecting anything.
-    static let dashboardMaxHeight: CGFloat = 300
+    static let dashboardMaxHeight: CGFloat = 320
 
     /// `static` (unlike `agentsOpenSize`, a `private` instance method) so
     /// it's a pure function `DashboardSizingTests` can call directly without
@@ -490,6 +496,25 @@ final class NotchWindowController: NSObject {
         let defaultSize = CGSize(width: 320, height: 90)
         guard hasNotch else { return defaultSize }
         return CGSize(width: max(notchWidth + 120, defaultSize.width), height: defaultSize.height)
+    }
+
+    /// The real window frame `.hover` gets, which is *not* the size of what
+    /// it draws: the visible peek stays `contentSize` (pinned to the top by
+    /// `NotchView`'s `ZStack(alignment: .top)`), while the window itself is
+    /// never allowed to be smaller than the closed one.
+    ///
+    /// `closedSize` is deliberately padded out beyond the visible pill
+    /// (+40w/+70h, for file-drag hit-testing). Before this, hovering could
+    /// *shrink* the window — 104pt tall closed vs. 90pt hovering on a
+    /// notchless screen — so a pointer resting in the ~14pt band between
+    /// them fell outside the moment hover began: hover ended, the window
+    /// grew back under the pointer, hover began again, and the panel
+    /// flickered open/closed indefinitely.
+    static func hoverWindowSize(contentSize: CGSize, closedSize: CGSize) -> CGSize {
+        CGSize(
+            width: max(contentSize.width, closedSize.width),
+            height: max(contentSize.height, closedSize.height)
+        )
     }
 
     /// Small safety margin added on top of the measured `notchHeight`.
@@ -1241,7 +1266,13 @@ final class NotchWindowController: NSObject {
             uiState.closedContentSize = scaled(previewActive ? mediaPreviewSize : visualClosedSize)
         }
 
-        let targetFrame = NotchWindowController.frame(for: scaled(targetSize), on: screenSnapshot)
+        // `.hover` draws `targetSize` but must not *occupy* less than the
+        // closed window does — see `hoverWindowSize`'s doc comment for the
+        // open/closed flicker that caused.
+        let windowSize = uiState.mode == .hover
+            ? NotchWindowController.hoverWindowSize(contentSize: targetSize, closedSize: closedSize)
+            : targetSize
+        let targetFrame = NotchWindowController.frame(for: scaled(windowSize), on: screenSnapshot)
 
         NSAnimationContext.runAnimationGroup { context in
             context.duration = (uiState.mode == .closed ? 0.25 : 0.40) * AppSettings.shared.animationSpeedScale
