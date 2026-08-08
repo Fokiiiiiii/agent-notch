@@ -146,6 +146,14 @@ enum SettingsTab: String, CaseIterable, Identifiable {
 
 private struct GeneralSettingsTab: View {
     @ObservedObject var settings: AppSettings
+    @ObservedObject private var visualizer = AudioVisualizer.shared
+
+    /// Only shown once the user has actually asked for the visualizer —
+    /// a stale error from a previous session shouldn't sit under a toggle
+    /// that's currently off.
+    private var visualizerError: String? {
+        settings.visualizerEnabled ? visualizer.errorMessage : nil
+    }
 
     var body: some View {
         Form {
@@ -154,6 +162,27 @@ private struct GeneralSettingsTab: View {
                     .help(String(localized: "settings.soundEffectsHelp", defaultValue: "Plays a short tone for approvals, questions, and other notch events."))
                 Toggle(String(localized: "settings.hapticFeedback", defaultValue: "Haptic feedback"), isOn: $settings.hapticsEnabled)
                     .help(String(localized: "settings.hapticFeedbackHelp", defaultValue: "Pulses the trackpad for approvals, questions, and other notch events (Force Touch trackpads only)."))
+            }
+
+            Section(String(localized: "settings.section.visualizer", defaultValue: "Visualizer")) {
+                Toggle(String(localized: "settings.visualizer", defaultValue: "React to system audio"), isOn: Binding(
+                    get: { settings.visualizerEnabled },
+                    set: { newValue in
+                        settings.visualizerEnabled = newValue
+                        AudioVisualizer.shared.setEnabled(newValue)
+                    }
+                ))
+                .help(String(localized: "settings.visualizerHelp", defaultValue: "Drives the compact waveform from what's actually playing, instead of a looping animation."))
+                Text(String(localized: "settings.visualizerPermissionNote", defaultValue: "Needs Screen Recording permission — macOS has no other way to read system audio. AgentNotch never captures the screen itself. After granting it, quit and reopen AgentNotch."))
+                    .font(.caption)
+                    .foregroundColor(.secondary)
+                    .fixedSize(horizontal: false, vertical: true)
+                if let error = visualizerError {
+                    Text(error)
+                        .font(.caption)
+                        .foregroundColor(.orange)
+                        .fixedSize(horizontal: false, vertical: true)
+                }
             }
 
             Section(String(localized: "settings.section.appearance", defaultValue: "Appearance")) {

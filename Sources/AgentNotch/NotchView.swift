@@ -2652,23 +2652,39 @@ private struct DashboardMediaSection: View {
 private struct CompactMediaWaveform: View {
     let isPlaying: Bool
     let color: Color
+    @ObservedObject private var visualizer = AudioVisualizer.shared
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
     var body: some View {
         TimelineView(.animation(minimumInterval: 0.16, paused: reduceMotion || !isPlaying)) { context in
             let phase = context.date.timeIntervalSinceReferenceDate * 5.5
+            let live = visualizer.amplitude
             HStack(alignment: .center, spacing: 2) {
                 ForEach(0..<4, id: \.self) { index in
-                    let level = reduceMotion ? 0.45 : 0.35 + abs(sin(phase + Double(index) * 1.35)) * 0.65
                     Capsule()
                         .fill(color.opacity(index == 2 ? 1 : 0.72))
-                        .frame(width: 2, height: 4 + 9 * level)
+                        .frame(width: 2, height: 4 + 9 * barLevel(index: index, phase: phase, live: live))
                 }
             }
             .frame(width: 16, height: 16)
             .shadow(color: color.opacity(0.3), radius: 3)
         }
         .accessibilityHidden(true)
+    }
+
+    /// Falls back to the synthetic `sin()` animation whenever there's no
+    /// live signal (`idleAmplitude`) — the visualizer is off by default, so
+    /// this is the ordinary path, not an error path.
+    private func barLevel(index: Int, phase: Double, live: Double) -> Double {
+        if reduceMotion { return 0.45 }
+        guard live >= 0 else {
+            return 0.35 + abs(sin(phase + Double(index) * 1.35)) * 0.65
+        }
+        // Bars still differ from each other while driven by one number:
+        // the outer pair reacts a little less than the middle, which reads
+        // as a level meter rather than four identical bars.
+        let weight = index == 2 ? 1.0 : (index == 1 ? 0.85 : 0.68)
+        return 0.12 + live * weight * 0.88
     }
 }
 

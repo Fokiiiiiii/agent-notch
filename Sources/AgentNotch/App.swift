@@ -55,6 +55,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         self.nativeNotifier = nativeNotifier
         self.notchWindowController = controller
 
+        // Resumes a visualizer the user had switched on before quitting.
+        // Off by default, so this normally does nothing and no capture
+        // stream (or permission prompt) is ever created.
+        if AppSettings.shared.visualizerEnabled {
+            Task { await AudioVisualizer.shared.start() }
+        }
+
         let watcher = ClaudeWatcher(store: store)
         watcher.start()
         self.claudeWatcher = watcher

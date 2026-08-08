@@ -69,6 +69,13 @@ final class AppSettings: ObservableObject {
         }
     }
 
+    /// Whether the compact waveform is driven by real system audio instead
+    /// of its synthetic animation. Off by default: turning it on starts a
+    /// ScreenCaptureKit stream, which needs Screen Recording permission.
+    /// Read by `AgentNotchApp` on launch and by the Settings toggle.
+    @Published var visualizerEnabled: Bool {
+        didSet { UserDefaults.standard.set(visualizerEnabled, forKey: Keys.visualizerEnabled) }
+    }
     /// Shortcuts the user has pinned to the Tray's action menu, in the
     /// order they appear there. Read by `TrayCell`; edited from
     /// Settings ▸ Nook.
@@ -93,6 +100,7 @@ final class AppSettings: ObservableObject {
         static let animationSpeedScale = "agentnotch.animationSpeedScale"
         static let tabLayouts = "agentnotch.tabLayouts"
         static let registeredShortcuts = "agentnotch.registeredShortcuts"
+        static let visualizerEnabled = "agentnotch.visualizerEnabled"
     }
 
     private init() {
@@ -107,6 +115,7 @@ final class AppSettings: ObservableObject {
         uiScale = defaults.object(forKey: Keys.uiScale) as? Double ?? 1.0
         cornerRadiusScale = defaults.object(forKey: Keys.cornerRadiusScale) as? Double ?? 1.0
         animationSpeedScale = defaults.object(forKey: Keys.animationSpeedScale) as? Double ?? 1.0
+        visualizerEnabled = defaults.object(forKey: Keys.visualizerEnabled) as? Bool ?? false
         if let data = defaults.data(forKey: Keys.tabLayouts),
            let decoded = try? JSONDecoder().decode([String: TabLayoutConfiguration].self, from: data) {
             tabLayouts = decoded

@@ -21101,6 +21101,106 @@
         }
       }
     },
+    "settings.section.visualizer": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Visualizer"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "可视化"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Visualizador"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Visualiseur"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Visualizer"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Визуализация"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "المؤثر البصري"
+          }
+        },
+        "pt": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Visualizador"
+          }
+        },
+        "hi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "विज़ुअलाइज़र"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ビジュアライザ"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "비주얼라이저"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Visualizzatore"
+          }
+        },
+        "id": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Visualizer"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Trình trực quan"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "วิชวลไลเซอร์"
+          }
+        },
+        "fil": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Visualizer"
+          }
+        }
+      }
+    },
     "settings.shortcutsHelp": {
       "localizations": {
         "en": {
@@ -22397,6 +22497,306 @@
           "stringUnit": {
             "state": "translated",
             "value": "Bersyon %@"
+          }
+        }
+      }
+    },
+    "settings.visualizer": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "React to system audio"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "跟随系统音频"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Reaccionar al audio del sistema"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Réagir à l'audio du système"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Auf Systemaudio reagieren"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Реагировать на системный звук"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "التفاعل مع صوت النظام"
+          }
+        },
+        "pt": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Reagir ao áudio do sistema"
+          }
+        },
+        "hi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "सिस्टम ऑडियो पर प्रतिक्रिया दें"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "システムの音に反応させる"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "시스템 오디오에 반응"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Reagisci all'audio di sistema"
+          }
+        },
+        "id": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Bereaksi terhadap audio sistem"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Phản ứng theo âm thanh hệ thống"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ตอบสนองต่อเสียงของระบบ"
+          }
+        },
+        "fil": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Tumugon sa audio ng system"
+          }
+        }
+      }
+    },
+    "settings.visualizerHelp": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Drives the compact waveform from what's actually playing, instead of a looping animation."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "让紧凑波形跟随实际播放的声音，而不是循环动画。"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Hace que la onda compacta siga lo que suena realmente, en lugar de una animación en bucle."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Fait suivre à l'onde compacte ce qui joue réellement, au lieu d'une animation en boucle."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Lässt die kompakte Wellenform dem folgen, was tatsächlich läuft, statt einer Endlosanimation."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Компактная волна следует за тем, что действительно играет, вместо зацикленной анимации."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "يجعل الموجة المصغّرة تتبع ما يُشغَّل فعليًا بدلًا من رسم متحرك متكرر."
+          }
+        },
+        "pt": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Faz a onda compacta seguir o que está realmente tocando, em vez de uma animação em loop."
+          }
+        },
+        "hi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "कॉम्पैक्ट तरंग को लूपिंग एनिमेशन के बजाय वास्तव में बज रही ध्वनि से चलाता है।"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "コンパクト表示の波形を、ループアニメーションではなく実際に鳴っている音で動かします。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "축소 표시의 파형을 반복 애니메이션 대신 실제 재생 중인 소리로 움직입니다."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Fa seguire all'onda compatta ciò che sta davvero suonando, invece di un'animazione in loop."
+          }
+        },
+        "id": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Membuat gelombang ringkas mengikuti suara yang benar-benar diputar, bukan animasi berulang."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cho sóng thu gọn chạy theo âm thanh đang phát thật, thay vì hoạt ảnh lặp."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ให้คลื่นแบบย่อขยับตามเสียงที่เล่นอยู่จริง แทนภาพเคลื่อนไหวแบบวนซ้ำ"
+          }
+        },
+        "fil": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Pinapagalaw ang compact waveform ayon sa aktuwal na tumutugtog, hindi sa umuulit na animation."
+          }
+        }
+      }
+    },
+    "settings.visualizerPermissionNote": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Needs Screen Recording permission — macOS has no other way to read system audio. AgentNotch never captures the screen itself. After granting it, quit and reopen AgentNotch."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "需要“屏幕录制”权限 — macOS 没有其他读取系统音频的方式。AgentNotch 不会捕获屏幕内容。授权后请退出并重新打开 AgentNotch。"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Requiere permiso de Grabación de Pantalla: macOS no ofrece otra forma de leer el audio del sistema. AgentNotch nunca captura la pantalla. Tras concederlo, cierra y vuelve a abrir AgentNotch."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Nécessite l'autorisation Enregistrement de l'écran — macOS n'offre aucun autre moyen de lire l'audio système. AgentNotch ne capture jamais l'écran. Après l'avoir accordée, quittez et rouvrez AgentNotch."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Benötigt die Bildschirmaufnahme-Berechtigung – macOS bietet keinen anderen Weg, Systemaudio zu lesen. AgentNotch nimmt den Bildschirm nie auf. Nach dem Erteilen AgentNotch beenden und neu öffnen."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Требуется разрешение «Запись экрана» — других способов читать системный звук в macOS нет. AgentNotch никогда не записывает экран. После выдачи разрешения закройте и снова откройте AgentNotch."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "يتطلب إذن تسجيل الشاشة — لا توفّر macOS طريقة أخرى لقراءة صوت النظام. لا يلتقط AgentNotch الشاشة إطلاقًا. بعد المنح، أغلق AgentNotch وأعد فتحه."
+          }
+        },
+        "pt": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Requer permissão de Gravação de Tela — o macOS não oferece outra forma de ler o áudio do sistema. O AgentNotch nunca captura a tela. Depois de conceder, encerre e reabra o AgentNotch."
+          }
+        },
+        "hi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "स्क्रीन रिकॉर्डिंग अनुमति चाहिए — macOS में सिस्टम ऑडियो पढ़ने का दूसरा तरीका नहीं है। AgentNotch स्क्रीन कैप्चर कभी नहीं करता। अनुमति देने के बाद AgentNotch बंद करके दोबारा खोलें।"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "画面収録の権限が必要です — macOS にはシステム音声を読む他の手段がありません。AgentNotch が画面を記録することはありません。許可したあとは AgentNotch を終了して開き直してください。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "화면 기록 권한이 필요합니다 — macOS에는 시스템 오디오를 읽을 다른 방법이 없습니다. AgentNotch는 화면을 캡처하지 않습니다. 허용한 뒤 AgentNotch를 종료했다가 다시 여세요."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Richiede l'autorizzazione Registrazione schermo: macOS non offre altro modo di leggere l'audio di sistema. AgentNotch non cattura mai lo schermo. Dopo averla concessa, chiudi e riapri AgentNotch."
+          }
+        },
+        "id": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Perlu izin Perekaman Layar — macOS tidak punya cara lain membaca audio sistem. AgentNotch tidak pernah merekam layar. Setelah memberi izin, tutup dan buka lagi AgentNotch."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cần quyền Ghi màn hình — macOS không có cách nào khác để đọc âm thanh hệ thống. AgentNotch không bao giờ chụp màn hình. Sau khi cấp quyền, hãy thoát và mở lại AgentNotch."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ต้องใช้สิทธิ์บันทึกหน้าจอ — macOS ไม่มีวิธีอื่นในการอ่านเสียงของระบบ AgentNotch ไม่ได้บันทึกหน้าจอ หลังอนุญาตแล้วให้ปิดและเปิด AgentNotch ใหม่"
+          }
+        },
+        "fil": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Kailangan ng pahintulot sa Screen Recording — walang ibang paraan ang macOS para basahin ang audio ng system. Hindi kailanman kinukuha ng AgentNotch ang screen. Pagkatapos magbigay, isara at buksang muli ang AgentNotch."
           }
         }
       }
@@ -29497,6 +29897,106 @@
           "stringUnit": {
             "state": "translated",
             "value": "%1$@ %2$lld porsyento ang nagamit"
+          }
+        }
+      }
+    },
+    "visualizer.noDisplay": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "No display available"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "没有可用的显示器"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "No hay pantalla disponible"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Aucun écran disponible"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Kein Display verfügbar"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Нет доступного дисплея"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "لا توجد شاشة متاحة"
+          }
+        },
+        "pt": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Nenhuma tela disponível"
+          }
+        },
+        "hi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "कोई डिस्प्ले उपलब्ध नहीं"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "利用できるディスプレイがありません"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "사용 가능한 디스플레이 없음"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Nessun display disponibile"
+          }
+        },
+        "id": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Tidak ada layar tersedia"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Không có màn hình khả dụng"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ไม่มีจอแสดงผลที่ใช้ได้"
+          }
+        },
+        "fil": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Walang available na display"
           }
         }
       }
