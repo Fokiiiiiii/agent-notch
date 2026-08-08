@@ -146,6 +146,16 @@ final class NotchUIState: ObservableObject {
     @Published var trayItemCount = 0
     @Published var reopenTrayOnNextOpen = false
     @Published var focusEndsAt: Date?
+    /// How many days the Dashboard's week strip is scrolled away from today
+    /// (0 = centered on today). Lives here rather than in
+    /// `DashboardTodaySection`'s own `@State` because the scroll that drives
+    /// it is an `NSEvent` monitor in `NotchWindowController`, not a SwiftUI
+    /// gesture. Clamped to ±`weekStripScrollLimitDays`.
+    @Published var weekStripDayOffset: Int = 0
+    /// Whether the pointer is over the week strip. Routes horizontal scroll
+    /// to day-stepping instead of page-switching while true — without it the
+    /// two gestures would be indistinguishable.
+    @Published var isHoveringWeekStrip = false
     /// The fixed on-screen size of the `.closed`-mode notch shape. Shared
     /// with `NotchWindowController` so the panel's real frame can grow
     /// (invisibly, for file-drag hit-testing) without the visible shape
@@ -1798,6 +1808,11 @@ final class NotchWindowController: NSObject {
         }
     }
 
+    /// How far either side of today the week strip can be scrolled. Well
+    /// inside `TodayModel.eventFetchRadiusDays`, so a scrolled-to day always
+    /// has its events already fetched.
+    static let weekStripScrollLimitDays = 21
+
     private func handleHorizontalScroll(_ event: NSEvent, delta deltaX: CGFloat) {
 
         if event.phase == .began {
@@ -1822,7 +1837,11 @@ final class NotchWindowController: NSObject {
 
         didCommitCurrentScroll = true
         lastDiscreteScrollSwitch = now
-        navigatePage(forward: horizontalScrollTotal < 0)
+        if uiState.isHoveringWeekStrip {
+            stepWeekStrip(forward: horizontalScrollTotal < 0)
+        } else {
+            navigatePage(forward: horizontalScrollTotal < 0)
+        }
 
         if isDiscreteWheel {
             horizontalScrollTotal = 0
@@ -1869,6 +1888,23 @@ final class NotchWindowController: NSObject {
             verticalScrollTotal = 0
             didCommitCurrentVerticalScroll = false
         }
+    }
+
+    /// Steps the week strip one day forward/back, clamped so it can't be
+    /// scrolled past the range `TodayModel` has actually fetched events for.
+    private func stepWeekStrip(forward: Bool) {
+        let limit = Self.weekStripScrollLimitDays
+        let next = uiState.weekStripDayOffset + (forward ? 1 : -1)
+        let clamped = min(max(next, -limit), limit)
+        guard clamped != uiState.weekStripDayOffset else { return }
+
+        let animation: Animation = NSWorkspace.shared.accessibilityDisplayShouldReduceMotion
+            ? .easeOut(duration: 0.1)
+            : DesignTokens.scaledContentTransition()
+        withAnimation(animation) {
+            uiState.weekStripDayOffset = clamped
+        }
+        SoundPlayer.shared.play(.navigation)
     }
 
     private func navigatePage(forward: Bool) {

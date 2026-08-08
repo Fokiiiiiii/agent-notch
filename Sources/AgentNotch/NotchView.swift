@@ -562,7 +562,7 @@ struct NotchView: View {
                     case .agents:
                         AgentsCell(store: store, uiState: uiState)
                     case .dashboard:
-                        DashboardCell(media: media, today: todayModel)
+                        DashboardCell(media: media, today: todayModel, uiState: uiState)
                     }
                 }
             }
@@ -2351,6 +2351,7 @@ private struct CellSurface<Content: View>: View {
 private struct DashboardCell: View {
     @ObservedObject var media: MediaController
     @ObservedObject var today: TodayModel
+    @ObservedObject var uiState: NotchUIState
 
     /// No `CellSurface` here: NotchNook's widgets sit directly on the panel's
     /// own dark background and are separated by hairline vertical rules, not
@@ -2365,12 +2366,17 @@ private struct DashboardCell: View {
             DashboardMediaSection(media: media)
                 .frame(maxWidth: .infinity, alignment: .leading)
             widgetDivider
-            DashboardTodaySection(model: today)
+            DashboardTodaySection(model: today, uiState: uiState)
                 .frame(width: 236, alignment: .leading)
         }
         .padding(.horizontal, 4)
         .padding(.vertical, 6)
-        .onAppear { today.refresh() }
+        .onAppear {
+            today.refresh()
+            // Always open on today; a strip left scrolled to some other week
+            // from a previous visit is disorienting.
+            uiState.weekStripDayOffset = 0
+        }
     }
 
     /// Hairline rule between widgets — the only separator NotchNook uses.
@@ -2414,9 +2420,19 @@ private struct DashboardMediaSection: View {
             VStack(alignment: .leading, spacing: 4) {
                 // Marquee-scrolled (rather than truncated) so a long title
                 // stays fully readable, matching the compact/hover media
-                // rows elsewhere in the app — see `MarqueeText`.
-                MarqueeText(text: media.hasMedia ? media.title : String(localized: "media.noMediaPlaying", defaultValue: "No media playing"), size: 13, weight: .bold, speed: 18)
-                    .frame(height: 16)
+                // rows elsewhere in the app — see `MarqueeText`. The leading
+                // glyph says at a glance what kind of thing is playing
+                // (podcast/video/song) without spending a text line on it.
+                HStack(spacing: 5) {
+                    if media.hasMedia {
+                        Image(systemName: mediaSourceIcon(forBundleIdentifier: media.sourceBundleIdentifier))
+                            .font(.system(size: 10))
+                            .foregroundColor(DesignTokens.muted)
+                            .accessibilityHidden(true)
+                    }
+                    MarqueeText(text: media.hasMedia ? media.title : String(localized: "media.noMediaPlaying", defaultValue: "No media playing"), size: 13, weight: .bold, speed: 18)
+                }
+                .frame(height: 16)
                 Text(media.hasMedia ? media.artist : (media.isConnected ? media.source : String(localized: "media.unavailable", defaultValue: "Unavailable")))
                     .font(.system(size: 10.5))
                     .foregroundColor(DesignTokens.muted)
@@ -2580,9 +2596,20 @@ private struct MediaControlButton: View {
 /// agenda line itself.
 private struct DashboardTodaySection: View {
     @ObservedObject var model: TodayModel
+    @ObservedObject var uiState: NotchUIState
+
+    /// The day the strip is centered on — today, shifted by however far the
+    /// user has scrolled the strip (`NotchWindowController.stepWeekStrip`).
+    private var selectedDate: Date {
+        Calendar.current.date(byAdding: .day, value: uiState.weekStripDayOffset, to: Date()) ?? Date()
+    }
 
     private var weekStripDays: [WeekStripDay] {
-        centeredWeekStrip(around: Date(), count: 5)
+        centeredWeekStrip(around: selectedDate, count: 5)
+    }
+
+    private var selectedDayEvents: [TodayEvent] {
+        TodayModel.events(on: selectedDate, in: model.nearbyEvents)
     }
 
     var body: some View {
@@ -2594,14 +2621,21 @@ private struct DashboardTodaySection: View {
             agendaLine
         }
         .foregroundColor(.white)
+        // Scrolling sideways anywhere over this widget steps the strip a day
+        // at a time; elsewhere in the panel the same gesture switches pages.
+        // `NotchWindowController.handleHorizontalScroll` reads this flag to
+        // tell the two apart.
+        .onHover { uiState.isHoveringWeekStrip = $0 }
+        .onDisappear { uiState.isHoveringWeekStrip = false }
     }
 
     /// Month label mirroring NotchNook's reference screenshot ("Sep" next to
-    /// the week strip). `Date.formatted` follows the system locale, so no
-    /// new localization key is needed (same precedent as `weekday(.narrow)`
-    /// below).
+    /// the week strip). Follows the strip as it's scrolled, so the month
+    /// always names the days actually on screen. `Date.formatted` follows
+    /// the system locale, so no new localization key is needed (same
+    /// precedent as `weekday(.narrow)` below).
     private var monthBlock: some View {
-        Text(Date().formatted(.dateTime.month(.abbreviated)))
+        Text(selectedDate.formatted(.dateTime.month(.abbreviated)))
             .font(.system(size: 18, weight: .bold, design: .rounded))
             .foregroundColor(.white.opacity(0.9))
     }
@@ -2618,14 +2652,12 @@ private struct DashboardTodaySection: View {
         }
     }
 
-    /// Whether `model.events` (today-only, per `TodayModel.refresh()`'s
-    /// fixed 0:00–24:00 query window) contains an event on `date`. Only
-    /// ever true for today's own column — the underlying data doesn't cover
-    /// other days — but written against `date` rather than hardcoding
-    /// "today" so it keeps working unmodified if `TodayModel` ever grows a
-    /// week-range query.
+    /// Whether any day in the fetched window has something scheduled — this
+    /// is what puts the small dot under a date. Reads `nearbyEvents` (a wide
+    /// window around today) rather than `events` (today only), so days other
+    /// than today can be marked too.
     private func hasEvent(on date: Date) -> Bool {
-        model.events.contains { Calendar.current.isDate($0.startDate, inSameDayAs: date) }
+        model.nearbyEvents.contains { Calendar.current.isDate($0.startDate, inSameDayAs: date) }
     }
 
     /// Small icon above a single line of text, centered under the strip —
@@ -2648,17 +2680,25 @@ private struct DashboardTodaySection: View {
             .buttonStyle(NotchPressStyle())
             .accessibilityIdentifier("today.enable-calendar")
             .help(model.errorMessage ?? String(localized: "today.allowAccessHelp", defaultValue: "Allow access to today's events"))
-        } else if let event = model.events.first {
+        } else if let event = selectedDayEvents.first {
             agendaBody(
                 icon: "calendar",
                 text: "\(event.title)  \(eventTimeRange(event))",
                 color: .white.opacity(0.85)
             )
             .help(event.title)
-        } else {
+        } else if Calendar.current.isDateInToday(selectedDate) {
             agendaBody(
                 icon: "calendar.badge.checkmark",
                 text: String(localized: "today.nothingForToday", defaultValue: "Nothing for today"),
+                color: DesignTokens.muted
+            )
+        } else {
+            // Scrolled off today: name the day, since "Nothing for today"
+            // would be describing a different date than the one on screen.
+            agendaBody(
+                icon: "calendar.badge.checkmark",
+                text: String(localized: "today.nothingScheduledOn", defaultValue: "Nothing on \(selectedDate.formatted(.dateTime.month().day()))"),
                 color: DesignTokens.muted
             )
         }
@@ -2748,6 +2788,26 @@ private struct WeekDayColumn: View {
 struct WeekStripDay: Equatable {
     let date: Date
     let offset: Int
+}
+
+/// An SF Symbol describing what kind of thing is playing, chosen from the
+/// now-playing source's bundle identifier: a mic for spoken audio, a screen
+/// for video, a note for everything else. Matching is on substrings rather
+/// than an exhaustive bundle-id list so unlisted apps from the same family
+/// (regional Podcasts builds, Spotify betas, Chromium forks) still land on
+/// the right glyph.
+func mediaSourceIcon(forBundleIdentifier identifier: String?) -> String {
+    guard let identifier, !identifier.isEmpty else { return "music.note" }
+    let id = identifier.lowercased()
+    if id.contains("podcast") || id.contains("overcast") || id.contains("pocketcast") || id.contains("audible") {
+        return "mic.fill"
+    }
+    if id.contains("safari") || id.contains("chrome") || id.contains("chromium") || id.contains("brave")
+        || id.contains("firefox") || id.contains("arc") || id.contains("vlc") || id.contains("iina")
+        || id.contains("quicktime") || id.contains("appletv") || id.contains(".tv") {
+        return "play.rectangle.fill"
+    }
+    return "music.note"
 }
 
 /// Returns `count` consecutive days centered on `referenceDate` — `(count-1)/2`

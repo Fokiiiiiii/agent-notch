@@ -29,9 +29,26 @@ final class TodayModel: ObservableObject {
     /// which constructs `TodayModel()` directly to test its init wiring).
     static let shared = TodayModel()
 
+    /// Today's own events, capped for display. Unchanged in meaning from
+    /// before `nearbyEvents` existed — `expandedDetail`'s location/duration/
+    /// attendee rows still read it.
     @Published private(set) var events: [TodayEvent] = []
+    /// Every (non-all-day) event in a window around today, so the week strip
+    /// can mark which days have something scheduled and show the agenda for
+    /// a day the user scrolled to. One wide query on each refresh is far
+    /// cheaper than re-querying EventKit on every scroll step.
+    @Published private(set) var nearbyEvents: [TodayEvent] = []
     @Published private(set) var authorizationStatus = EKEventStore.authorizationStatus(for: .event)
     @Published private(set) var errorMessage: String?
+
+    /// How far either side of today `refresh()` fetches. Comfortably wider
+    /// than `weekStripScrollLimitDays`, the range the strip can actually be
+    /// scrolled to, so scrolling never outruns the fetched data.
+    static let eventFetchRadiusDays = 28
+    /// Ceiling on how many events one refresh keeps, so a pathological
+    /// calendar (hundreds of entries in a month) can't blow up memory or
+    /// the per-day lookups the week strip does.
+    private static let eventFetchLimit = 400
 
     private let store = EKEventStore()
     private var timer: AnyCancellable?
@@ -77,24 +94,37 @@ final class TodayModel: ObservableObject {
     func refresh() {
         guard canReadCalendar else { return }
         let calendar = Calendar.current
-        let start = calendar.startOfDay(for: Date())
-        let end = calendar.date(byAdding: .day, value: 1, to: start) ?? Date().addingTimeInterval(86_400)
-        let predicate = store.predicateForEvents(withStart: start, end: end, calendars: nil)
-        events = store.events(matching: predicate)
+        let today = calendar.startOfDay(for: Date())
+        let windowStart = calendar.date(byAdding: .day, value: -Self.eventFetchRadiusDays, to: today) ?? today
+        let windowEnd = calendar.date(byAdding: .day, value: Self.eventFetchRadiusDays + 1, to: today)
+            ?? today.addingTimeInterval(86_400)
+        let predicate = store.predicateForEvents(withStart: windowStart, end: windowEnd, calendars: nil)
+        let fetched = store.events(matching: predicate)
             .filter { !$0.isAllDay }
-            .prefix(4)
-            .map {
-                let trimmedLocation = $0.location?.trimmingCharacters(in: .whitespacesAndNewlines)
+            .prefix(Self.eventFetchLimit)
+            .map { event -> TodayEvent in
+                let trimmedLocation = event.location?.trimmingCharacters(in: .whitespacesAndNewlines)
                 return TodayEvent(
-                    id: $0.eventIdentifier ?? UUID().uuidString,
-                    startDate: $0.startDate,
-                    endDate: $0.endDate ?? $0.startDate,
-                    title: $0.title ?? "Untitled event",
-                    calendar: $0.calendar.title,
+                    id: event.eventIdentifier ?? UUID().uuidString,
+                    startDate: event.startDate,
+                    endDate: event.endDate ?? event.startDate,
+                    title: event.title ?? "Untitled event",
+                    calendar: event.calendar.title,
                     location: (trimmedLocation?.isEmpty == false) ? trimmedLocation : nil,
-                    attendeeCount: $0.hasAttendees ? $0.attendees?.count : nil
+                    attendeeCount: event.hasAttendees ? event.attendees?.count : nil
                 )
             }
+        nearbyEvents = Array(fetched)
+        events = Array(Self.events(on: today, in: nearbyEvents, calendar: calendar).prefix(4))
+    }
+
+    /// Events starting on the same calendar day as `date`, in start order.
+    /// `nonisolated static` so the week strip's per-day lookups and the
+    /// tests can both call it without touching `TodayModel`'s state.
+    nonisolated static func events(on date: Date, in events: [TodayEvent], calendar: Calendar = .current) -> [TodayEvent] {
+        events
+            .filter { calendar.isDate($0.startDate, inSameDayAs: date) }
+            .sorted { $0.startDate < $1.startDate }
     }
 }
 
@@ -106,6 +136,10 @@ final class MediaController: ObservableObject {
     @Published private(set) var title = String(localized: "media.nothingPlaying", defaultValue: "Nothing Playing")
     @Published private(set) var artist = String(localized: "media.playInAnyApp", defaultValue: "Play media in any app")
     @Published private(set) var album = ""
+    /// Kept alongside `source` (which resolves to a human-readable app name
+    /// when the app is running) so the UI can tell a podcast from a song
+    /// from a video and pick a matching glyph — see `mediaSourceIcon(for:)`.
+    @Published private(set) var sourceBundleIdentifier: String?
     @Published private(set) var isPlaying = false
     @Published private(set) var position = 0.0
     @Published private(set) var duration = 1.0
@@ -188,6 +222,7 @@ final class MediaController: ObservableObject {
             title = String(localized: "media.nothingPlaying", defaultValue: "Nothing Playing")
             artist = isConnected ? String(localized: "media.playInAnyApp", defaultValue: "Play media in any app") : String(localized: "media.adapterMissing", defaultValue: "Media adapter is missing")
             album = ""
+            sourceBundleIdentifier = nil
             isPlaying = false
             position = 0
             duration = 1
@@ -203,6 +238,7 @@ final class MediaController: ObservableObject {
             NSRunningApplication.runningApplications(withBundleIdentifier: $0).first?.localizedName
         }
         source = application ?? snapshot.bundleIdentifier ?? String(localized: "media.systemMedia", defaultValue: "System media")
+        sourceBundleIdentifier = snapshot.bundleIdentifier
         title = snapshot.title
         artist = snapshot.artist?.isEmpty == false ? snapshot.artist! : source
         album = snapshot.album?.isEmpty == false ? snapshot.album! : ""
