@@ -207,6 +207,55 @@ struct WidgetLayoutItem: Codable, Identifiable, Equatable {
     }
 }
 
+/// The widgets that can occupy the Dashboard page's row, in the order they
+/// ship in. Each case's `id` is what gets persisted in
+/// `AppSettings.tabLayouts[DashboardWidget.layoutKey]`, so renaming a case's
+/// raw value would orphan an existing user layout.
+enum DashboardWidget: String, CaseIterable, Identifiable {
+    case media, today
+
+    /// Key under which the Dashboard's arrangement is stored. Distinct from
+    /// the `"today"`/`"system"` keys already in `tabLayouts`, which group
+    /// `expandedDetail`'s items rather than page widgets.
+    static let layoutKey = "dashboard"
+
+    var id: String { rawValue }
+
+    static var defaultOrder: [String] { allCases.map(\.id) }
+
+    /// `nil` means "take whatever width is left". Today is a fixed width
+    /// because its five-column date strip is laid out around a known column
+    /// size; Media absorbs the remainder.
+    var preferredWidth: CGFloat? {
+        switch self {
+        case .media: return nil
+        case .today: return 236
+        }
+    }
+
+    var displayName: String {
+        switch self {
+        case .media: return String(localized: "widget.media", defaultValue: "Media")
+        case .today: return String(localized: "widget.today", defaultValue: "Calendar")
+        }
+    }
+
+    var symbolName: String {
+        switch self {
+        case .media: return "music.note"
+        case .today: return "calendar"
+        }
+    }
+
+    /// Resolves a stored arrangement into the widgets to actually draw.
+    /// Separate from the view so the ordering/visibility rules are testable
+    /// without standing up SwiftUI.
+    static func resolved(from configuration: TabLayoutConfiguration?) -> [DashboardWidget] {
+        let ids = configuration?.applying(to: defaultOrder) ?? defaultOrder
+        return ids.compactMap(DashboardWidget.init(rawValue:))
+    }
+}
+
 /// The full widget arrangement for one tab (Agents/Media/Today/System).
 /// Persisted as JSON under `AppSettings.tabLayouts`, keyed by tab id.
 struct TabLayoutConfiguration: Codable, Equatable {

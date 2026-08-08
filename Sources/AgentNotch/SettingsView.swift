@@ -49,10 +49,11 @@ final class SettingsWindowController {
 /// Every control here is bound to an `AppSettings` property that's genuinely
 /// read somewhere else in the app — see each property's own doc comment in
 /// `AppSettings.swift` for its consuming call sites. Properties that are
-/// only persisted but not yet consumed anywhere (`languageOverride`,
-/// `tabLayouts`) get no control here on purpose, per the Phase 7 roadmap
-/// note: "未実装・未接続の項目はUIに表示しない" (don't surface controls for
-/// unimplemented/unwired settings).
+/// only persisted but not yet consumed anywhere (`languageOverride`) get no
+/// control here on purpose, per the Phase 7 roadmap note:
+/// "未実装・未接続の項目はUIに表示しない" (don't surface controls for
+/// unimplemented/unwired settings). `tabLayouts` graduated out of that list
+/// once `DashboardCell` started building its row from it — see the Nook tab.
 struct SettingsView: View {
     @ObservedObject var settings: AppSettings
     @State private var selection: SettingsTab = .general
@@ -65,6 +66,7 @@ struct SettingsView: View {
                 switch selection {
                 case .general: GeneralSettingsTab(settings: settings)
                 case .gestures: GestureSettingsTab(settings: settings)
+                case .nook: NookSettingsTab(settings: settings)
                 case .agents: AgentSettingsTab(settings: settings)
                 case .permissions: PermissionSettingsTab()
                 case .about: AboutSettingsTab()
@@ -113,7 +115,7 @@ struct SettingsView: View {
 }
 
 enum SettingsTab: String, CaseIterable, Identifiable {
-    case general, gestures, agents, permissions, about
+    case general, gestures, nook, agents, permissions, about
 
     var id: String { rawValue }
 
@@ -121,6 +123,7 @@ enum SettingsTab: String, CaseIterable, Identifiable {
         switch self {
         case .general: return "gearshape"
         case .gestures: return "hand.draw"
+        case .nook: return "square.grid.2x2"
         case .agents: return "terminal"
         case .permissions: return "lock.shield"
         case .about: return "info.circle"
@@ -131,6 +134,7 @@ enum SettingsTab: String, CaseIterable, Identifiable {
         switch self {
         case .general: return String(localized: "settings.tab.general", defaultValue: "General")
         case .gestures: return String(localized: "settings.tab.gestures", defaultValue: "Gestures")
+        case .nook: return String(localized: "settings.tab.nook", defaultValue: "Nook")
         case .agents: return String(localized: "settings.tab.agents", defaultValue: "Agents")
         case .permissions: return String(localized: "settings.tab.permissions", defaultValue: "Permissions")
         case .about: return String(localized: "settings.tab.about", defaultValue: "About")
@@ -228,6 +232,121 @@ private struct GestureSettingsTab: View {
                 .fixedSize(horizontal: false, vertical: true)
         }
         .padding(.vertical, 1)
+    }
+}
+
+// MARK: - Nook
+
+/// Controls which widgets the Dashboard page shows and in what order.
+/// Writes `AppSettings.tabLayouts[DashboardWidget.layoutKey]`, which
+/// `DashboardCell` reads on every render.
+private struct NookSettingsTab: View {
+    @ObservedObject var settings: AppSettings
+
+    /// Every widget, in the user's order, with the ones they've hidden
+    /// appended — the list has to show hidden widgets too, or there'd be no
+    /// way to turn one back on.
+    private var rows: [DashboardWidget] {
+        let visible = DashboardWidget.resolved(from: settings.tabLayouts[DashboardWidget.layoutKey])
+        return visible + DashboardWidget.allCases.filter { !visible.contains($0) }
+    }
+
+    private var configuration: TabLayoutConfiguration {
+        settings.tabLayouts[DashboardWidget.layoutKey] ?? TabLayoutConfiguration(widgets: [])
+    }
+
+    var body: some View {
+        Form {
+            Section(String(localized: "settings.section.dashboardWidgets", defaultValue: "Dashboard widgets")) {
+                ForEach(Array(rows.enumerated()), id: \.element.id) { index, widget in
+                    HStack(spacing: 10) {
+                        Image(systemName: widget.symbolName)
+                            .foregroundColor(.secondary)
+                            .frame(width: 18)
+                        Toggle(widget.displayName, isOn: binding(for: widget))
+                        Spacer(minLength: 8)
+                        // Plain up/down buttons rather than `.onMove`: this
+                        // Form isn't a `List`, and a two-item row reorders
+                        // fine without drag affordances.
+                        Button {
+                            move(widget, by: -1)
+                        } label: {
+                            Image(systemName: "chevron.up")
+                        }
+                        .disabled(index == 0)
+                        .accessibilityLabel(String(localized: "settings.moveWidgetUp", defaultValue: "Move up"))
+                        Button {
+                            move(widget, by: 1)
+                        } label: {
+                            Image(systemName: "chevron.down")
+                        }
+                        .disabled(index == rows.count - 1)
+                        .accessibilityLabel(String(localized: "settings.moveWidgetDown", defaultValue: "Move down"))
+                    }
+                    .padding(.vertical, 2)
+                }
+                Text(String(localized: "settings.dashboardWidgetsHelp", defaultValue: "Widgets are laid out left to right in this order. The notch panel keeps its width, so the widgets share it."))
+                    .font(.caption)
+                    .foregroundColor(.secondary)
+                    .fixedSize(horizontal: false, vertical: true)
+                    .padding(.vertical, 2)
+            }
+
+            Section {
+                Button(String(localized: "settings.resetLayout", defaultValue: "Reset to default layout")) {
+                    settings.tabLayouts[DashboardWidget.layoutKey] = nil
+                }
+                .disabled(settings.tabLayouts[DashboardWidget.layoutKey] == nil)
+            }
+        }
+        .formStyle(.grouped)
+    }
+
+    private func binding(for widget: DashboardWidget) -> Binding<Bool> {
+        Binding(
+            get: { item(for: widget)?.isVisible ?? true },
+            set: { newValue in
+                var config = normalized()
+                if let index = config.widgets.firstIndex(where: { $0.id == widget.id }) {
+                    config.widgets[index].isVisible = newValue
+                }
+                settings.tabLayouts[DashboardWidget.layoutKey] = config
+            }
+        )
+    }
+
+    private func item(for widget: DashboardWidget) -> WidgetLayoutItem? {
+        configuration.widgets.first { $0.id == widget.id }
+    }
+
+    /// A stored configuration can be partial (`applying(to:)` tolerates
+    /// that), but editing needs every widget present with a concrete order,
+    /// so the first edit materializes the full list in its current order.
+    private func normalized() -> TabLayoutConfiguration {
+        let ordered = rows
+        let existing = Dictionary(uniqueKeysWithValues: configuration.widgets.map { ($0.id, $0) })
+        let widgets = ordered.enumerated().map { index, widget -> WidgetLayoutItem in
+            var item = existing[widget.id] ?? WidgetLayoutItem(id: widget.id, order: index)
+            item.order = index
+            item.displayName = widget.displayName
+            return item
+        }
+        return TabLayoutConfiguration(widgets: widgets)
+    }
+
+    private func move(_ widget: DashboardWidget, by offset: Int) {
+        var ordered = rows
+        guard let from = ordered.firstIndex(of: widget) else { return }
+        let to = from + offset
+        guard ordered.indices.contains(to) else { return }
+        ordered.swapAt(from, to)
+        var config = normalized()
+        for (index, widget) in ordered.enumerated() {
+            if let position = config.widgets.firstIndex(where: { $0.id == widget.id }) {
+                config.widgets[position].order = index
+            }
+        }
+        settings.tabLayouts[DashboardWidget.layoutKey] = config
     }
 }
 

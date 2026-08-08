@@ -12,6 +12,7 @@ struct NotchView: View {
     @StateObject private var media = MediaController.shared
     @StateObject private var usageStore = AgentUsageStore.shared
     @StateObject private var todayModel = TodayModel.shared
+    @ObservedObject private var settings = AppSettings.shared
     @StateObject private var systemMonitor = SystemMonitor.shared
     @StateObject private var backgroundActivity = BackgroundActivityMonitor.shared
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
@@ -591,7 +592,7 @@ struct NotchView: View {
                     case .agents:
                         AgentsCell(store: store, uiState: uiState)
                     case .dashboard:
-                        DashboardCell(media: media, today: todayModel, uiState: uiState)
+                        DashboardCell(media: media, today: todayModel, uiState: uiState, settings: settings)
                     }
                 }
             }
@@ -2431,22 +2432,30 @@ private struct DashboardCell: View {
     @ObservedObject var media: MediaController
     @ObservedObject var today: TodayModel
     @ObservedObject var uiState: NotchUIState
+    @ObservedObject var settings: AppSettings
 
     /// No `CellSurface` here: NotchNook's widgets sit directly on the panel's
     /// own dark background and are separated by hairline vertical rules, not
     /// by their own tinted cards. Wrapping these in `CellSurface` produced
     /// the washed-out grey slab the design was explicitly asked not to have.
     ///
-    /// The 236pt Today width is a provisional fixed value; a future widget
-    /// system (freely reorderable/resizable Dashboard widgets) will replace
-    /// this hardcoded two-column split.
+    /// The row is built from `settings.tabLayouts`, so which widgets appear
+    /// and in what order comes from the Nook settings tab rather than being
+    /// hardcoded here.
+    private var widgets: [DashboardWidget] {
+        DashboardWidget.resolved(from: settings.tabLayouts[DashboardWidget.layoutKey])
+    }
+
     var body: some View {
         HStack(alignment: .center, spacing: 0) {
-            DashboardMediaSection(media: media)
-                .frame(maxWidth: .infinity, alignment: .leading)
-            widgetDivider
-            DashboardTodaySection(model: today, uiState: uiState)
-                .frame(width: 236, alignment: .leading)
+            if widgets.isEmpty {
+                emptyState
+            } else {
+                ForEach(Array(widgets.enumerated()), id: \.element.id) { index, widget in
+                    if index > 0 { widgetDivider }
+                    widgetView(for: widget)
+                }
+            }
         }
         .padding(.horizontal, 4)
         .padding(.vertical, 6)
@@ -2456,6 +2465,34 @@ private struct DashboardCell: View {
             // from a previous visit is disorienting.
             uiState.weekStripDayOffset = 0
         }
+    }
+
+    /// Each widget carries its own width rule (`preferredWidth`), so adding
+    /// one doesn't mean editing the row's layout as well.
+    @ViewBuilder
+    private func widgetView(for widget: DashboardWidget) -> some View {
+        let content = Group {
+            switch widget {
+            case .media:
+                DashboardMediaSection(media: media)
+            case .today:
+                DashboardTodaySection(model: today, uiState: uiState)
+            }
+        }
+        if let width = widget.preferredWidth {
+            content.frame(width: width, alignment: .leading)
+        } else {
+            content.frame(maxWidth: .infinity, alignment: .leading)
+        }
+    }
+
+    /// Reachable by turning every widget off in Settings. Says so plainly
+    /// rather than leaving a blank panel that reads as a rendering bug.
+    private var emptyState: some View {
+        Text(String(localized: "dashboard.noWidgets", defaultValue: "No widgets enabled — turn some on in Settings ▸ Nook"))
+            .font(.system(size: 11))
+            .foregroundColor(DesignTokens.muted)
+            .frame(maxWidth: .infinity, alignment: .center)
     }
 
     /// Hairline rule between widgets — the only separator NotchNook uses.
