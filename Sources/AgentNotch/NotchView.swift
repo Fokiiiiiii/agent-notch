@@ -881,6 +881,7 @@ struct NotchView: View {
             selectedItemID: $selectedTrayItemID,
             isTargeted: isDropTargeted,
             isAirDropTargeted: isAirDropTargeted,
+            shortcuts: settings.registeredShortcuts,
             airDropWellFrame: $airDropWellFrame,
             feedback: trayFeedback,
             canUndo: !pendingTrayUndo.isEmpty
@@ -950,6 +951,8 @@ struct NotchView: View {
                 trayFeedback = String(localized: "tray.feedback.pathsCopied", defaultValue: "Paths copied")
             case .airDrop:
                 sendViaAirDrop(selectedURLs)
+            case .runShortcut(let shortcut):
+                runShortcut(shortcut, with: selectedURLs)
             case .compress:
                 trayFeedback = String(localized: "tray.feedback.compressing", defaultValue: "Compressing…")
                 Task {
@@ -969,6 +972,17 @@ struct NotchView: View {
     private func isOverAirDropWell(_ location: CGPoint) -> Bool {
         guard uiState.activeTab == .tray, !airDropWellFrame.isEmpty else { return false }
         return airDropWellFrame.contains(location)
+    }
+
+    /// Fire-and-report: a shortcut can take arbitrarily long (it may show
+    /// its own UI or wait on the network), so the Tray shows "Running…"
+    /// immediately and replaces it when the run finishes.
+    private func runShortcut(_ shortcut: ShortcutBinding, with urls: [URL]) {
+        trayFeedback = String(localized: "tray.feedback.runningShortcut", defaultValue: "Running \(shortcut.name)…")
+        Task {
+            let failure = await ShortcutRunner.run(name: shortcut.name, inputPaths: urls.map(\.path))
+            trayFeedback = failure ?? String(localized: "tray.feedback.shortcutFinished", defaultValue: "\(shortcut.name) finished")
+        }
     }
 
     private func sendViaAirDrop(_ urls: [URL]) {
@@ -3100,7 +3114,12 @@ private struct TrayItem: Identifiable {
     let url: URL
 }
 
-private enum TrayAction { case choose, open, reveal, airDrop, compress, copyPath, attach, removeSelected, removeItem(UUID), clear, undo }
+private enum TrayAction {
+    case choose, open, reveal, airDrop, compress, copyPath, attach, removeSelected, removeItem(UUID), clear, undo
+    /// Run a user-registered Shortcuts shortcut with the current selection
+    /// as its input.
+    case runShortcut(ShortcutBinding)
+}
 
 /// SF Symbols ships no `airdrop` glyph (checked at runtime — `airplayaudio`
 /// exists but reads as AirPlay), so the mark is drawn: three concentric arcs
@@ -3141,6 +3160,7 @@ private struct TrayCell: View {
     @Binding var selectedItemID: UUID?
     let isTargeted: Bool
     let isAirDropTargeted: Bool
+    let shortcuts: [ShortcutBinding]
     /// Reported upward so `NotchView` can route an incoming drop to AirDrop
     /// instead of the Tray — see `isOverAirDropWell`.
     @Binding var airDropWellFrame: CGRect
@@ -3185,6 +3205,15 @@ private struct TrayCell: View {
                         Menu {
                             Button(String(localized: "tray.compress", defaultValue: "Compress"), systemImage: "archivebox") { action(.compress) }
                             Button(String(localized: "tray.copyPath", defaultValue: "Copy Path"), systemImage: "doc.on.doc") { action(.copyPath) }
+                            // Only shown once the user has registered one in
+                            // Settings — an empty "Shortcuts" submenu would
+                            // just be a dead end.
+                            if !shortcuts.isEmpty {
+                                Divider()
+                                ForEach(shortcuts) { shortcut in
+                                    Button(shortcut.name, systemImage: "bolt") { action(.runShortcut(shortcut)) }
+                                }
+                            }
                             Divider()
                             Button(String(localized: "tray.removeSelected", defaultValue: "Remove Selected"), systemImage: "minus.circle", role: .destructive) { action(.removeSelected) }
                             Button(String(localized: "tray.clearAll", defaultValue: "Clear All"), systemImage: "trash", role: .destructive) {

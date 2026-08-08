@@ -242,6 +242,7 @@ private struct GestureSettingsTab: View {
 /// `DashboardCell` reads on every render.
 private struct NookSettingsTab: View {
     @ObservedObject var settings: AppSettings
+    @State private var installedShortcuts: [String] = []
 
     /// Every widget, in the user's order, with the ones they've hidden
     /// appended — the list has to show hidden widgets too, or there'd be no
@@ -292,6 +293,51 @@ private struct NookSettingsTab: View {
                     .padding(.vertical, 2)
             }
 
+            Section(String(localized: "settings.section.shortcuts", defaultValue: "Shortcuts")) {
+                ForEach(settings.registeredShortcuts) { shortcut in
+                    HStack(spacing: 10) {
+                        Image(systemName: "bolt")
+                            .foregroundColor(.secondary)
+                            .frame(width: 18)
+                        Text(shortcut.name)
+                        Spacer(minLength: 8)
+                        Button(role: .destructive) {
+                            settings.registeredShortcuts.removeAll { $0.id == shortcut.id }
+                        } label: {
+                            Image(systemName: "minus.circle")
+                        }
+                        .accessibilityLabel(String(localized: "settings.removeShortcut", defaultValue: "Remove shortcut"))
+                    }
+                    .padding(.vertical, 2)
+                }
+
+                if installedShortcuts.isEmpty {
+                    // Either Shortcuts has none, or `shortcuts list` failed —
+                    // both leave the user with nothing to pick, so say so
+                    // rather than showing an empty menu.
+                    Text(String(localized: "settings.noShortcutsFound", defaultValue: "No shortcuts found. Create one in the Shortcuts app, then reopen this window."))
+                        .font(.caption)
+                        .foregroundColor(.secondary)
+                        .fixedSize(horizontal: false, vertical: true)
+                        .padding(.vertical, 2)
+                } else {
+                    Menu(String(localized: "settings.addShortcut", defaultValue: "Add shortcut…")) {
+                        ForEach(unregisteredShortcuts, id: \.self) { name in
+                            Button(name) {
+                                settings.registeredShortcuts.append(ShortcutBinding(name: name))
+                            }
+                        }
+                    }
+                    .disabled(unregisteredShortcuts.isEmpty)
+                }
+
+                Text(String(localized: "settings.shortcutsHelp", defaultValue: "Registered shortcuts appear in the Tray's ⋯ menu. Running one passes the selected Tray files to it as input."))
+                    .font(.caption)
+                    .foregroundColor(.secondary)
+                    .fixedSize(horizontal: false, vertical: true)
+                    .padding(.vertical, 2)
+            }
+
             Section {
                 Button(String(localized: "settings.resetLayout", defaultValue: "Reset to default layout")) {
                     settings.tabLayouts[DashboardWidget.layoutKey] = nil
@@ -300,6 +346,15 @@ private struct NookSettingsTab: View {
             }
         }
         .formStyle(.grouped)
+        // Read once per appearance rather than on every render: each call
+        // spawns `shortcuts list`, and the user's shortcut set doesn't change
+        // while this window sits open.
+        .onAppear { installedShortcuts = ShortcutRunner.installedNames() }
+    }
+
+    private var unregisteredShortcuts: [String] {
+        let taken = Set(settings.registeredShortcuts.map(\.name))
+        return installedShortcuts.filter { !taken.contains($0) }
     }
 
     private func binding(for widget: DashboardWidget) -> Binding<Bool> {

@@ -55,18 +55,27 @@ final class AppSettings: ObservableObject {
         didSet { UserDefaults.standard.set(animationSpeedScale, forKey: Keys.animationSpeedScale) }
     }
     /// Per-tab widget layout (order/visibility/size). Keyed by a stable
-    /// identifier — since Media/Today/System merged into one Dashboard Nook
-    /// page (see `NookView`), these keys (`"agents"`, `"today"`, `"system"`)
-    /// now identify `expandedDetail`'s per-source-tab item groups within
-    /// that merged page rather than top-level tabs; `orderedDetailItems`
-    /// is still the only actual consumer. Not yet editable from any UI —
-    /// this is the storage foundation a future "customize layout" settings
-    /// screen will read/write. Absence of a key means "use the built-in
-    /// default order, all widgets visible."
+    /// identifier: `DashboardWidget.layoutKey` is the Dashboard page's own
+    /// widget row (edited from Settings ▸ Nook, read by `DashboardCell`),
+    /// while `"agents"`/`"today"`/`"system"` identify `expandedDetail`'s
+    /// per-source item groups within that merged page rather than top-level
+    /// tabs. Absence of a key means "use the built-in default order, all
+    /// widgets visible."
     @Published var tabLayouts: [String: TabLayoutConfiguration] {
         didSet {
             if let data = try? JSONEncoder().encode(tabLayouts) {
                 UserDefaults.standard.set(data, forKey: Keys.tabLayouts)
+            }
+        }
+    }
+
+    /// Shortcuts the user has pinned to the Tray's action menu, in the
+    /// order they appear there. Read by `TrayCell`; edited from
+    /// Settings ▸ Nook.
+    @Published var registeredShortcuts: [ShortcutBinding] {
+        didSet {
+            if let data = try? JSONEncoder().encode(registeredShortcuts) {
+                UserDefaults.standard.set(data, forKey: Keys.registeredShortcuts)
             }
         }
     }
@@ -83,6 +92,7 @@ final class AppSettings: ObservableObject {
         static let cornerRadiusScale = "agentnotch.cornerRadiusScale"
         static let animationSpeedScale = "agentnotch.animationSpeedScale"
         static let tabLayouts = "agentnotch.tabLayouts"
+        static let registeredShortcuts = "agentnotch.registeredShortcuts"
     }
 
     private init() {
@@ -102,6 +112,12 @@ final class AppSettings: ObservableObject {
             tabLayouts = decoded
         } else {
             tabLayouts = [:]
+        }
+        if let data = defaults.data(forKey: Keys.registeredShortcuts),
+           let decoded = try? JSONDecoder().decode([ShortcutBinding].self, from: data) {
+            registeredShortcuts = decoded
+        } else {
+            registeredShortcuts = []
         }
     }
 }
