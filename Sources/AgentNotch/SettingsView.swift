@@ -93,9 +93,16 @@ struct SettingsView: View {
                     formatter: { String(format: "%.1f×", $0) }
                 )
             }
+
+            Section(String(localized: "settings.section.help", defaultValue: "Help")) {
+                Button(String(localized: "settings.showWelcome", defaultValue: "Show Welcome Screen…")) {
+                    NotificationCenter.default.post(name: .agentNotchReplayOnboarding, object: nil)
+                }
+                .help(String(localized: "settings.showWelcomeHelp", defaultValue: "Reopens the gesture guide shown on first launch."))
+            }
         }
         .formStyle(.grouped)
-        .frame(width: 400, height: 340)
+        .frame(width: 400, height: 380)
     }
 
     /// One labeled slider row with a live value readout and a reset button

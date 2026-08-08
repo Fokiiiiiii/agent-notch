@@ -26,6 +26,11 @@ final class AppSettings: ObservableObject {
     @Published var invertMediaSwipe: Bool {
         didSet { UserDefaults.standard.set(invertMediaSwipe, forKey: Keys.invertMediaSwipe) }
     }
+    /// Set once the welcome screen has been dismissed, so it only appears on
+    /// a genuine first run. Settings can reopen it regardless.
+    @Published var hasSeenOnboarding: Bool {
+        didSet { UserDefaults.standard.set(hasSeenOnboarding, forKey: Keys.hasSeenOnboarding) }
+    }
     @Published var languageOverride: String? {
         didSet { UserDefaults.standard.set(languageOverride, forKey: Keys.languageOverride) }
     }
@@ -63,6 +68,7 @@ final class AppSettings: ObservableObject {
         static let hapticsEnabled = "agentnotch.hapticsEnabled"
         static let mediaSwipeEnabled = "agentnotch.mediaSwipeEnabled"
         static let invertMediaSwipe = "agentnotch.invertMediaSwipe"
+        static let hasSeenOnboarding = "agentnotch.hasSeenOnboarding"
         static let languageOverride = "agentnotch.languageOverride"
         static let uiScale = "agentnotch.uiScale"
         static let cornerRadiusScale = "agentnotch.cornerRadiusScale"
@@ -76,6 +82,7 @@ final class AppSettings: ObservableObject {
         hapticsEnabled = defaults.object(forKey: Keys.hapticsEnabled) as? Bool ?? true
         mediaSwipeEnabled = defaults.object(forKey: Keys.mediaSwipeEnabled) as? Bool ?? true
         invertMediaSwipe = defaults.object(forKey: Keys.invertMediaSwipe) as? Bool ?? false
+        hasSeenOnboarding = defaults.object(forKey: Keys.hasSeenOnboarding) as? Bool ?? false
         languageOverride = defaults.string(forKey: Keys.languageOverride)
         uiScale = defaults.object(forKey: Keys.uiScale) as? Double ?? 1.0
         cornerRadiusScale = defaults.object(forKey: Keys.cornerRadiusScale) as? Double ?? 1.0

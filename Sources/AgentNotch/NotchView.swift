@@ -439,11 +439,18 @@ struct NotchView: View {
         VStack(spacing: 7) {
             nookbar
             Group {
-                switch uiState.activeTab {
-                case .nook:
-                    nookContentView
-                case .tray:
-                    trayContent
+                if uiState.isShowingOnboarding {
+                    // Takes precedence over tabs and overlays alike: this is
+                    // shown before the user knows the notch does anything,
+                    // so nothing else should be competing for the space.
+                    OnboardingContent { controller.dismissOnboarding() }
+                } else {
+                    switch uiState.activeTab {
+                    case .nook:
+                        nookContentView
+                    case .tray:
+                        trayContent
+                    }
                 }
             }
             .transition(.asymmetric(
@@ -1623,7 +1630,10 @@ struct GlyphBox: View {
 
 // MARK: - Native interaction feedback
 
-private struct NotchPressStyle: ButtonStyle {
+/// Internal rather than file-private: `OnboardingContent` lives in its own
+/// file but is still notch chrome, and its button has to press like every
+/// other button in the panel.
+struct NotchPressStyle: ButtonStyle {
     var pressedScale: CGFloat = 0.97
 
     func makeBody(configuration: Configuration) -> some View {
@@ -1664,7 +1674,9 @@ private struct HoverLiftModifier: ViewModifier {
     }
 }
 
-private extension View {
+extension View {
+    /// Internal for the same reason as `NotchPressStyle`: `OnboardingContent`
+    /// is in its own file but is still part of the notch's chrome.
     func hoverLift(cornerRadius: CGFloat = 8, strength: Double = 0.055) -> some View {
         modifier(HoverLiftModifier(cornerRadius: cornerRadius, strength: strength))
     }

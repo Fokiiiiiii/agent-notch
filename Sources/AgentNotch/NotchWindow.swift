@@ -156,6 +156,10 @@ final class NotchUIState: ObservableObject {
     /// to day-stepping instead of page-switching while true — without it the
     /// two gestures would be indistinguishable.
     @Published var isHoveringWeekStrip = false
+    /// Shows the first-run gesture guide in place of the normal panel
+    /// contents. Takes priority over everything else the panel can show:
+    /// it appears before the user has any idea the notch is interactive.
+    @Published var isShowingOnboarding = false
     /// The fixed on-screen size of the `.closed`-mode notch shape. Shared
     /// with `NotchWindowController` so the panel's real frame can grow
     /// (invisibly, for file-drag hit-testing) without the visible shape
@@ -329,6 +333,11 @@ final class NotchWindowController: NSObject {
     /// Dashboard has no scroll fallback, so a cap tighter than its own worst
     /// case would silently clip real content instead of protecting anything.
     static let dashboardMaxHeight: CGFloat = 320
+    /// Height for the first-run gesture guide: four icon-over-caption
+    /// columns (~72pt, captions wrap to two lines at this width) + 16pt
+    /// spacing + a 30pt button + the same nookbar/padding chrome the other
+    /// pages sit in.
+    static let onboardingHeight: CGFloat = 190
 
     /// `static` (unlike `agentsOpenSize`, a `private` instance method) so
     /// it's a pure function `DashboardSizingTests` can call directly without
@@ -1153,6 +1162,14 @@ final class NotchWindowController: NSObject {
     /// size for `mode` (and, for `.open`, to the taller overlay size when
     /// `uiState.hasOverlay` is true).
     func setMode(_ mode: IslandMode, forceResize: Bool = false) {
+        // The first-run guide holds the panel open until it's dismissed.
+        // Guarding here rather than at each call site because the paths that
+        // collapse the panel are many and unrelated (empty attention queues,
+        // hover exit, fullscreen changes, the app delegate's collapse timer)
+        // — and a guide that vanishes seconds after launch teaches nothing.
+        // `dismissOnboarding` clears the flag before closing, so it still
+        // gets through.
+        if uiState.isShowingOnboarding, mode != .open { return }
         guard uiState.mode != mode || forceResize else { return }
         if mode != .closed {
             uiState.isMediaPreviewVisible = false
@@ -1215,6 +1232,12 @@ final class NotchWindowController: NSObject {
         case .notice:
             targetSize = noticeSize
         case .open:
+            // Checked ahead of `overlay` because the guide replaces the whole
+            // panel body — see `NotchView.openContent`.
+            if uiState.isShowingOnboarding {
+                targetSize = CGSize(width: openSize.width, height: Self.onboardingHeight)
+                break
+            }
             switch uiState.overlay {
             case .question:
                 targetSize = questions.queue.first.map(questionOpenSize(for:)) ?? openQuestionSize
@@ -1527,6 +1550,29 @@ final class NotchWindowController: NSObject {
         setMode(.open)
     }
 
+    /// Opens the notch onto the first-run gesture guide. Pinned open, since
+    /// the whole point is that the user hasn't yet learned the hover/click
+    /// behaviour that would otherwise dismiss it out from under them.
+    /// `force` is what the Settings button uses to replay it.
+    func showOnboarding(force: Bool = false) {
+        guard force || !AppSettings.shared.hasSeenOnboarding else { return }
+        dwellTask?.cancel()
+        hideTask?.cancel()
+        hoverTask?.cancel()
+        hoverExpandTask?.cancel()
+        uiState.isShowingOnboarding = true
+        uiState.isVisible = true
+        isClickPinned = true
+        setMode(.open)
+    }
+
+    func dismissOnboarding() {
+        AppSettings.shared.hasSeenOnboarding = true
+        uiState.isShowingOnboarding = false
+        isClickPinned = false
+        setMode(.closed)
+    }
+
     /// Important events reveal the compact notch but never take over the
     /// current page. The user opens the actionable surface with a click.
     func showAttention() {
@@ -1773,6 +1819,11 @@ final class NotchWindowController: NSObject {
     private func refreshVisibilityForCurrentSpace() {
         let wasPersisting = shouldPersistVisible
         shouldPersistVisible = !Self.isNonFinderFullscreen(on: screen)
+        // The first-run guide outlives fullscreen suppression: it's the one
+        // surface the user hasn't been taught to bring back, so hiding it
+        // out from under them would leave the gestures unexplained with no
+        // way to ask again short of Settings.
+        if uiState.isShowingOnboarding { return }
         if shouldPersistVisible {
             if !wasPersisting, !permissions.queue.isEmpty || !questions.queue.isEmpty || !plans.queue.isEmpty {
                 // Surface anything that arrived while fullscreen suppressed the notch.
@@ -1809,6 +1860,7 @@ final class NotchWindowController: NSObject {
             try? await Task.sleep(nanoseconds: 600_000_000)
             guard !Task.isCancelled else { return }
             guard let self else { return }
+            guard !self.uiState.isShowingOnboarding else { return }
             guard !self.isHovering else { return }
             guard self.permissions.queue.isEmpty, self.questions.queue.isEmpty, self.plans.queue.isEmpty else { return }
             guard !self.uiState.trayHasItems else { return }

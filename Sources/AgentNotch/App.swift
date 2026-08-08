@@ -96,6 +96,18 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                 self?.handleQueueChange(isEmpty: queue.isEmpty)
             }
             .store(in: &cancellables)
+
+        NotificationCenter.default.publisher(for: .agentNotchReplayOnboarding)
+            .sink { [weak controller] _ in
+                controller?.showOnboarding(force: true)
+            }
+            .store(in: &cancellables)
+
+        // First run only — explains the gestures, since an `.accessory` app
+        // with no Dock icon gives no other hint that the notch is
+        // interactive at all. Shown in the notch rather than a window: the
+        // gestures it describes only exist there. No-op on later launches.
+        controller.showOnboarding()
     }
 
     private func handle(event: HookEvent) {
