@@ -1,9 +1,9 @@
 import XCTest
 @testable import AgentNotch
 
-/// `centeredWeekStrip`/`weekStripDialOpacity` are pure `Calendar`/`Int`
-/// functions extracted from `DashboardTodaySection`'s week strip — same
-/// "static purely-functional, no SwiftUI dependency" pattern as
+/// `centeredWeekStrip` is a pure `Calendar` function extracted from
+/// `DashboardTodaySection`'s week strip — same "static purely-functional,
+/// no SwiftUI dependency" pattern as
 /// `NotchWindowController.computeClosedSize`, exercised directly here
 /// without standing up any View.
 final class DashboardWeekStripTests: XCTestCase {
@@ -68,21 +68,13 @@ final class DashboardWeekStripTests: XCTestCase {
         XCTAssertEqual(days.map(\.offset), [-1, 0, 1, 2])
     }
 
-    // MARK: - weekStripDialOpacity
+    /// The strip renders five columns (`DashboardTodaySection.weekStripDays`);
+    /// seven left each column too narrow for today's enlarged number.
+    func testCenteredWeekStripOfFiveIsCenteredOnReferenceDate() {
+        let reference = date(2026, 8, 14)
+        let days = centeredWeekStrip(around: reference, count: 5, calendar: utcCalendar)
 
-    func testWeekStripDialOpacityIsFullStrengthAtZeroDistance() {
-        XCTAssertEqual(weekStripDialOpacity(forDistance: 0), 1.0)
-    }
-
-    func testWeekStripDialOpacityFadesWithDistanceSymmetrically() {
-        XCTAssertEqual(weekStripDialOpacity(forDistance: 1), weekStripDialOpacity(forDistance: -1))
-        XCTAssertEqual(weekStripDialOpacity(forDistance: 2), weekStripDialOpacity(forDistance: -2))
-        XCTAssertLessThan(weekStripDialOpacity(forDistance: 1), weekStripDialOpacity(forDistance: 0))
-        XCTAssertLessThan(weekStripDialOpacity(forDistance: 2), weekStripDialOpacity(forDistance: 1))
-    }
-
-    func testWeekStripDialOpacityPlateausBeyondDistanceTwo() {
-        XCTAssertEqual(weekStripDialOpacity(forDistance: 3), weekStripDialOpacity(forDistance: 4))
-        XCTAssertEqual(weekStripDialOpacity(forDistance: -3), weekStripDialOpacity(forDistance: 3))
+        XCTAssertEqual(days.map(\.offset), [-2, -1, 0, 1, 2])
+        XCTAssertEqual(days.map { utcCalendar.component(.day, from: $0.date) }, [12, 13, 14, 15, 16])
     }
 }

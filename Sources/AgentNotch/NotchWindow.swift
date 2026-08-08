@@ -286,38 +286,28 @@ final class NotchWindowController: NSObject {
     /// capped a bit below that so the panel still comfortably fits on
     /// screen rather than growing exactly to the theoretical max.
     private let agentsMaxHeight: CGFloat = 400
-    /// Height budget for the Dashboard Nook page — a single flat panel with
-    /// Media/Today/Battery arranged side-by-side in one row (see
-    /// `NotchView.DashboardCell`), not stacked cards. Because the row's
-    /// height is set by its tallest section rather than by how much content
-    /// each section has, it no longer varies with calendar event count the
-    /// way the original (stacked-cards) design's did — `DashboardTodaySection`
-    /// shows at most one event summary line regardless of how many events
-    /// exist. Concrete value is an estimate derived from the tallest
-    /// section (`DashboardMediaSection`'s fixed 68pt artwork height, which
-    /// its text column matches via `.frame(height: 68, alignment: .top)`)
-    /// plus 14pt `CellSurface` padding plus chrome (nookbar/view tabs,
-    /// ~55pt) — nudged up further after Media/Today were merged into one
-    /// shared `CellSurface` (both now take its 7pt top+bottom padding,
-    /// where before only Media did) and after `WeekDayColumn` grew an
-    /// event-indicator dot row — same "estimate, then eyeball-tune on a
-    /// real device" status as `agentsBaseHeight`.
-    static let dashboardBaseHeight: CGFloat = 156
-    /// Extra height when `DashboardTodaySection` is showing its "grant
-    /// calendar access" prompt instead of the compact day/event state — its
-    /// two-button `HStack` layout runs slightly taller.
-    static let dashboardPermissionPromptExtra: CGFloat = 15
-    /// Extra height for the two-row `DetailStrip` `expandedDetail` shows for
-    /// `.dashboard` (Today's 3 items + System's 2, split across two rows —
-    /// see `NotchView.expandedDetail`'s `.dashboard` case) — larger than the
-    /// other tabs' single-row detail height (`openDetailSize.height -
-    /// openSize.height` = 58pt) since it's two `DetailBox` rows instead of
-    /// one.
-    static let dashboardDetailExpandedHeight: CGFloat = 96
+    /// Height budget for the Dashboard Nook page — Media and Today sitting
+    /// side by side in one row, separated by a hairline rule and drawn
+    /// directly on the panel background (see `NotchView.DashboardCell`).
+    /// The row's height is set by its tallest widget rather than by how much
+    /// content each holds, so it varies with neither event count nor
+    /// calendar-permission state: `DashboardTodaySection` renders one agenda
+    /// line in every state. Concrete value is an estimate derived from the
+    /// tallest widget plus `DashboardCell`'s 12pt vertical padding plus
+    /// chrome (nookbar/view tabs, ~74pt). Today is now the taller of the two
+    /// (~74pt: 37pt week strip + 8pt spacing + ~29pt two-line agenda block),
+    /// having overtaken Media's 68pt artwork when its agenda line became an
+    /// icon-over-text stack — same "estimate, then eyeball-tune on a real
+    /// device" status as `agentsBaseHeight`.
+    static let dashboardBaseHeight: CGFloat = 160
+    /// Extra height for `expandedDetail`'s `.dashboard` case — two stacked
+    /// `DetailStrip`s (Today's 3 items + System's 2) plus the focus-timer
+    /// row that moved here out of `DashboardTodaySection`.
+    static let dashboardDetailExpandedHeight: CGFloat = 126
     /// Absolute ceiling on the Dashboard tab height — same safety-net role
     /// as `agentsMaxHeight`. Set above the worst case the formula above can
-    /// actually produce (`dashboardBaseHeight` + `dashboardPermissionPromptExtra`
-    /// + `dashboardDetailExpandedHeight` = 156 + 15 + 96 = 267) with a little
+    /// actually produce (`dashboardBaseHeight` +
+    /// `dashboardDetailExpandedHeight` = 160 + 126 = 286) with a little
     /// headroom — unlike Agents' cap (which exists specifically to hand off
     /// to `AgentsCell`'s own `ScrollView` once a real overflow risk exists),
     /// Dashboard has no scroll fallback, so a cap tighter than its own worst
@@ -328,11 +318,8 @@ final class NotchWindowController: NSObject {
     /// it's a pure function `DashboardSizingTests` can call directly without
     /// standing up a whole `NotchWindowController` — same reasoning as
     /// `computeClosedSize`/`computeHoverContentHeight`.
-    static func dashboardOpenSize(width: CGFloat, needsCalendarPermission: Bool, detailExpanded: Bool) -> CGSize {
+    static func dashboardOpenSize(width: CGFloat, detailExpanded: Bool) -> CGSize {
         var height = dashboardBaseHeight
-        if needsCalendarPermission {
-            height += dashboardPermissionPromptExtra
-        }
         if detailExpanded {
             height += dashboardDetailExpandedHeight
         }
@@ -818,26 +805,13 @@ final class NotchWindowController: NSObject {
             }
             .store(in: &cancellables)
 
-        // `dashboardOpenSize` grows/shrinks only with whether calendar
-        // access is granted (`DashboardTodaySection` swaps its whole layout
-        // between the compact day/event state and the "grant access"
-        // prompt) — resize live while Dashboard is the visible page, same
-        // guard shape as the Agents `store.$sessions` subscription above.
-        // Unlike the pre-redesign stacked-cards layout, calendar *event
-        // count* no longer affects the row's height (`DashboardTodaySection`
-        // shows at most one event summary line regardless of how many
-        // events exist), so `TodayModel.shared.$events` isn't subscribed
-        // here. `SystemMonitor`'s battery state likewise never did.
-        TodayModel.shared.$authorizationStatus
-            .dropFirst()
-            .sink { [weak self] _ in
-                guard let self,
-                      self.uiState.mode == .open,
-                      self.uiState.activeTab == .nook,
-                      self.uiState.activeView == .dashboard else { return }
-                self.scheduleResize()
-            }
-            .store(in: &cancellables)
+        // No `TodayModel` subscription here: `dashboardOpenSize` depends on
+        // nothing `TodayModel` publishes. `DashboardTodaySection` renders
+        // the same single agenda line whether access is granted, denied, or
+        // there are no events at all, and its week strip is fixed at five
+        // columns — so neither `$authorizationStatus` nor `$events` can
+        // change the row's height. `SystemMonitor`'s battery state likewise
+        // never did.
 
         // `.hover`'s row count (one vs. two) also depends on whether media
         // is playing — resize live if playback starts/stops mid-peek.
@@ -1227,7 +1201,6 @@ final class NotchWindowController: NSObject {
                 } else {
                     targetSize = Self.dashboardOpenSize(
                         width: openSize.width,
-                        needsCalendarPermission: !TodayModel.shared.canReadCalendar,
                         detailExpanded: uiState.isDetailExpanded
                     )
                 }

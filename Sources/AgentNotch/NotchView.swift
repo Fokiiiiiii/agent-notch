@@ -95,20 +95,16 @@ struct NotchView: View {
         } else {
             radius = DesignTokens.scaledClosedRadius()
         }
-        // Square top corners read correctly only while the shell is fused to
-        // a real notch cutout. `.open` on a Mac with no physical notch draws
-        // the panel floating below the menu bar, where a hard right-angle
-        // top edge looks like an unintended seam rather than a continuation
-        // of anything — round it to match the bottom there. `.closed`/
-        // `.hover`/`.notice` keep square top corners regardless of
-        // `hasRealNotch`: that's the compact pill fused to the menu bar
-        // itself, which does still read correctly square.
-        let topRadius: CGFloat = (uiState.mode == .open && !hasRealNotch) ? radius : 0
+        // Top corners stay square in every mode: the shell hangs off the
+        // menu bar / notch cutout, so a rounded top edge reads as an
+        // inward-curving seam rather than as the panel continuing upward.
+        // (Briefly rounded for `.open` on notch-less Macs — reverted after
+        // it produced exactly that inward-seam look on a real screen.)
         return UnevenRoundedRectangle(
-            topLeadingRadius: topRadius,
+            topLeadingRadius: 0,
             bottomLeadingRadius: radius,
             bottomTrailingRadius: radius,
-            topTrailingRadius: topRadius,
+            topTrailingRadius: 0,
             style: .continuous
         )
     }
@@ -566,7 +562,7 @@ struct NotchView: View {
                     case .agents:
                         AgentsCell(store: store, uiState: uiState)
                     case .dashboard:
-                        DashboardCell(media: media, today: todayModel, focusEndsAt: $uiState.focusEndsAt)
+                        DashboardCell(media: media, today: todayModel)
                     }
                 }
             }
@@ -752,9 +748,43 @@ struct NotchView: View {
                     ("system.uptime", String(localized: "detail.system.uptime", defaultValue: "Uptime"), systemMonitor.uptime),
                     ("system.activity", String(localized: "detail.system.activity", defaultValue: "Also running"), systemMoreActivityValue)
                 ]))
+                dashboardFocusRow
             }
             .onAppear { todayModel.refresh() }
         }
+    }
+
+    /// The focus timer, moved here out of `DashboardTodaySection`. It's an
+    /// AgentNotch feature with no counterpart in NotchNook's calendar
+    /// widget, and having it sit in the always-visible row is part of what
+    /// made that widget read as cluttered. Behind "Details" it stays one
+    /// click away without competing with the calendar itself.
+    private var dashboardFocusRow: some View {
+        TimelineView(.periodic(from: .now, by: 1)) { context in
+            let remaining = uiState.focusEndsAt.map { max(Int($0.timeIntervalSince(context.date)), 0) }
+            let isIdle = remaining == nil || remaining == 0
+            Button {
+                SoundPlayer.shared.play(.action)
+                HapticPlayer.shared.perform(.confirm)
+                uiState.focusEndsAt = isIdle ? Date().addingTimeInterval(25 * 60) : nil
+            } label: {
+                Label(focusLabel(remaining), systemImage: isIdle ? "moon.fill" : "stop.fill")
+                    .font(.system(size: 10, weight: .semibold))
+                    .frame(maxWidth: .infinity)
+                    .frame(height: 24)
+                    .background(RoundedRectangle(cornerRadius: 8).fill(Color.white.opacity(0.09)))
+            }
+            .buttonStyle(NotchPressStyle())
+            .hoverLift(cornerRadius: 8)
+            .accessibilityIdentifier("today.focus")
+            .help(isIdle ? String(localized: "today.startFocusHelp", defaultValue: "Start a 25 minute local focus timer") : String(localized: "today.endFocus", defaultValue: "End Focus"))
+        }
+    }
+
+    private func focusLabel(_ remaining: Int?) -> String {
+        guard let remaining, remaining > 0 else { return String(localized: "today.startFocus", defaultValue: "Start Focus") }
+        let format = String(localized: "today.endFocusWithTime", defaultValue: "End Focus · %02d:%02d")
+        return String(format: format, remaining / 60, remaining % 60)
     }
 
     /// Reorders/filters `items` (each `(id, label, value)`) using
@@ -2321,24 +2351,36 @@ private struct CellSurface<Content: View>: View {
 private struct DashboardCell: View {
     @ObservedObject var media: MediaController
     @ObservedObject var today: TodayModel
-    @Binding var focusEndsAt: Date?
 
-    /// Media/Today share one continuous panel — confirmed against NotchNook's
-    /// reference screenshots at 4x zoom, where no divider or background
-    /// boundary exists between the media and calendar widgets. The 236pt
-    /// Today width is a provisional fixed value; a future widget system
-    /// (freely reorderable/resizable Dashboard widgets) will replace this
-    /// hardcoded two-column split.
+    /// No `CellSurface` here: NotchNook's widgets sit directly on the panel's
+    /// own dark background and are separated by hairline vertical rules, not
+    /// by their own tinted cards. Wrapping these in `CellSurface` produced
+    /// the washed-out grey slab the design was explicitly asked not to have.
+    ///
+    /// The 236pt Today width is a provisional fixed value; a future widget
+    /// system (freely reorderable/resizable Dashboard widgets) will replace
+    /// this hardcoded two-column split.
     var body: some View {
-        CellSurface {
-            HStack(alignment: .top, spacing: 7) {
-                DashboardMediaSection(media: media)
-                    .frame(maxWidth: .infinity, alignment: .leading)
-                DashboardTodaySection(model: today, focusEndsAt: $focusEndsAt)
-                    .frame(width: 236, alignment: .leading)
-            }
+        HStack(alignment: .center, spacing: 0) {
+            DashboardMediaSection(media: media)
+                .frame(maxWidth: .infinity, alignment: .leading)
+            widgetDivider
+            DashboardTodaySection(model: today)
+                .frame(width: 236, alignment: .leading)
         }
+        .padding(.horizontal, 4)
+        .padding(.vertical, 6)
         .onAppear { today.refresh() }
+    }
+
+    /// Hairline rule between widgets — the only separator NotchNook uses.
+    /// Runs nearly the full height of the row, as it does in the reference
+    /// screenshots, rather than floating as a short stub in the middle.
+    private var widgetDivider: some View {
+        Divider()
+            .overlay(DesignTokens.line)
+            .padding(.vertical, 2)
+            .padding(.horizontal, 14)
     }
 }
 
@@ -2525,32 +2567,31 @@ private struct MediaControlButton: View {
     }
 }
 
-/// A week-strip + today's-agenda layout modeled on NotchNook's own reference
-/// screenshot (seven day columns, today's date circled, an agenda line
-/// beneath) instead of the "big single day number" layout this section
-/// used before.
+/// A month label + five-day strip + centered agenda line, matching the
+/// calendar widget in NotchNook's reference screenshots. Five columns (not
+/// seven): the reference shows five, and seven left each column too narrow
+/// for today's enlarged number.
+///
+/// Deliberately holds nothing but calendar information — the focus timer and
+/// the "grant calendar access" button that used to sit here are AgentNotch
+/// additions with no counterpart in the reference, and crowding them into
+/// this widget is what made it read as cluttered. The focus timer now lives
+/// in `NotchView.expandedDetail`; requesting access is folded into the
+/// agenda line itself.
 private struct DashboardTodaySection: View {
     @ObservedObject var model: TodayModel
-    @Binding var focusEndsAt: Date?
 
     private var weekStripDays: [WeekStripDay] {
-        centeredWeekStrip(around: Date(), count: 7)
+        centeredWeekStrip(around: Date(), count: 5)
     }
 
     var body: some View {
-        TimelineView(.periodic(from: .now, by: 1)) { context in
-            let remaining = focusEndsAt.map { max(Int($0.timeIntervalSince(context.date)), 0) }
-            VStack(alignment: .leading, spacing: 9) {
-                HStack(spacing: 8) {
-                    monthBlock
-                    weekStrip
-                }
-                if model.canReadCalendar {
-                    calendarContent(remaining: remaining)
-                } else {
-                    calendarPermissionContent(remaining: remaining)
-                }
+        VStack(spacing: 8) {
+            HStack(spacing: 10) {
+                monthBlock
+                weekStrip
             }
+            agendaLine
         }
         .foregroundColor(.white)
     }
@@ -2571,7 +2612,7 @@ private struct DashboardTodaySection: View {
     private var weekStrip: some View {
         HStack(spacing: 4) {
             ForEach(weekStripDays, id: \.date) { day in
-                WeekDayColumn(date: day.date, offset: day.offset, hasEvent: hasEvent(on: day.date))
+                WeekDayColumn(date: day.date, hasEvent: hasEvent(on: day.date))
                     .frame(maxWidth: .infinity)
             }
         }
@@ -2587,131 +2628,95 @@ private struct DashboardTodaySection: View {
         model.events.contains { Calendar.current.isDate($0.startDate, inSameDayAs: date) }
     }
 
-    private func calendarContent(remaining: Int?) -> some View {
-        HStack(spacing: 6) {
-            if let event = model.events.first {
-                Text("•")
-                    .font(.system(size: 11, weight: .bold))
-                    .foregroundColor(DesignTokens.cyan)
-                Text(event.title)
-                    .font(.system(size: 10, weight: .medium))
-                    .foregroundColor(.white.opacity(0.85))
-                    .lineLimit(1)
-                Text(eventTimeRange(event))
-                    .font(.system(size: 9))
-                    .foregroundColor(DesignTokens.muted)
-                    .lineLimit(1)
-                    .help(event.title)
-            } else {
-                Text(String(localized: "today.nothingForToday", defaultValue: "Nothing for today"))
-                    .font(.system(size: 10, weight: .medium))
-                    .foregroundColor(DesignTokens.muted)
-                    .lineLimit(1)
+    /// Small icon above a single line of text, centered under the strip —
+    /// the reference screenshot's "Nothing for today" treatment. All three
+    /// states (an event, no events, no access yet) use this one shape so the
+    /// widget's height never shifts between them.
+    @ViewBuilder
+    private var agendaLine: some View {
+        if !model.canReadCalendar {
+            Button {
+                SoundPlayer.shared.play(.action)
+                model.requestAccess()
+            } label: {
+                agendaBody(
+                    icon: "calendar.badge.plus",
+                    text: String(localized: "today.showCalendarEvents", defaultValue: "Show today's Calendar events"),
+                    color: .white.opacity(0.8)
+                )
             }
-            Spacer(minLength: 4)
-            focusButton(remaining: remaining, prominent: false)
+            .buttonStyle(NotchPressStyle())
+            .accessibilityIdentifier("today.enable-calendar")
+            .help(model.errorMessage ?? String(localized: "today.allowAccessHelp", defaultValue: "Allow access to today's events"))
+        } else if let event = model.events.first {
+            agendaBody(
+                icon: "calendar",
+                text: "\(event.title)  \(eventTimeRange(event))",
+                color: .white.opacity(0.85)
+            )
+            .help(event.title)
+        } else {
+            agendaBody(
+                icon: "calendar.badge.checkmark",
+                text: String(localized: "today.nothingForToday", defaultValue: "Nothing for today"),
+                color: DesignTokens.muted
+            )
         }
     }
 
+    private func agendaBody(icon: String, text: String, color: Color) -> some View {
+        VStack(spacing: 3) {
+            Image(systemName: icon)
+                .font(.system(size: 10))
+                .foregroundColor(DesignTokens.muted)
+            Text(text)
+                .font(.system(size: 10, weight: .medium))
+                .foregroundColor(color)
+                .lineLimit(1)
+        }
+        .frame(maxWidth: .infinity)
+    }
+
     /// "16:00–17:00"-style range mirroring NotchNook's reference screenshot,
-    /// which shows an event's start/end time under its title rather than
-    /// just the bare title.
+    /// which shows an event's start/end time alongside its title.
     private func eventTimeRange(_ event: TodayEvent) -> String {
         let start = event.startDate.formatted(.dateTime.hour().minute())
         let end = event.endDate.formatted(.dateTime.hour().minute())
         return "\(start)–\(end)"
     }
-
-    private func calendarPermissionContent(remaining: Int?) -> some View {
-        HStack(spacing: 6) {
-            Text(String(localized: "today.showCalendarEvents", defaultValue: "Show today's Calendar events"))
-                .font(.system(size: 10, weight: .medium))
-                .foregroundColor(.white.opacity(0.8))
-                .lineLimit(1)
-            Spacer(minLength: 4)
-            focusButton(remaining: remaining, prominent: false)
-            Button {
-                SoundPlayer.shared.play(.action)
-                model.requestAccess()
-            } label: {
-                Image(systemName: "calendar.badge.plus")
-                    .font(.system(size: 11, weight: .medium))
-                    .frame(width: 26, height: 22)
-                    .background(RoundedRectangle(cornerRadius: 7).fill(Color.white.opacity(0.06)))
-            }
-            .buttonStyle(NotchPressStyle())
-            .hoverLift(cornerRadius: 7)
-            .accessibilityIdentifier("today.enable-calendar")
-            .help(model.errorMessage ?? String(localized: "today.allowAccessHelp", defaultValue: "Allow access to today's events"))
-        }
-    }
-
-    /// Focus toggle. AgentNotch-specific (NotchNook's reference screenshots
-    /// have no equivalent), so it stays icon-only while idle to keep the
-    /// panel close to the reference layout; once a countdown is running the
-    /// remaining time is worth the extra width.
-    private func focusButton(remaining: Int?, prominent: Bool) -> some View {
-        let isIdle = remaining == nil || remaining == 0
-        return Button {
-            SoundPlayer.shared.play(.action)
-            focusEndsAt = isIdle ? Date().addingTimeInterval(25 * 60) : nil
-        } label: {
-            Group {
-                if isIdle {
-                    Label(focusLabel(remaining), systemImage: "moon.fill")
-                        .labelStyle(.iconOnly)
-                } else {
-                    Label(focusLabel(remaining), systemImage: "stop.fill")
-                        .labelStyle(.titleAndIcon)
-                }
-            }
-            .font(.system(size: 9, weight: .semibold))
-            .padding(.horizontal, 7)
-            .frame(height: 19)
-            .background(RoundedRectangle(cornerRadius: 6).fill(Color.white.opacity(prominent ? 0.14 : 0.09)))
-        }
-        .buttonStyle(NotchPressStyle())
-        .hoverLift(cornerRadius: 7)
-        .accessibilityIdentifier("today.focus")
-        .help(isIdle ? String(localized: "today.startFocusHelp", defaultValue: "Start a 25 minute local focus timer") : String(localized: "today.endFocus", defaultValue: "End Focus"))
-    }
-
-    private func focusLabel(_ remaining: Int?) -> String {
-        guard let remaining, remaining > 0 else { return String(localized: "today.startFocus", defaultValue: "Start Focus") }
-        let format = String(localized: "today.endFocusWithTime", defaultValue: "End Focus · %02d:%02d")
-        return String(format: format, remaining / 60, remaining % 60)
-    }
 }
 
 /// One column of `DashboardTodaySection`'s week strip: a narrow weekday
-/// letter above the day-of-month number, with today's number circled —
-/// mirrors NotchNook's reference screenshot's calendar treatment.
+/// letter above the day-of-month number, today's rendered larger and in the
+/// accent color — mirrors NotchNook's reference screenshot's calendar.
 private struct WeekDayColumn: View {
     let date: Date
-    /// Signed day offset from today (0 = today). Used only for the "dial"
-    /// fade effect — since the strip is now centered on `Date()` rather
-    /// than the calendar week's own start, this can't be recomputed from
-    /// `date` alone and must be passed in.
-    let offset: Int
     let hasEvent: Bool
 
     private var isToday: Bool { Calendar.current.isDateInToday(date) }
     private var isWeekend: Bool { Calendar.current.isDateInWeekend(date) }
 
+    /// The bare day number, never a locale-formatted date. `.dateTime.day()`
+    /// renders as "8日" under a Japanese locale, which overflowed the column
+    /// and truncated today's own number to "•••" — the bug that made the
+    /// current day invisible on screen.
+    private var dayNumber: String {
+        String(Calendar.current.component(.day, from: date))
+    }
+
     var body: some View {
         VStack(spacing: 2) {
             Text(date.formatted(.dateTime.weekday(.narrow)))
                 .font(.system(size: 7.5, weight: .medium))
-                .foregroundColor(DesignTokens.muted)
-            Text(date.formatted(.dateTime.day()))
+                .foregroundColor(isToday ? .white.opacity(0.9) : DesignTokens.muted)
+            Text(dayNumber)
                 .font(.system(size: isToday ? 16 : 10.5, weight: isToday ? .bold : .regular, design: .rounded))
                 .foregroundColor(numberColor)
-                .opacity(weekStripDialOpacity(forDistance: offset))
                 .frame(height: 19, alignment: .center)
             Circle()
                 .fill(DesignTokens.cyan)
                 .frame(width: 3.5, height: 3.5)
-                .opacity(hasEvent ? weekStripDialOpacity(forDistance: offset) : 0)
+                .opacity(hasEvent ? 1 : 0)
         }
         .frame(height: 37)
         .accessibilityElement(children: .ignore)
@@ -2719,10 +2724,14 @@ private struct WeekDayColumn: View {
         .accessibilityAddTraits(isToday ? [.isSelected] : [])
     }
 
+    /// Three tiers only — today, weekend, weekday. An earlier revision also
+    /// faded each column by its distance from today; stacking that on top of
+    /// the color tiers is what read as "weird colors", and the reference
+    /// screenshots have no such fade.
     private var numberColor: Color {
         if isToday { return DesignTokens.cyan }
-        if isWeekend { return DesignTokens.orange }
-        return DesignTokens.muted
+        if isWeekend { return DesignTokens.orange.opacity(0.75) }
+        return .white.opacity(0.5)
     }
 
     private var accessibilityLabel: String {
@@ -2734,7 +2743,8 @@ private struct WeekDayColumn: View {
 
 /// One day in `DashboardTodaySection`'s week strip: the date itself, plus
 /// its signed offset from today (0 = today, negative = past, positive =
-/// future) for the "dial" fade effect in `WeekDayColumn`.
+/// future). The offset is what makes "the strip is centered on today"
+/// checkable in `centeredWeekStrip`'s tests.
 struct WeekStripDay: Equatable {
     let date: Date
     let offset: Int
@@ -2751,18 +2761,6 @@ func centeredWeekStrip(around referenceDate: Date, count: Int, calendar: Calenda
         let offset = index - before
         guard let date = calendar.date(byAdding: .day, value: offset, to: referenceDate) else { return nil }
         return WeekStripDay(date: date, offset: offset)
-    }
-}
-
-/// Opacity for the week strip's "dial" effect — today's number reads at
-/// full strength, with neighbors fading out the further they are from it
-/// (mirrors a rotating picker wheel, per user reference).
-func weekStripDialOpacity(forDistance distance: Int) -> Double {
-    switch abs(distance) {
-    case 0: return 1.0
-    case 1: return 0.7
-    case 2: return 0.45
-    default: return 0.25
     }
 }
 
