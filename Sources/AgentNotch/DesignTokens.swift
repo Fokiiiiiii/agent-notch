@@ -21,6 +21,12 @@ enum DesignTokens {
     /// disappearing entirely.
     static let mutedFaint = Color.white.opacity(0.34)
     static let line = Color.white.opacity(0.085)
+    /// Fill for the Tray page's AirDrop well. A saturated blue rather than a
+    /// neutral, because AirDrop is the one surface in the app that should
+    /// read as a distinct destination and not as another grey plate; it is
+    /// always drawn at partial opacity over the dark panel, which is what
+    /// turns it into the deep navy the well actually shows.
+    static let airDropWell = Color(red: 0x1A / 255, green: 0x47 / 255, blue: 0x9E / 255)
 
     /// "done" status dot color (`#AEB4BF` in the mock).
     static let doneGray = Color(red: 0xAE / 255, green: 0xB4 / 255, blue: 0xBF / 255)

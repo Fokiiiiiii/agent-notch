@@ -6,9 +6,16 @@ private final class KeyableNotchPanel: NSPanel {
     override var canBecomeKey: Bool { true }
 }
 
+/// Owns every file drop onto the panel. The SwiftUI content is a subview, so
+/// a SwiftUI `.dropDestination` inside it would compete with this view for
+/// the same drag session; instead this stays the single entry point and
+/// reports *where* the drop landed, letting the SwiftUI layer route it (Tray
+/// vs. the AirDrop well) by hit-testing its own recorded frames.
 private final class FileDropContainerView: NSView {
-    var fileDropHandler: (([URL]) -> Void)?
-    var fileDragStateHandler: ((Bool) -> Void)?
+    /// Points are top-left-origin, matching SwiftUI's coordinate space —
+    /// see `flippedLocation(of:)`.
+    var fileDropHandler: (([URL], CGPoint) -> Void)?
+    var fileDragStateHandler: ((Bool, CGPoint) -> Void)?
 
     override init(frame frameRect: NSRect) {
         super.init(frame: frameRect)
@@ -23,24 +30,41 @@ private final class FileDropContainerView: NSView {
     override func draggingEntered(_ sender: NSDraggingInfo) -> NSDragOperation {
         let urls = fileURLs(from: sender)
         guard !urls.isEmpty else { return [] }
-        fileDragStateHandler?(true)
+        fileDragStateHandler?(true, flippedLocation(of: sender))
+        return .copy
+    }
+
+    /// Needed for the well's hover highlight: `draggingEntered` fires once at
+    /// the panel's edge, so without this the pointer's position would never
+    /// update while the drag moves between the Tray and the well.
+    override func draggingUpdated(_ sender: NSDraggingInfo) -> NSDragOperation {
+        guard !fileURLs(from: sender).isEmpty else { return [] }
+        fileDragStateHandler?(true, flippedLocation(of: sender))
         return .copy
     }
 
     override func draggingExited(_ sender: NSDraggingInfo?) {
-        fileDragStateHandler?(false)
+        fileDragStateHandler?(false, .zero)
     }
 
     override func draggingEnded(_ sender: NSDraggingInfo) {
-        fileDragStateHandler?(false)
+        fileDragStateHandler?(false, .zero)
     }
 
     override func performDragOperation(_ sender: NSDraggingInfo) -> Bool {
         let urls = fileURLs(from: sender)
-        fileDragStateHandler?(false)
+        let location = flippedLocation(of: sender)
+        fileDragStateHandler?(false, .zero)
         guard !urls.isEmpty else { return false }
-        fileDropHandler?(urls)
+        fileDropHandler?(urls, location)
         return true
+    }
+
+    /// AppKit hands out window coordinates with a bottom-left origin; the
+    /// SwiftUI frames this gets compared against are top-left.
+    private func flippedLocation(of sender: NSDraggingInfo) -> CGPoint {
+        let inView = convert(sender.draggingLocation, from: nil)
+        return CGPoint(x: inView.x, y: bounds.height - inView.y)
     }
 
     private func fileURLs(from draggingInfo: NSDraggingInfo) -> [URL] {
@@ -246,7 +270,7 @@ final class NotchWindowController: NSObject {
     private var visualClosedSize: CGSize
     private let noticeSize = CGSize(width: 320, height: 50)
     private let openSize = CGSize(width: 540, height: 206)
-    private let trayOpenSize = CGSize(width: 560, height: 222)
+    private let trayOpenSize = CGSize(width: 560, height: 234)
     private let openDetailSize = CGSize(width: 540, height: 264)
     private let openOverlaySize = CGSize(width: 540, height: 246)
     private let openQuestionSize = CGSize(width: 540, height: 316)
@@ -286,7 +310,7 @@ final class NotchWindowController: NSObject {
     /// float outside the card). Derived empirically from `AgentsCell`'s
     /// layout (usage bar ~27pt + selected row ~70pt + footer 30pt + padding
     ////spacing) plus the chrome above/below it (nookbar, view tabs).
-    private let agentsBaseHeight: CGFloat = 246
+    private let agentsBaseHeight: CGFloat = 252
     /// Extra height contributed by each additional, unselected session row
     /// (row height + list spacing) once more than one session is tracked.
     private let agentsRowHeight: CGFloat = 36
@@ -319,7 +343,7 @@ final class NotchWindowController: NSObject {
     /// `DashboardCell` (74pt Today + 12pt vertical padding) +
     /// `nookContentView`'s 4pt spacing + 28pt `viewTabs` + 10pt bottom
     /// padding = 171pt, plus a 5pt cushion for font-metric drift.
-    static let dashboardBaseHeight: CGFloat = 176
+    static let dashboardBaseHeight: CGFloat = 182
     /// Extra height for `expandedDetail`'s `.dashboard` case — two stacked
     /// `DetailStrip`s (Today's 3 items + System's 2) plus the focus-timer
     /// row that moved here out of `DashboardTodaySection`.
@@ -337,7 +361,7 @@ final class NotchWindowController: NSObject {
     /// columns (~72pt, captions wrap to two lines at this width) + 16pt
     /// spacing + a 30pt button + the same nookbar/padding chrome the other
     /// pages sit in.
-    static let onboardingHeight: CGFloat = 190
+    static let onboardingHeight: CGFloat = 196
 
     /// `static` (unlike `agentsOpenSize`, a `private` instance method) so
     /// it's a pure function `DashboardSizingTests` can call directly without
@@ -1138,12 +1162,12 @@ final class NotchWindowController: NSObject {
     }
 
     func installFileDropHandlers(
-        targeted: @escaping (Bool) -> Void,
-        dropped: @escaping ([URL]) -> Void
+        targeted: @escaping (Bool, CGPoint) -> Void,
+        dropped: @escaping ([URL], CGPoint) -> Void
     ) {
-        fileDropView.fileDragStateHandler = { [weak self] active in
+        fileDropView.fileDragStateHandler = { [weak self] active, location in
             guard let self else { return }
-            targeted(active)
+            targeted(active, location)
             if active {
                 self.uiState.isVisible = true
                 self.uiState.activeTab = .tray
@@ -1312,7 +1336,7 @@ final class NotchWindowController: NSObject {
     /// measured — see its doc comment — since it can run to several lines
     /// and a fixed budget either clipped long prompts or wasted space on
     /// short ones).
-    private let questionBaseHeight: CGFloat = 98
+    private let questionBaseHeight: CGFloat = 110
     /// One `QuestionChoiceButton` row (32pt, or 42pt when any option has a
     /// `detail` line) plus the 5pt spacing before the next row.
     private let questionOptionRowHeight: CGFloat = 37
@@ -1384,7 +1408,7 @@ final class NotchWindowController: NSObject {
     /// `ApprovalOverlayView.summaryBoxMaxHeight`, since beyond that it
     /// becomes internally scrollable instead of growing the panel further —
     /// see `ApprovalOverlayView`'s doc comment on that constant.
-    private let approvalBaseHeight: CGFloat = 200
+    private let approvalBaseHeight: CGFloat = 212
     private let approvalMinHeight: CGFloat = 195
     /// Deliberately *not* `openOverlaySize.height` (246) — the summary box
     /// has no `lineLimit`, so a long command/diff excerpt must be allowed to
@@ -1402,7 +1426,7 @@ final class NotchWindowController: NSObject {
     /// a header row plus two 38pt `PlanChoiceButton`s — so unlike the
     /// regular approval card it needs no live measurement, just a smaller
     /// constant than the `openOverlaySize` it used to reuse.
-    private let planApprovalOpenSize = CGSize(width: 540, height: 190)
+    private let planApprovalOpenSize = CGSize(width: 540, height: 202)
 
     /// `PlanReviewView`'s content is entirely fixed/`lineLimit`-capped
     /// (title is 1 line, summary is capped at 2, the comment field and

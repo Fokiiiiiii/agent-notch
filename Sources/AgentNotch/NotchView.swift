@@ -18,6 +18,12 @@ struct NotchView: View {
     @State private var trayItems: [TrayItem] = []
     @State private var selectedTrayItemID: UUID?
     @State private var isDropTargeted = false
+    /// Where the Tray page's AirDrop well currently is, in the same top-left
+    /// coordinate space `FileDropContainerView` reports drops in. Zero while
+    /// the Tray page isn't on screen, so drops can never route to the well
+    /// when it isn't visible.
+    @State private var airDropWellFrame: CGRect = .zero
+    @State private var isAirDropTargeted = false
     @State private var trayFeedback: String?
     @State private var pendingTrayUndo: [TrayItem] = []
     @State private var trayUndoTask: Task<Void, Never>?
@@ -61,14 +67,27 @@ struct NotchView: View {
         }
         .onAppear {
             controller.installFileDropHandlers(
-                targeted: { isDropTargeted = $0 },
-                dropped: { urls in addTrayItems(urls) }
+                targeted: { active, location in
+                    let overWell = active && isOverAirDropWell(location)
+                    // Mutually exclusive so only one of the two wells lights
+                    // up as the pointer moves between them.
+                    isAirDropTargeted = overWell
+                    isDropTargeted = active && !overWell
+                },
+                dropped: { urls, location in
+                    if isOverAirDropWell(location) {
+                        sendViaAirDrop(urls)
+                    } else {
+                        addTrayItems(urls)
+                    }
+                }
             )
         }
         .onDisappear {
             compactMediaHoverTask?.cancel()
             trayUndoTask?.cancel()
             isDropTargeted = false
+            isAirDropTargeted = false
             controller.removeFileDropHandlers()
             controller.cancelInteractionTimers()
         }
@@ -463,9 +482,13 @@ struct NotchView: View {
             .offset(y: reduceMotion ? 0 : rubberBand(verticalDrag, limit: 36) / 8)
             .opacity(reduceMotion ? 1 : 1 - min(abs(horizontalDrag) / 900, 0.08))
         }
-        .padding(.horizontal, 12)
-        .padding(.top, 6)
-        .padding(.bottom, 10)
+        // Breathing room between the panel edge and everything inside it.
+        // Applies to every page (Nook's Agents/Dashboard and Tray alike)
+        // because they all render inside this container — content used to
+        // sit close enough to the rounded edge to look cramped against it.
+        .padding(.horizontal, 16)
+        .padding(.top, 9)
+        .padding(.bottom, 13)
         .contentShape(Rectangle())
         .simultaneousGesture(horizontalSwipeGesture)
         .simultaneousGesture(verticalDetailGesture)
@@ -856,6 +879,8 @@ struct NotchView: View {
             items: $trayItems,
             selectedItemID: $selectedTrayItemID,
             isTargeted: isDropTargeted,
+            isAirDropTargeted: isAirDropTargeted,
+            airDropWellFrame: $airDropWellFrame,
             feedback: trayFeedback,
             canUndo: !pendingTrayUndo.isEmpty
         ) { action in
@@ -923,12 +948,7 @@ struct NotchView: View {
                 NSPasteboard.general.setString(selectedURLs.map(\.path).joined(separator: "\n"), forType: .string)
                 trayFeedback = String(localized: "tray.feedback.pathsCopied", defaultValue: "Paths copied")
             case .airDrop:
-                if let service = NSSharingService(named: .sendViaAirDrop), service.canPerform(withItems: selectedURLs) {
-                    service.perform(withItems: selectedURLs)
-                    trayFeedback = String(localized: "tray.feedback.airDropOpened", defaultValue: "AirDrop opened")
-                } else {
-                    trayFeedback = String(localized: "tray.feedback.airDropUnavailable", defaultValue: "AirDrop unavailable")
-                }
+                sendViaAirDrop(selectedURLs)
             case .compress:
                 trayFeedback = String(localized: "tray.feedback.compressing", defaultValue: "Compressing…")
                 Task {
@@ -940,6 +960,23 @@ struct NotchView: View {
                 trayFeedback = String(localized: "tray.feedback.readyToPaste", defaultValue: "Ready to paste into agent")
             }
         }
+    }
+
+    /// `.zero` means the Tray page (and therefore the well) isn't laid out,
+    /// and `CGRect.zero.contains` would still be false for any real point —
+    /// but the explicit guard keeps that from being an accident of geometry.
+    private func isOverAirDropWell(_ location: CGPoint) -> Bool {
+        guard uiState.activeTab == .tray, !airDropWellFrame.isEmpty else { return false }
+        return airDropWellFrame.contains(location)
+    }
+
+    private func sendViaAirDrop(_ urls: [URL]) {
+        guard let service = NSSharingService(named: .sendViaAirDrop), service.canPerform(withItems: urls) else {
+            trayFeedback = String(localized: "tray.feedback.airDropUnavailable", defaultValue: "AirDrop unavailable")
+            return
+        }
+        service.perform(withItems: urls)
+        trayFeedback = String(localized: "tray.feedback.airDropOpened", defaultValue: "AirDrop opened")
     }
 
     private func addTrayItems(_ urls: [URL]) {
@@ -1968,7 +2005,6 @@ private struct AgentsCell: View {
     @ObservedObject var uiState: NotchUIState
     @ObservedObject private var usageStore = AgentUsageStore.shared
     @State private var actionFeedback: String?
-    @Environment(\.accessibilityReduceTransparency) private var reduceTransparency
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
     private var selected: AgentSession? {
@@ -1981,18 +2017,26 @@ private struct AgentsCell: View {
     var body: some View {
         cellShape
             .overlay(
-                VStack(alignment: .leading, spacing: 6) {
+                // Laid out like the Dashboard page: no card plates, regions
+                // separated by hairline rules on the bare panel, so both Nook
+                // pages read as one surface instead of two visual systems.
+                VStack(alignment: .leading, spacing: 0) {
                     if let selected {
                         UsageSummaryBar(agent: selected.agent, snapshot: usageStore.snapshots[selected.agent])
+                            .padding(.bottom, 7)
+                        sectionDivider
                         sessionList
+                            .padding(.vertical, 7)
                             .frame(maxHeight: .infinity)
+                        sectionDivider
                         footerRow
+                            .padding(.top, 7)
                     } else {
                         emptyState
                     }
                 }
-                .padding(.horizontal, 11)
-                .padding(.vertical, 10)
+                .padding(.horizontal, 4)
+                .padding(.vertical, 6)
                 .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
             )
             // `NotchWindowController` grows the panel to fit the session
@@ -2076,14 +2120,20 @@ private struct AgentsCell: View {
             .background(Capsule().fill(Color.white.opacity(0.055)))
     }
 
+    /// Agents is the one page that doesn't go through `CellSurface`, so it
+    /// keeps its own shape — stripped of the grey plate for the same reason
+    /// (see `CellSurface`), leaving a plain sizing container.
     private var cellShape: some View {
         RoundedRectangle(cornerRadius: DesignTokens.cellRadius)
-            .fill(reduceTransparency ? AnyShapeStyle(Color(white: 0.075)) : AnyShapeStyle(.ultraThinMaterial))
-            .overlay(RoundedRectangle(cornerRadius: DesignTokens.cellRadius).fill(Color.black.opacity(reduceTransparency ? 0 : 0.34)))
-            .overlay(
-                RoundedRectangle(cornerRadius: DesignTokens.cellRadius)
-                    .stroke(Color.white.opacity(0.055), lineWidth: 1)
-            )
+            .fill(Color.clear)
+    }
+
+    /// Horizontal counterpart of the Dashboard's `widgetDivider` — same
+    /// hairline, same token, rotated for a vertically stacked page.
+    private var sectionDivider: some View {
+        Divider()
+            .overlay(DesignTokens.line)
+            .padding(.horizontal, 6)
     }
 
     /// One row per tracked session. Selected/first row expands to show the
@@ -2093,17 +2143,20 @@ private struct AgentsCell: View {
     private func sessionRow(_ session: AgentSession, isSelected: Bool) -> some View {
         VStack(alignment: .leading, spacing: 3) {
             HStack(spacing: 8) {
+                // Fixed 24pt regardless of selection: the row already grows
+                // by two lines when selected, and resizing the icon on top of
+                // that made the list jump around on every click.
                 RoundedRectangle(cornerRadius: 7)
                     .fill(Color.white.opacity(0.09))
-                    .frame(width: isSelected ? 26 : 22, height: isSelected ? 26 : 22)
+                    .frame(width: 24, height: 24)
                     .overlay(
-                        glyphContent(session.agent, size: isSelected ? 10 : 9)
+                        glyphContent(session.agent, size: 9.5)
                             .foregroundColor(.white)
                     )
                 Circle().fill(statusColor(session.state)).frame(width: 6, height: 6)
                 Text(session.title)
-                    .font(.system(size: isSelected ? 11.5 : 11, weight: .semibold))
-                    .foregroundColor(.white)
+                    .font(.system(size: 11.5, weight: .semibold))
+                    .foregroundColor(.white.opacity(isSelected ? 1 : 0.78))
                     .lineLimit(1)
                     .truncationMode(.tail)
                     .layoutPriority(1)
@@ -2122,7 +2175,7 @@ private struct AgentsCell: View {
                         .lineLimit(1)
                         .truncationMode(.tail)
                 }
-                .padding(.leading, 34)
+                .padding(.leading, 32)
                 HStack(spacing: 6) {
                     Text(session.lastMessage)
                         .font(.system(size: 10))
@@ -2137,15 +2190,25 @@ private struct AgentsCell: View {
                             .lineLimit(1)
                     }
                 }
-                .padding(.leading, 34)
+                .padding(.leading, 32)
             }
         }
-        .padding(.horizontal, 8)
+        .padding(.leading, 10)
+        .padding(.trailing, 8)
         .padding(.vertical, isSelected ? 6 : 5)
-        .background(
-            RoundedRectangle(cornerRadius: 10)
-                .fill(Color.white.opacity(isSelected ? 0.065 : 0.03))
-        )
+        // Selection used to be a filled grey plate behind every row (a
+        // lighter one behind the unselected ones), which is exactly the
+        // stacked-panel look the Dashboard page dropped. A single accent
+        // rail marks the selected row instead, and the agent's own colour
+        // says which agent it belongs to.
+        .overlay(alignment: .leading) {
+            if isSelected {
+                Capsule()
+                    .fill(session.agent.accentColor)
+                    .frame(width: 2.5)
+                    .padding(.vertical, 3)
+            }
+        }
         .contentShape(Rectangle())
         .hoverLift(cornerRadius: 10, strength: 0.04)
         .onTapGesture(count: 2) {
@@ -2329,9 +2392,14 @@ private struct MiniButton: View {
 
 // MARK: - Nook pages
 
+/// Sizing/padding container for a Nook page. It used to also draw a
+/// translucent grey plate (`.ultraThinMaterial` + a black wash + a hairline
+/// border); that plate read as a second background floating inside the notch
+/// panel, which the Dashboard page had already dropped. The rectangle stays
+/// because it's what claims the available space — only the fill and stroke
+/// are gone, so every page now sits directly on the panel.
 private struct CellSurface<Content: View>: View {
     let content: Content
-    @Environment(\.accessibilityReduceTransparency) private var reduceTransparency
 
     init(@ViewBuilder content: () -> Content) {
         self.content = content()
@@ -2339,11 +2407,11 @@ private struct CellSurface<Content: View>: View {
 
     var body: some View {
         RoundedRectangle(cornerRadius: DesignTokens.cellRadius)
-            .fill(reduceTransparency ? AnyShapeStyle(Color(white: 0.075)) : AnyShapeStyle(.ultraThinMaterial))
-            .overlay(RoundedRectangle(cornerRadius: DesignTokens.cellRadius).fill(Color.black.opacity(reduceTransparency ? 0 : 0.32)))
-            .overlay(RoundedRectangle(cornerRadius: DesignTokens.cellRadius).stroke(Color.white.opacity(0.065), lineWidth: 0.75))
-            .overlay(content.padding(7))
-            .clipShape(RoundedRectangle(cornerRadius: DesignTokens.cellRadius, style: .continuous))
+            .fill(Color.clear)
+            // 10 rather than 7: every card in the app is drawn through this,
+            // and at 7 the contents sat visibly tight against the rounded
+            // border on all of them.
+            .overlay(content.padding(10))
     }
 }
 
@@ -2972,10 +3040,48 @@ private struct TrayItem: Identifiable {
 
 private enum TrayAction { case choose, open, reveal, airDrop, compress, copyPath, attach, removeSelected, removeItem(UUID), clear, undo }
 
+/// SF Symbols ships no `airdrop` glyph (checked at runtime — `airplayaudio`
+/// exists but reads as AirPlay), so the mark is drawn: three concentric arcs
+/// opening downward over a small upward wedge, which is what the system's
+/// AirDrop icon is. Meant to be `.stroke`d, not filled.
+private struct AirDropGlyph: Shape {
+    func path(in rect: CGRect) -> Path {
+        let side = min(rect.width, rect.height)
+        let center = CGPoint(x: rect.midX, y: rect.midY)
+        var path = Path()
+        // Near-full rings with a gap at the bottom (115°→65° the long way
+        // round), which is the notch in the system's AirDrop mark. Each ring
+        // needs its own `move(to:)` — without it `addArc` joins to the
+        // previous subpath's end and draws a stray chord across the glyph.
+        for scale in [0.22, 0.34, 0.46] {
+            let radius = side * scale
+            let start = Angle.degrees(115)
+            path.move(to: CGPoint(
+                x: center.x + radius * cos(start.radians),
+                y: center.y + radius * sin(start.radians)
+            ))
+            path.addArc(
+                center: center,
+                radius: radius,
+                startAngle: start,
+                endAngle: .degrees(65),
+                clockwise: false
+            )
+        }
+        let dot = side * 0.055
+        path.addEllipse(in: CGRect(x: center.x - dot, y: center.y - dot, width: dot * 2, height: dot * 2))
+        return path
+    }
+}
+
 private struct TrayCell: View {
     @Binding var items: [TrayItem]
     @Binding var selectedItemID: UUID?
     let isTargeted: Bool
+    let isAirDropTargeted: Bool
+    /// Reported upward so `NotchView` can route an incoming drop to AirDrop
+    /// instead of the Tray — see `isOverAirDropWell`.
+    @Binding var airDropWellFrame: CGRect
     let feedback: String?
     let canUndo: Bool
     let action: (TrayAction) -> Void
@@ -2983,7 +3089,10 @@ private struct TrayCell: View {
     var body: some View {
         CellSurface {
             VStack(spacing: 8) {
-                trayShelf
+                HStack(spacing: 8) {
+                    trayShelf
+                    airDropShelf
+                }
                 HStack(spacing: 6) {
                     Text(statusLabel)
                         .font(.system(size: 10, weight: .medium))
@@ -3042,6 +3151,41 @@ private struct TrayCell: View {
             return String(localized: "tray.itemCount", defaultValue: "\(String(items.count)) item\(items.count == 1 ? "" : "s")")
         }
         return String(localized: "tray.selectedItemCount", defaultValue: "\(selected.url.lastPathComponent) · \(String(items.count)) item\(items.count == 1 ? "" : "s")")
+    }
+
+    /// A second, smaller well beside the Tray: dropping here hands the files
+    /// straight to AirDrop instead of stashing them. Deliberately narrow —
+    /// the Tray stays the primary target and this sits next to it as a
+    /// shortcut, not as an equal half of the page.
+    private var airDropShelf: some View {
+        RoundedRectangle(cornerRadius: 13)
+            .fill(DesignTokens.airDropWell.opacity(isAirDropTargeted ? 0.62 : 0.34))
+            .overlay(
+                RoundedRectangle(cornerRadius: 13)
+                    .stroke(Color.accentColor.opacity(isAirDropTargeted ? 0.75 : 0.2), lineWidth: 1)
+            )
+            .overlay(alignment: .topLeading) {
+                VStack(alignment: .leading, spacing: 6) {
+                    AirDropGlyph()
+                        .stroke(Color.accentColor, style: StrokeStyle(lineWidth: 1.6, lineCap: .round))
+                        .frame(width: 19, height: 19)
+                    Text(String(localized: "tray.airDrop", defaultValue: "AirDrop"))
+                        .font(.system(size: 11, weight: .semibold))
+                        .foregroundColor(.white.opacity(0.92))
+                }
+                .padding(11)
+            }
+            .frame(width: 118)
+            // No `.dropDestination` here: the panel's AppKit container view
+            // owns the whole drag session (see `FileDropContainerView`), so a
+            // SwiftUI drop target would be competing with it. This publishes
+            // its frame instead and lets that one owner route the drop.
+            .onGeometryChange(for: CGRect.self, of: { $0.frame(in: .global) }) { frame in
+                airDropWellFrame = frame
+            }
+            .onDisappear { airDropWellFrame = .zero }
+            .help(String(localized: "tray.airDropWellHelp", defaultValue: "Drop files here to send them with AirDrop"))
+            .accessibilityLabel(String(localized: "tray.airDropWellHelp", defaultValue: "Drop files here to send them with AirDrop"))
     }
 
     @ViewBuilder

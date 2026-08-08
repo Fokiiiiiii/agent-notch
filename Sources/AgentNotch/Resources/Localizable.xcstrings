@@ -23001,6 +23001,106 @@
         }
       }
     },
+    "tray.airDropWellHelp": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Drop files here to send them with AirDrop"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "把文件拖到这里，通过 AirDrop 发送"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Suelta archivos aquí para enviarlos por AirDrop"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Déposez des fichiers ici pour les envoyer par AirDrop"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Dateien hier ablegen, um sie per AirDrop zu senden"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Перетащите файлы сюда, чтобы отправить их через AirDrop"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "أفلِت الملفات هنا لإرسالها عبر AirDrop"
+          }
+        },
+        "pt": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Solte arquivos aqui para enviá-los por AirDrop"
+          }
+        },
+        "hi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "AirDrop से भेजने के लिए फ़ाइलें यहाँ छोड़ें"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ここにファイルをドロップすると AirDrop で送信します"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "여기에 파일을 놓으면 AirDrop으로 보냅니다"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Trascina qui i file per inviarli con AirDrop"
+          }
+        },
+        "id": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Jatuhkan berkas di sini untuk mengirimnya lewat AirDrop"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Thả tệp vào đây để gửi bằng AirDrop"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "วางไฟล์ที่นี่เพื่อส่งด้วย AirDrop"
+          }
+        },
+        "fil": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "I-drop ang mga file dito para ipadala sa AirDrop"
+          }
+        }
+      }
+    },
     "tray.badgeAccessibilityLabel": {
       "localizations": {
         "en": {
