@@ -173,7 +173,7 @@ private struct GeneralSettingsTab: View {
                     }
                 ))
                 .help(String(localized: "settings.visualizerHelp", defaultValue: "Drives the compact waveform from what's actually playing, instead of a looping animation."))
-                Text(String(localized: "settings.visualizerPermissionNote", defaultValue: "Needs Screen Recording permission — macOS has no other way to read system audio. AgentNotch never captures the screen itself. After granting it, quit and reopen AgentNotch."))
+                Text(String(localized: "settings.visualizerPermissionNote", defaultValue: "Needs Screen Recording permission. Reopen AgentNotch after granting it."))
                     .font(.caption)
                     .foregroundColor(.secondary)
                     .fixedSize(horizontal: false, vertical: true)
@@ -193,11 +193,7 @@ private struct GeneralSettingsTab: View {
                         AirPodsBatteryMonitor.shared.setEnabled(newValue)
                     }
                 ))
-                .help(String(localized: "settings.airPodsStatusHelp", defaultValue: "Adds the connected headphones' battery level next to the Mac's own, in the panel's top bar."))
-                Text(String(localized: "settings.airPodsPrivateAPINote", defaultValue: "macOS exposes no supported way to read this, so AgentNotch uses an undocumented one. It may stop reporting after a macOS update, in which case the indicator simply disappears."))
-                    .font(.caption)
-                    .foregroundColor(.secondary)
-                    .fixedSize(horizontal: false, vertical: true)
+                .help(String(localized: "settings.airPodsStatusHelp", defaultValue: "Adds the connected headphones' battery level next to the Mac's own, in the panel's top bar. macOS offers no supported way to read this, so it may stop working after a system update."))
             }
 
             Section(String(localized: "settings.section.appearance", defaultValue: "Appearance")) {
@@ -330,11 +326,6 @@ private struct NookSettingsTab: View {
                     }
                     .padding(.vertical, 2)
                 }
-                Text(String(localized: "settings.dashboardWidgetsHelp", defaultValue: "Widgets are laid out left to right in this order. The notch panel keeps its width, so the widgets share it."))
-                    .font(.caption)
-                    .foregroundColor(.secondary)
-                    .fixedSize(horizontal: false, vertical: true)
-                    .padding(.vertical, 2)
             }
 
             Section(String(localized: "settings.section.shortcuts", defaultValue: "Shortcuts")) {
@@ -365,7 +356,7 @@ private struct NookSettingsTab: View {
                         .fixedSize(horizontal: false, vertical: true)
                         .padding(.vertical, 2)
                 } else {
-                    Menu(String(localized: "settings.addShortcut", defaultValue: "Add shortcut…")) {
+                    Menu(String(localized: "settings.addShortcut", defaultValue: "Add to the Tray menu…")) {
                         ForEach(unregisteredShortcuts, id: \.self) { name in
                             Button(name) {
                                 settings.registeredShortcuts.append(ShortcutBinding(name: name))
@@ -374,12 +365,6 @@ private struct NookSettingsTab: View {
                     }
                     .disabled(unregisteredShortcuts.isEmpty)
                 }
-
-                Text(String(localized: "settings.shortcutsHelp", defaultValue: "Registered shortcuts appear in the Tray's ⋯ menu. Running one passes the selected Tray files to it as input."))
-                    .font(.caption)
-                    .foregroundColor(.secondary)
-                    .fixedSize(horizontal: false, vertical: true)
-                    .padding(.vertical, 2)
             }
 
             Section {

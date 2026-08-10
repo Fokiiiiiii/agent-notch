@@ -16606,197 +16606,97 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Add shortcut…"
+            "value": "Add to the Tray menu…"
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "添加快捷指令…"
+            "value": "添加到托盘菜单…"
           }
         },
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "Añadir atajo…"
+            "value": "Añadir al menú de la bandeja…"
           }
         },
         "fr": {
           "stringUnit": {
             "state": "translated",
-            "value": "Ajouter un raccourci…"
+            "value": "Ajouter au menu du plateau…"
           }
         },
         "de": {
           "stringUnit": {
             "state": "translated",
-            "value": "Kurzbefehl hinzufügen…"
+            "value": "Zum Tray-Menü hinzufügen…"
           }
         },
         "ru": {
           "stringUnit": {
             "state": "translated",
-            "value": "Добавить команду…"
+            "value": "Добавить в меню лотка…"
           }
         },
         "ar": {
           "stringUnit": {
             "state": "translated",
-            "value": "إضافة اختصار…"
+            "value": "إضافة إلى قائمة الدرج…"
           }
         },
         "pt": {
           "stringUnit": {
             "state": "translated",
-            "value": "Adicionar atalho…"
+            "value": "Adicionar ao menu da bandeja…"
           }
         },
         "hi": {
           "stringUnit": {
             "state": "translated",
-            "value": "शॉर्टकट जोड़ें…"
+            "value": "ट्रे मेनू में जोड़ें…"
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "ショートカットを追加…"
+            "value": "トレイのメニューに追加…"
           }
         },
         "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "단축어 추가…"
+            "value": "트레이 메뉴에 추가…"
           }
         },
         "it": {
           "stringUnit": {
             "state": "translated",
-            "value": "Aggiungi comando rapido…"
+            "value": "Aggiungi al menu del vassoio…"
           }
         },
         "id": {
           "stringUnit": {
             "state": "translated",
-            "value": "Tambah pintasan…"
+            "value": "Tambahkan ke menu Tray…"
           }
         },
         "vi": {
           "stringUnit": {
             "state": "translated",
-            "value": "Thêm phím tắt…"
+            "value": "Thêm vào menu Khay…"
           }
         },
         "th": {
           "stringUnit": {
             "state": "translated",
-            "value": "เพิ่มทางลัด…"
+            "value": "เพิ่มลงเมนูถาด…"
           }
         },
         "fil": {
           "stringUnit": {
             "state": "translated",
-            "value": "Magdagdag ng shortcut…"
-          }
-        }
-      }
-    },
-    "settings.airPodsPrivateAPINote": {
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "macOS exposes no supported way to read this, so AgentNotch uses an undocumented one. It may stop reporting after a macOS update, in which case the indicator simply disappears."
-          }
-        },
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "macOS 没有提供读取该信息的正式方式，因此 AgentNotch 使用了未公开的接口。macOS 更新后可能失效，届时该指示器会直接消失。"
-          }
-        },
-        "es": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "macOS no ofrece una forma admitida de leer esto, así que AgentNotch usa una no documentada. Puede dejar de funcionar tras una actualización de macOS; en ese caso el indicador simplemente desaparece."
-          }
-        },
-        "fr": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "macOS n'offre aucun moyen pris en charge de lire cette information ; AgentNotch en utilise donc un non documenté. Cela peut cesser de fonctionner après une mise à jour de macOS, auquel cas l'indicateur disparaît simplement."
-          }
-        },
-        "de": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "macOS bietet keinen unterstützten Weg, das auszulesen, daher nutzt AgentNotch einen undokumentierten. Nach einem macOS-Update kann es ausfallen – dann verschwindet die Anzeige einfach."
-          }
-        },
-        "ru": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "macOS не предоставляет поддерживаемого способа это прочитать, поэтому AgentNotch использует недокументированный. После обновления macOS он может перестать работать — тогда индикатор просто исчезнет."
-          }
-        },
-        "ar": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "لا توفّر macOS طريقة مدعومة لقراءة ذلك، لذا يستخدم AgentNotch طريقة غير موثّقة. قد تتوقف بعد تحديث macOS، وحينها يختفي المؤشر ببساطة."
-          }
-        },
-        "pt": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "O macOS não oferece uma forma suportada de ler isso, então o AgentNotch usa uma não documentada. Pode parar de funcionar após uma atualização do macOS; nesse caso o indicador simplesmente desaparece."
-          }
-        },
-        "hi": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "macOS इसे पढ़ने का कोई समर्थित तरीका नहीं देता, इसलिए AgentNotch एक अनौपचारिक तरीका इस्तेमाल करता है। macOS अपडेट के बाद यह बंद हो सकता है, तब यह संकेतक बस गायब हो जाएगा।"
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "macOS にはこれを読むための正式な手段が無いため、AgentNotch は非公開の手段を使っています。macOS のアップデートで動かなくなる可能性があり、その場合この表示は単に出なくなります。"
-          }
-        },
-        "ko": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "macOS에는 이를 읽는 공식적인 방법이 없어 AgentNotch는 비공개 방식을 사용합니다. macOS 업데이트 후 동작하지 않을 수 있으며, 그 경우 표시가 그냥 사라집니다."
-          }
-        },
-        "it": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "macOS non offre un modo supportato per leggerlo, quindi AgentNotch ne usa uno non documentato. Potrebbe smettere di funzionare dopo un aggiornamento di macOS: in tal caso l'indicatore semplicemente scompare."
-          }
-        },
-        "id": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "macOS tidak menyediakan cara resmi untuk membacanya, jadi AgentNotch memakai cara tak terdokumentasi. Bisa berhenti bekerja setelah pembaruan macOS; indikatornya akan hilang begitu saja."
-          }
-        },
-        "vi": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "macOS không có cách chính thức để đọc thông tin này nên AgentNotch dùng cách không được ghi nhận. Nó có thể ngừng hoạt động sau khi cập nhật macOS, khi đó chỉ báo sẽ biến mất."
-          }
-        },
-        "th": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "macOS ไม่มีวิธีที่รองรับให้อ่านค่านี้ AgentNotch จึงใช้วิธีที่ไม่ได้เปิดเผย อาจหยุดทำงานหลังอัปเดต macOS ซึ่งตัวบ่งชี้จะหายไปเฉย ๆ"
-          }
-        },
-        "fil": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Walang suportadong paraan ang macOS para basahin ito, kaya gumagamit ang AgentNotch ng hindi opisyal. Maaari itong tumigil pagkatapos ng update ng macOS — mawawala na lang ang indicator."
+            "value": "Idagdag sa menu ng Tray…"
           }
         }
       }
@@ -16906,97 +16806,97 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Adds the connected headphones' battery level next to the Mac's own, in the panel's top bar."
+            "value": "Adds the connected headphones' battery level next to the Mac's own, in the panel's top bar. macOS offers no supported way to read this, so it may stop working after a system update."
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "在面板顶栏中，把已连接耳机的电量显示在 Mac 电量旁边。"
+            "value": "在面板顶栏中，把已连接耳机的电量显示在 Mac 电量旁边。macOS 没有提供正式的读取方式，系统更新后可能失效。"
           }
         },
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "Añade el nivel de batería de los auriculares conectados junto al del Mac, en la barra superior del panel."
+            "value": "Añade el nivel de batería de los auriculares conectados junto al del Mac, en la barra superior del panel. macOS no ofrece una forma admitida de leerlo, así que puede dejar de funcionar tras una actualización."
           }
         },
         "fr": {
           "stringUnit": {
             "state": "translated",
-            "value": "Ajoute le niveau de batterie du casque connecté à côté de celui du Mac, dans la barre supérieure du panneau."
+            "value": "Ajoute le niveau de batterie du casque connecté à côté de celui du Mac, dans la barre supérieure du panneau. macOS n'offre aucun moyen pris en charge de le lire ; cela peut cesser de fonctionner après une mise à jour."
           }
         },
         "de": {
           "stringUnit": {
             "state": "translated",
-            "value": "Zeigt den Batteriestand der verbundenen Kopfhörer neben dem des Macs in der oberen Leiste des Panels."
+            "value": "Zeigt den Batteriestand der verbundenen Kopfhörer neben dem des Macs in der oberen Leiste. macOS bietet keinen unterstützten Weg, das auszulesen – nach einem Systemupdate kann es ausfallen."
           }
         },
         "ru": {
           "stringUnit": {
             "state": "translated",
-            "value": "Добавляет заряд подключённых наушников рядом с зарядом Mac в верхней панели."
+            "value": "Добавляет заряд подключённых наушников рядом с зарядом Mac в верхней панели. macOS не даёт поддерживаемого способа это прочитать, поэтому после обновления может перестать работать."
           }
         },
         "ar": {
           "stringUnit": {
             "state": "translated",
-            "value": "يضيف مستوى بطارية السماعات المتصلة بجانب بطارية الـ Mac في الشريط العلوي للوحة."
+            "value": "يضيف مستوى بطارية السماعات المتصلة بجانب بطارية الـ Mac في الشريط العلوي. لا توفّر macOS طريقة مدعومة لقراءته، لذا قد يتوقف بعد تحديث النظام."
           }
         },
         "pt": {
           "stringUnit": {
             "state": "translated",
-            "value": "Adiciona o nível de bateria dos fones conectados ao lado do nível do Mac, na barra superior do painel."
+            "value": "Adiciona o nível de bateria dos fones conectados ao lado do nível do Mac, na barra superior. O macOS não oferece forma suportada de ler isso, então pode parar de funcionar após uma atualização."
           }
         },
         "hi": {
           "stringUnit": {
             "state": "translated",
-            "value": "पैनल की ऊपरी पट्टी में, जुड़े हेडफ़ोन की बैटरी Mac की बैटरी के बगल में दिखाता है।"
+            "value": "पैनल की ऊपरी पट्टी में जुड़े हेडफ़ोन की बैटरी Mac की बैटरी के बगल में दिखाता है। macOS इसे पढ़ने का समर्थित तरीका नहीं देता, इसलिए सिस्टम अपडेट के बाद यह बंद हो सकता है।"
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "パネル上部のバーに、接続中のヘッドフォンのバッテリー残量を Mac の残量の隣に表示します。"
+            "value": "パネル上部のバーに、接続中のヘッドフォンのバッテリー残量を Mac の残量の隣に表示します。macOS には正式な取得手段が無いため、システム更新で動かなくなることがあります。"
           }
         },
         "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "패널 상단 막대에 연결된 헤드폰의 배터리 잔량을 Mac 잔량 옆에 표시합니다."
+            "value": "패널 상단 막대에 연결된 헤드폰의 배터리 잔량을 Mac 잔량 옆에 표시합니다. macOS에 공식적인 읽기 방법이 없어 시스템 업데이트 후 동작하지 않을 수 있습니다."
           }
         },
         "it": {
           "stringUnit": {
             "state": "translated",
-            "value": "Aggiunge il livello di batteria delle cuffie collegate accanto a quello del Mac, nella barra superiore del pannello."
+            "value": "Aggiunge il livello di batteria delle cuffie collegate accanto a quello del Mac, nella barra superiore. macOS non offre un modo supportato per leggerlo, quindi potrebbe smettere di funzionare dopo un aggiornamento."
           }
         },
         "id": {
           "stringUnit": {
             "state": "translated",
-            "value": "Menambahkan level baterai headphone yang terhubung di samping milik Mac, pada bilah atas panel."
+            "value": "Menambahkan level baterai headphone yang terhubung di samping milik Mac, pada bilah atas. macOS tidak menyediakan cara resmi membacanya, jadi bisa berhenti bekerja setelah pembaruan sistem."
           }
         },
         "vi": {
           "stringUnit": {
             "state": "translated",
-            "value": "Thêm mức pin của tai nghe đang kết nối cạnh mức pin của Mac, ở thanh trên của bảng."
+            "value": "Thêm mức pin của tai nghe đang kết nối cạnh mức pin của Mac, ở thanh trên. macOS không có cách chính thức để đọc nên có thể ngừng hoạt động sau khi cập nhật hệ thống."
           }
         },
         "th": {
           "stringUnit": {
             "state": "translated",
-            "value": "เพิ่มระดับแบตเตอรี่ของหูฟังที่เชื่อมต่อไว้ข้างของ Mac ในแถบด้านบนของแผง"
+            "value": "เพิ่มระดับแบตเตอรี่ของหูฟังที่เชื่อมต่อไว้ข้างของ Mac ในแถบด้านบน macOS ไม่มีวิธีที่รองรับให้อ่านค่านี้ จึงอาจหยุดทำงานหลังอัปเดตระบบ"
           }
         },
         "fil": {
           "stringUnit": {
             "state": "translated",
-            "value": "Idinaragdag ang antas ng baterya ng nakakonektang headphone katabi ng sa Mac, sa itaas na bar ng panel."
+            "value": "Idinaragdag ang antas ng baterya ng nakakonektang headphone katabi ng sa Mac, sa itaas na bar. Walang suportadong paraan ang macOS para basahin ito, kaya maaaring tumigil pagkatapos ng update."
           }
         }
       }
@@ -17597,106 +17497,6 @@
           "stringUnit": {
             "state": "translated",
             "value": "Isinasaayos ang radius ng sulok ng panel."
-          }
-        }
-      }
-    },
-    "settings.dashboardWidgetsHelp": {
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Widgets are laid out left to right in this order. The notch panel keeps its width, so the widgets share it."
-          }
-        },
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "小组件按此顺序从左到右排列。刘海面板宽度不变，小组件共享这个宽度。"
-          }
-        },
-        "es": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Los widgets se disponen de izquierda a derecha en este orden. El panel de la muesca mantiene su ancho, así que los widgets lo comparten."
-          }
-        },
-        "fr": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Les widgets sont disposés de gauche à droite dans cet ordre. L'encoche conserve sa largeur, que les widgets se partagent."
-          }
-        },
-        "de": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Widgets werden in dieser Reihenfolge von links nach rechts angeordnet. Die Breite der Notch bleibt gleich, die Widgets teilen sie sich."
-          }
-        },
-        "ru": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Виджеты располагаются слева направо в этом порядке. Ширина панели не меняется, виджеты делят её между собой."
-          }
-        },
-        "ar": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "تُرتَّب العناصر من اليسار إلى اليمين بهذا الترتيب. يحتفظ النوتش بعرضه، فتتقاسمه العناصر."
-          }
-        },
-        "pt": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Os widgets são dispostos da esquerda para a direita nesta ordem. O notch mantém sua largura, então os widgets a dividem."
-          }
-        },
-        "hi": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "विजेट इसी क्रम में बाएँ से दाएँ लगते हैं। नॉच पैनल की चौड़ाई वही रहती है, इसलिए विजेट उसे साझा करते हैं।"
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "ウィジェットはこの順に左から右へ並びます。ノッチパネルの幅は変わらないため、その幅をウィジェットで分け合います。"
-          }
-        },
-        "ko": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "위젯은 이 순서대로 왼쪽에서 오른쪽으로 배치됩니다. 노치 패널의 너비는 그대로이므로 위젯이 나눠 씁니다."
-          }
-        },
-        "it": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "I widget sono disposti da sinistra a destra in quest'ordine. Il notch mantiene la sua larghezza, che i widget si dividono."
-          }
-        },
-        "id": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Widget disusun dari kiri ke kanan dalam urutan ini. Lebar panel notch tetap, jadi widget berbagi lebar itu."
-          }
-        },
-        "vi": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Các widget được xếp từ trái sang phải theo thứ tự này. Bảng notch giữ nguyên chiều rộng nên các widget chia nhau."
-          }
-        },
-        "th": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "วิดเจ็ตจะเรียงจากซ้ายไปขวาตามลำดับนี้ แผงโน้ตช์คงความกว้างเดิม วิดเจ็ตจึงแบ่งพื้นที่กัน"
-          }
-        },
-        "fil": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Nakahanay ang mga widget mula kaliwa pakanan sa pagkakasunod-sunod na ito. Hindi nagbabago ang lapad ng notch panel, kaya pinaghahatian ito ng mga widget."
           }
         }
       }
@@ -21701,106 +21501,6 @@
         }
       }
     },
-    "settings.shortcutsHelp": {
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Registered shortcuts appear in the Tray's ⋯ menu. Running one passes the selected Tray files to it as input."
-          }
-        },
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "已注册的快捷指令会出现在托盘的 ⋯ 菜单中。运行时会把选中的托盘文件作为输入传入。"
-          }
-        },
-        "es": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Los atajos registrados aparecen en el menú ⋯ de la bandeja. Al ejecutar uno se le pasan los archivos seleccionados como entrada."
-          }
-        },
-        "fr": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Les raccourcis enregistrés apparaissent dans le menu ⋯ du plateau. En exécuter un lui transmet les fichiers sélectionnés en entrée."
-          }
-        },
-        "de": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Registrierte Kurzbefehle erscheinen im ⋯-Menü des Trays. Beim Ausführen werden die ausgewählten Tray-Dateien als Eingabe übergeben."
-          }
-        },
-        "ru": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Добавленные команды появляются в меню ⋯ лотка. При запуске выбранные файлы передаются команде на вход."
-          }
-        },
-        "ar": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "تظهر الاختصارات المسجَّلة في قائمة ⋯ بالدرج. عند تشغيل اختصار تُمرَّر إليه الملفات المحددة كمدخل."
-          }
-        },
-        "pt": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Os atalhos registrados aparecem no menu ⋯ da bandeja. Executar um passa os arquivos selecionados como entrada."
-          }
-        },
-        "hi": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "पंजीकृत शॉर्टकट ट्रे के ⋯ मेनू में दिखते हैं। चलाने पर चुनी गई ट्रे फ़ाइलें इनपुट के रूप में भेजी जाती हैं।"
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "登録したショートカットはトレイの ⋯ メニューに表示されます。実行すると、選択中のトレイのファイルが入力として渡されます。"
-          }
-        },
-        "ko": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "등록한 단축어는 트레이의 ⋯ 메뉴에 나타납니다. 실행하면 선택한 트레이 파일이 입력으로 전달됩니다."
-          }
-        },
-        "it": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "I comandi rapidi registrati compaiono nel menu ⋯ del vassoio. Eseguendone uno, i file selezionati gli vengono passati come input."
-          }
-        },
-        "id": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Pintasan yang terdaftar muncul di menu ⋯ pada Tray. Menjalankannya akan mengirim berkas Tray yang dipilih sebagai masukan."
-          }
-        },
-        "vi": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Các phím tắt đã đăng ký xuất hiện trong menu ⋯ của Khay. Khi chạy, các tệp đang chọn được truyền vào làm đầu vào."
-          }
-        },
-        "th": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "ทางลัดที่ลงทะเบียนไว้จะอยู่ในเมนู ⋯ ของถาด เมื่อเรียกใช้ ไฟล์ที่เลือกในถาดจะถูกส่งเป็นอินพุต"
-          }
-        },
-        "fil": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Lumalabas ang mga nakarehistrong shortcut sa ⋯ menu ng Tray. Kapag pinatakbo, ipinapasa dito ang mga napiling file sa Tray bilang input."
-          }
-        }
-      }
-    },
     "settings.showWelcome": {
       "localizations": {
         "en": {
@@ -23206,97 +22906,97 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Needs Screen Recording permission — macOS has no other way to read system audio. AgentNotch never captures the screen itself. After granting it, quit and reopen AgentNotch."
+            "value": "Needs Screen Recording permission. Reopen AgentNotch after granting it."
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "需要“屏幕录制”权限 — macOS 没有其他读取系统音频的方式。AgentNotch 不会捕获屏幕内容。授权后请退出并重新打开 AgentNotch。"
+            "value": "需要“屏幕录制”权限。授权后请重新打开 AgentNotch。"
           }
         },
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "Requiere permiso de Grabación de Pantalla: macOS no ofrece otra forma de leer el audio del sistema. AgentNotch nunca captura la pantalla. Tras concederlo, cierra y vuelve a abrir AgentNotch."
+            "value": "Requiere permiso de Grabación de Pantalla. Vuelve a abrir AgentNotch tras concederlo."
           }
         },
         "fr": {
           "stringUnit": {
             "state": "translated",
-            "value": "Nécessite l'autorisation Enregistrement de l'écran — macOS n'offre aucun autre moyen de lire l'audio système. AgentNotch ne capture jamais l'écran. Après l'avoir accordée, quittez et rouvrez AgentNotch."
+            "value": "Nécessite l'autorisation Enregistrement de l'écran. Rouvrez AgentNotch après l'avoir accordée."
           }
         },
         "de": {
           "stringUnit": {
             "state": "translated",
-            "value": "Benötigt die Bildschirmaufnahme-Berechtigung – macOS bietet keinen anderen Weg, Systemaudio zu lesen. AgentNotch nimmt den Bildschirm nie auf. Nach dem Erteilen AgentNotch beenden und neu öffnen."
+            "value": "Benötigt die Bildschirmaufnahme-Berechtigung. AgentNotch danach neu öffnen."
           }
         },
         "ru": {
           "stringUnit": {
             "state": "translated",
-            "value": "Требуется разрешение «Запись экрана» — других способов читать системный звук в macOS нет. AgentNotch никогда не записывает экран. После выдачи разрешения закройте и снова откройте AgentNotch."
+            "value": "Требуется разрешение «Запись экрана». После выдачи снова откройте AgentNotch."
           }
         },
         "ar": {
           "stringUnit": {
             "state": "translated",
-            "value": "يتطلب إذن تسجيل الشاشة — لا توفّر macOS طريقة أخرى لقراءة صوت النظام. لا يلتقط AgentNotch الشاشة إطلاقًا. بعد المنح، أغلق AgentNotch وأعد فتحه."
+            "value": "يتطلب إذن تسجيل الشاشة. أعد فتح AgentNotch بعد منحه."
           }
         },
         "pt": {
           "stringUnit": {
             "state": "translated",
-            "value": "Requer permissão de Gravação de Tela — o macOS não oferece outra forma de ler o áudio do sistema. O AgentNotch nunca captura a tela. Depois de conceder, encerre e reabra o AgentNotch."
+            "value": "Requer permissão de Gravação de Tela. Reabra o AgentNotch após concedê-la."
           }
         },
         "hi": {
           "stringUnit": {
             "state": "translated",
-            "value": "स्क्रीन रिकॉर्डिंग अनुमति चाहिए — macOS में सिस्टम ऑडियो पढ़ने का दूसरा तरीका नहीं है। AgentNotch स्क्रीन कैप्चर कभी नहीं करता। अनुमति देने के बाद AgentNotch बंद करके दोबारा खोलें।"
+            "value": "स्क्रीन रिकॉर्डिंग अनुमति चाहिए। देने के बाद AgentNotch दोबारा खोलें।"
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "画面収録の権限が必要です — macOS にはシステム音声を読む他の手段がありません。AgentNotch が画面を記録することはありません。許可したあとは AgentNotch を終了して開き直してください。"
+            "value": "画面収録の権限が必要です。許可後は AgentNotch を開き直してください。"
           }
         },
         "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "화면 기록 권한이 필요합니다 — macOS에는 시스템 오디오를 읽을 다른 방법이 없습니다. AgentNotch는 화면을 캡처하지 않습니다. 허용한 뒤 AgentNotch를 종료했다가 다시 여세요."
+            "value": "화면 기록 권한이 필요합니다. 허용한 뒤 AgentNotch를 다시 여세요."
           }
         },
         "it": {
           "stringUnit": {
             "state": "translated",
-            "value": "Richiede l'autorizzazione Registrazione schermo: macOS non offre altro modo di leggere l'audio di sistema. AgentNotch non cattura mai lo schermo. Dopo averla concessa, chiudi e riapri AgentNotch."
+            "value": "Richiede l'autorizzazione Registrazione schermo. Riapri AgentNotch dopo averla concessa."
           }
         },
         "id": {
           "stringUnit": {
             "state": "translated",
-            "value": "Perlu izin Perekaman Layar — macOS tidak punya cara lain membaca audio sistem. AgentNotch tidak pernah merekam layar. Setelah memberi izin, tutup dan buka lagi AgentNotch."
+            "value": "Perlu izin Perekaman Layar. Buka lagi AgentNotch setelah memberinya."
           }
         },
         "vi": {
           "stringUnit": {
             "state": "translated",
-            "value": "Cần quyền Ghi màn hình — macOS không có cách nào khác để đọc âm thanh hệ thống. AgentNotch không bao giờ chụp màn hình. Sau khi cấp quyền, hãy thoát và mở lại AgentNotch."
+            "value": "Cần quyền Ghi màn hình. Mở lại AgentNotch sau khi cấp quyền."
           }
         },
         "th": {
           "stringUnit": {
             "state": "translated",
-            "value": "ต้องใช้สิทธิ์บันทึกหน้าจอ — macOS ไม่มีวิธีอื่นในการอ่านเสียงของระบบ AgentNotch ไม่ได้บันทึกหน้าจอ หลังอนุญาตแล้วให้ปิดและเปิด AgentNotch ใหม่"
+            "value": "ต้องใช้สิทธิ์บันทึกหน้าจอ เปิด AgentNotch ใหม่หลังอนุญาต"
           }
         },
         "fil": {
           "stringUnit": {
             "state": "translated",
-            "value": "Kailangan ng pahintulot sa Screen Recording — walang ibang paraan ang macOS para basahin ang audio ng system. Hindi kailanman kinukuha ng AgentNotch ang screen. Pagkatapos magbigay, isara at buksang muli ang AgentNotch."
+            "value": "Kailangan ng pahintulot sa Screen Recording. Buksang muli ang AgentNotch pagkatapos magbigay."
           }
         }
       }
