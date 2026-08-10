@@ -16806,97 +16806,97 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Adds the connected headphones' battery level next to the Mac's own, in the panel's top bar. macOS offers no supported way to read this, so it may stop working after a system update."
+            "value": "Adds the connected headphones' battery level next to the Mac's own, in the panel's top bar."
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "在面板顶栏中，把已连接耳机的电量显示在 Mac 电量旁边。macOS 没有提供正式的读取方式，系统更新后可能失效。"
+            "value": "在面板顶栏中，把已连接耳机的电量显示在 Mac 电量旁边。"
           }
         },
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "Añade el nivel de batería de los auriculares conectados junto al del Mac, en la barra superior del panel. macOS no ofrece una forma admitida de leerlo, así que puede dejar de funcionar tras una actualización."
+            "value": "Añade el nivel de batería de los auriculares conectados junto al del Mac, en la barra superior del panel."
           }
         },
         "fr": {
           "stringUnit": {
             "state": "translated",
-            "value": "Ajoute le niveau de batterie du casque connecté à côté de celui du Mac, dans la barre supérieure du panneau. macOS n'offre aucun moyen pris en charge de le lire ; cela peut cesser de fonctionner après une mise à jour."
+            "value": "Ajoute le niveau de batterie du casque connecté à côté de celui du Mac, dans la barre supérieure du panneau."
           }
         },
         "de": {
           "stringUnit": {
             "state": "translated",
-            "value": "Zeigt den Batteriestand der verbundenen Kopfhörer neben dem des Macs in der oberen Leiste. macOS bietet keinen unterstützten Weg, das auszulesen – nach einem Systemupdate kann es ausfallen."
+            "value": "Zeigt den Batteriestand der verbundenen Kopfhörer neben dem des Macs in der oberen Leiste des Panels."
           }
         },
         "ru": {
           "stringUnit": {
             "state": "translated",
-            "value": "Добавляет заряд подключённых наушников рядом с зарядом Mac в верхней панели. macOS не даёт поддерживаемого способа это прочитать, поэтому после обновления может перестать работать."
+            "value": "Добавляет заряд подключённых наушников рядом с зарядом Mac в верхней панели."
           }
         },
         "ar": {
           "stringUnit": {
             "state": "translated",
-            "value": "يضيف مستوى بطارية السماعات المتصلة بجانب بطارية الـ Mac في الشريط العلوي. لا توفّر macOS طريقة مدعومة لقراءته، لذا قد يتوقف بعد تحديث النظام."
+            "value": "يضيف مستوى بطارية السماعات المتصلة بجانب بطارية الـ Mac في الشريط العلوي للوحة."
           }
         },
         "pt": {
           "stringUnit": {
             "state": "translated",
-            "value": "Adiciona o nível de bateria dos fones conectados ao lado do nível do Mac, na barra superior. O macOS não oferece forma suportada de ler isso, então pode parar de funcionar após uma atualização."
+            "value": "Adiciona o nível de bateria dos fones conectados ao lado do nível do Mac, na barra superior do painel."
           }
         },
         "hi": {
           "stringUnit": {
             "state": "translated",
-            "value": "पैनल की ऊपरी पट्टी में जुड़े हेडफ़ोन की बैटरी Mac की बैटरी के बगल में दिखाता है। macOS इसे पढ़ने का समर्थित तरीका नहीं देता, इसलिए सिस्टम अपडेट के बाद यह बंद हो सकता है।"
+            "value": "पैनल की ऊपरी पट्टी में, जुड़े हेडफ़ोन की बैटरी Mac की बैटरी के बगल में दिखाता है।"
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "パネル上部のバーに、接続中のヘッドフォンのバッテリー残量を Mac の残量の隣に表示します。macOS には正式な取得手段が無いため、システム更新で動かなくなることがあります。"
+            "value": "パネル上部のバーに、接続中のヘッドフォンのバッテリー残量を Mac の残量の隣に表示します。"
           }
         },
         "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "패널 상단 막대에 연결된 헤드폰의 배터리 잔량을 Mac 잔량 옆에 표시합니다. macOS에 공식적인 읽기 방법이 없어 시스템 업데이트 후 동작하지 않을 수 있습니다."
+            "value": "패널 상단 막대에 연결된 헤드폰의 배터리 잔량을 Mac 잔량 옆에 표시합니다."
           }
         },
         "it": {
           "stringUnit": {
             "state": "translated",
-            "value": "Aggiunge il livello di batteria delle cuffie collegate accanto a quello del Mac, nella barra superiore. macOS non offre un modo supportato per leggerlo, quindi potrebbe smettere di funzionare dopo un aggiornamento."
+            "value": "Aggiunge il livello di batteria delle cuffie collegate accanto a quello del Mac, nella barra superiore del pannello."
           }
         },
         "id": {
           "stringUnit": {
             "state": "translated",
-            "value": "Menambahkan level baterai headphone yang terhubung di samping milik Mac, pada bilah atas. macOS tidak menyediakan cara resmi membacanya, jadi bisa berhenti bekerja setelah pembaruan sistem."
+            "value": "Menambahkan level baterai headphone yang terhubung di samping milik Mac, pada bilah atas panel."
           }
         },
         "vi": {
           "stringUnit": {
             "state": "translated",
-            "value": "Thêm mức pin của tai nghe đang kết nối cạnh mức pin của Mac, ở thanh trên. macOS không có cách chính thức để đọc nên có thể ngừng hoạt động sau khi cập nhật hệ thống."
+            "value": "Thêm mức pin của tai nghe đang kết nối cạnh mức pin của Mac, ở thanh trên của bảng."
           }
         },
         "th": {
           "stringUnit": {
             "state": "translated",
-            "value": "เพิ่มระดับแบตเตอรี่ของหูฟังที่เชื่อมต่อไว้ข้างของ Mac ในแถบด้านบน macOS ไม่มีวิธีที่รองรับให้อ่านค่านี้ จึงอาจหยุดทำงานหลังอัปเดตระบบ"
+            "value": "เพิ่มระดับแบตเตอรี่ของหูฟังที่เชื่อมต่อไว้ข้างของ Mac ในแถบด้านบนของแผง"
           }
         },
         "fil": {
           "stringUnit": {
             "state": "translated",
-            "value": "Idinaragdag ang antas ng baterya ng nakakonektang headphone katabi ng sa Mac, sa itaas na bar. Walang suportadong paraan ang macOS para basahin ito, kaya maaaring tumigil pagkatapos ng update."
+            "value": "Idinaragdag ang antas ng baterya ng nakakonektang headphone katabi ng sa Mac, sa itaas na bar ng panel."
           }
         }
       }
@@ -22897,106 +22897,6 @@
           "stringUnit": {
             "state": "translated",
             "value": "Pinapagalaw ang compact waveform ayon sa aktuwal na tumutugtog, hindi sa umuulit na animation."
-          }
-        }
-      }
-    },
-    "settings.visualizerPermissionNote": {
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Needs Screen Recording permission. Reopen AgentNotch after granting it."
-          }
-        },
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "需要“屏幕录制”权限。授权后请重新打开 AgentNotch。"
-          }
-        },
-        "es": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Requiere permiso de Grabación de Pantalla. Vuelve a abrir AgentNotch tras concederlo."
-          }
-        },
-        "fr": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Nécessite l'autorisation Enregistrement de l'écran. Rouvrez AgentNotch après l'avoir accordée."
-          }
-        },
-        "de": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Benötigt die Bildschirmaufnahme-Berechtigung. AgentNotch danach neu öffnen."
-          }
-        },
-        "ru": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Требуется разрешение «Запись экрана». После выдачи снова откройте AgentNotch."
-          }
-        },
-        "ar": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "يتطلب إذن تسجيل الشاشة. أعد فتح AgentNotch بعد منحه."
-          }
-        },
-        "pt": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Requer permissão de Gravação de Tela. Reabra o AgentNotch após concedê-la."
-          }
-        },
-        "hi": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "स्क्रीन रिकॉर्डिंग अनुमति चाहिए। देने के बाद AgentNotch दोबारा खोलें।"
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "画面収録の権限が必要です。許可後は AgentNotch を開き直してください。"
-          }
-        },
-        "ko": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "화면 기록 권한이 필요합니다. 허용한 뒤 AgentNotch를 다시 여세요."
-          }
-        },
-        "it": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Richiede l'autorizzazione Registrazione schermo. Riapri AgentNotch dopo averla concessa."
-          }
-        },
-        "id": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Perlu izin Perekaman Layar. Buka lagi AgentNotch setelah memberinya."
-          }
-        },
-        "vi": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Cần quyền Ghi màn hình. Mở lại AgentNotch sau khi cấp quyền."
-          }
-        },
-        "th": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "ต้องใช้สิทธิ์บันทึกหน้าจอ เปิด AgentNotch ใหม่หลังอนุญาต"
-          }
-        },
-        "fil": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Kailangan ng pahintulot sa Screen Recording. Buksang muli ang AgentNotch pagkatapos magbigay."
           }
         }
       }

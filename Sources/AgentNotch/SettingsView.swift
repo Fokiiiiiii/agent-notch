@@ -173,10 +173,6 @@ private struct GeneralSettingsTab: View {
                     }
                 ))
                 .help(String(localized: "settings.visualizerHelp", defaultValue: "Drives the compact waveform from what's actually playing, instead of a looping animation."))
-                Text(String(localized: "settings.visualizerPermissionNote", defaultValue: "Needs Screen Recording permission. Reopen AgentNotch after granting it."))
-                    .font(.caption)
-                    .foregroundColor(.secondary)
-                    .fixedSize(horizontal: false, vertical: true)
                 if let error = visualizerError {
                     Text(error)
                         .font(.caption)
@@ -193,7 +189,7 @@ private struct GeneralSettingsTab: View {
                         AirPodsBatteryMonitor.shared.setEnabled(newValue)
                     }
                 ))
-                .help(String(localized: "settings.airPodsStatusHelp", defaultValue: "Adds the connected headphones' battery level next to the Mac's own, in the panel's top bar. macOS offers no supported way to read this, so it may stop working after a system update."))
+                .help(String(localized: "settings.airPodsStatusHelp", defaultValue: "Adds the connected headphones' battery level next to the Mac's own, in the panel's top bar."))
             }
 
             Section(String(localized: "settings.section.appearance", defaultValue: "Appearance")) {
