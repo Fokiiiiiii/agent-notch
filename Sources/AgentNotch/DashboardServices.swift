@@ -14,6 +14,27 @@ struct TodayEvent: Identifiable {
     let attendeeCount: Int?
 }
 
+/// A reminder due today. Kept separate from `TodayEvent` because reminders
+/// have no duration and can be overdue, neither of which an event models.
+struct TodayReminder: Identifiable, Equatable {
+    let id: String
+    let title: String
+    /// Reminders with no due time at all are filtered out before this type
+    /// is built (see `filterAndSortToday`), so this is always set.
+    let dueDate: Date
+    let isOverdue: Bool
+}
+
+/// The subset of `EKReminder` this app reads. Exists so the filtering rules
+/// can be tested without constructing EventKit objects, which can't be made
+/// standalone.
+struct RawReminderRecord {
+    let id: String
+    let title: String
+    let dueDate: Date?
+    let isCompleted: Bool
+}
+
 @MainActor
 final class TodayModel: ObservableObject {
     /// Shared instance so `NotchWindowController` (which needs to read
@@ -29,9 +50,36 @@ final class TodayModel: ObservableObject {
     /// which constructs `TodayModel()` directly to test its init wiring).
     static let shared = TodayModel()
 
+    /// Today's own events, capped for display. Unchanged in meaning from
+    /// before `nearbyEvents` existed — `expandedDetail`'s location/duration/
+    /// attendee rows still read it.
     @Published private(set) var events: [TodayEvent] = []
+    /// Every (non-all-day) event in a window around today, so the week strip
+    /// can mark which days have something scheduled and show the agenda for
+    /// a day the user scrolled to. One wide query on each refresh is far
+    /// cheaper than re-querying EventKit on every scroll step.
+    @Published private(set) var nearbyEvents: [TodayEvent] = []
     @Published private(set) var authorizationStatus = EKEventStore.authorizationStatus(for: .event)
+    /// Reminders due today (or already overdue), soonest first. Empty
+    /// whenever reminder access hasn't been granted — the calendar and
+    /// reminder permissions are separate prompts, so one can be granted
+    /// without the other.
+    @Published private(set) var reminders: [TodayReminder] = []
+    @Published private(set) var reminderAuthorizationStatus = EKEventStore.authorizationStatus(for: .reminder)
     @Published private(set) var errorMessage: String?
+
+    /// How far either side of today `refresh()` fetches. Comfortably wider
+    /// than `weekStripScrollLimitDays`, the range the strip can actually be
+    /// scrolled to, so scrolling never outruns the fetched data.
+    static let eventFetchRadiusDays = 28
+    /// Ceiling on how many events one refresh keeps, so a pathological
+    /// calendar (hundreds of entries in a month) can't blow up memory or
+    /// the per-day lookups the week strip does.
+    private static let eventFetchLimit = 400
+    /// Matches `events`' own display cap — the Today widget has room for a
+    /// short list, not a full reminder app. `nonisolated` because
+    /// `filterAndSortToday` (itself nonisolated, for testability) reads it.
+    nonisolated static let reminderDisplayLimit = 4
 
     private let store = EKEventStore()
     private var timer: AnyCancellable?
@@ -41,25 +89,34 @@ final class TodayModel: ObservableObject {
         if authorizationStatus == .fullAccess {
             refresh()
         }
+        if reminderAuthorizationStatus == .fullAccess {
+            refreshReminders()
+        }
         // Periodic refresh so the day's events stay current across midnight
         // rollovers even if no calendar change notification fires.
         timer = Timer.publish(every: 300, on: .main, in: .common)
             .autoconnect()
             .sink { [weak self] _ in
                 self?.refresh()
+                self?.refreshReminders()
             }
-        // EventKit posts this whenever calendar data changes (new/edited/
-        // deleted events, account sync, etc.) so we can reflect edits
-        // immediately instead of waiting for the next timer tick.
+        // EventKit posts this whenever calendar *or* reminder data changes
+        // (new/edited/deleted items, account sync, etc.) so we can reflect
+        // edits immediately instead of waiting for the next timer tick.
         storeChangeObserver = NotificationCenter.default
             .publisher(for: .EKEventStoreChanged, object: store)
             .sink { [weak self] _ in
                 self?.refresh()
+                self?.refreshReminders()
             }
     }
 
     var canReadCalendar: Bool {
         authorizationStatus == .fullAccess
+    }
+
+    var canReadReminders: Bool {
+        reminderAuthorizationStatus == .fullAccess
     }
 
     func requestAccess() {
@@ -77,24 +134,105 @@ final class TodayModel: ObservableObject {
     func refresh() {
         guard canReadCalendar else { return }
         let calendar = Calendar.current
-        let start = calendar.startOfDay(for: Date())
-        let end = calendar.date(byAdding: .day, value: 1, to: start) ?? Date().addingTimeInterval(86_400)
-        let predicate = store.predicateForEvents(withStart: start, end: end, calendars: nil)
-        events = store.events(matching: predicate)
+        let today = calendar.startOfDay(for: Date())
+        let windowStart = calendar.date(byAdding: .day, value: -Self.eventFetchRadiusDays, to: today) ?? today
+        let windowEnd = calendar.date(byAdding: .day, value: Self.eventFetchRadiusDays + 1, to: today)
+            ?? today.addingTimeInterval(86_400)
+        let predicate = store.predicateForEvents(withStart: windowStart, end: windowEnd, calendars: nil)
+        let fetched = store.events(matching: predicate)
             .filter { !$0.isAllDay }
-            .prefix(4)
-            .map {
-                let trimmedLocation = $0.location?.trimmingCharacters(in: .whitespacesAndNewlines)
+            .prefix(Self.eventFetchLimit)
+            .map { event -> TodayEvent in
+                let trimmedLocation = event.location?.trimmingCharacters(in: .whitespacesAndNewlines)
                 return TodayEvent(
-                    id: $0.eventIdentifier ?? UUID().uuidString,
-                    startDate: $0.startDate,
-                    endDate: $0.endDate ?? $0.startDate,
-                    title: $0.title ?? "Untitled event",
-                    calendar: $0.calendar.title,
+                    id: event.eventIdentifier ?? UUID().uuidString,
+                    startDate: event.startDate,
+                    endDate: event.endDate ?? event.startDate,
+                    title: event.title ?? "Untitled event",
+                    calendar: event.calendar.title,
                     location: (trimmedLocation?.isEmpty == false) ? trimmedLocation : nil,
-                    attendeeCount: $0.hasAttendees ? $0.attendees?.count : nil
+                    attendeeCount: event.hasAttendees ? event.attendees?.count : nil
                 )
             }
+        nearbyEvents = Array(fetched)
+        events = Array(Self.events(on: today, in: nearbyEvents, calendar: calendar).prefix(4))
+    }
+
+    /// Events starting on the same calendar day as `date`, in start order.
+    /// `nonisolated static` so the week strip's per-day lookups and the
+    /// tests can both call it without touching `TodayModel`'s state.
+    nonisolated static func events(on date: Date, in events: [TodayEvent], calendar: Calendar = .current) -> [TodayEvent] {
+        events
+            .filter { calendar.isDate($0.startDate, inSameDayAs: date) }
+            .sorted { $0.startDate < $1.startDate }
+    }
+
+    func requestRemindersAccess() {
+        Task {
+            do {
+                let granted = try await store.requestFullAccessToReminders()
+                reminderAuthorizationStatus = EKEventStore.authorizationStatus(for: .reminder)
+                if granted { refreshReminders() }
+            } catch {
+                errorMessage = error.localizedDescription
+            }
+        }
+    }
+
+    /// Unlike events, EventKit exposes reminders only through an async
+    /// callback (`fetchReminders(matching:)`), so this can't mirror
+    /// `refresh()`'s synchronous shape.
+    func refreshReminders() {
+        guard canReadReminders else {
+            reminders = []
+            return
+        }
+        let predicate = store.predicateForIncompleteReminders(
+            withDueDateStarting: nil,
+            ending: nil,
+            calendars: nil
+        )
+        store.fetchReminders(matching: predicate) { [weak self] fetched in
+            let records = (fetched ?? []).map { reminder in
+                RawReminderRecord(
+                    id: reminder.calendarItemIdentifier,
+                    title: reminder.title ?? String(localized: "today.untitledReminder", defaultValue: "Untitled reminder"),
+                    dueDate: reminder.dueDateComponents?.date,
+                    isCompleted: reminder.isCompleted
+                )
+            }
+            // The completion handler runs off the main thread.
+            Task { @MainActor [weak self] in
+                self?.reminders = Self.filterAndSortToday(records)
+            }
+        }
+    }
+
+    /// Reminders worth showing today: incomplete, with a due time, due
+    /// today or already past — soonest first, capped for display.
+    /// `nonisolated static` so it can be tested without EventKit.
+    nonisolated static func filterAndSortToday(
+        _ records: [RawReminderRecord],
+        now: Date = Date(),
+        calendar: Calendar = .current
+    ) -> [TodayReminder] {
+        // Anything due later than today is deliberately excluded: this is a
+        // "what's left today" line, not an inbox.
+        let endOfToday = calendar.startOfDay(for: now).addingTimeInterval(86_400)
+        return records
+            .filter { !$0.isCompleted }
+            .compactMap { record -> TodayReminder? in
+                guard let due = record.dueDate, due < endOfToday else { return nil }
+                return TodayReminder(
+                    id: record.id,
+                    title: record.title,
+                    dueDate: due,
+                    isOverdue: due < now
+                )
+            }
+            .sorted { $0.dueDate < $1.dueDate }
+            .prefix(reminderDisplayLimit)
+            .map { $0 }
     }
 }
 
@@ -105,6 +243,11 @@ final class MediaController: ObservableObject {
     @Published private(set) var source = String(localized: "media.noMedia", defaultValue: "No media")
     @Published private(set) var title = String(localized: "media.nothingPlaying", defaultValue: "Nothing Playing")
     @Published private(set) var artist = String(localized: "media.playInAnyApp", defaultValue: "Play media in any app")
+    @Published private(set) var album = ""
+    /// Kept alongside `source` (which resolves to a human-readable app name
+    /// when the app is running) so the UI can tell a podcast from a song
+    /// from a video and pick a matching glyph — see `mediaSourceIcon(for:)`.
+    @Published private(set) var sourceBundleIdentifier: String?
     @Published private(set) var isPlaying = false
     @Published private(set) var position = 0.0
     @Published private(set) var duration = 1.0
@@ -186,6 +329,8 @@ final class MediaController: ObservableObject {
             source = isConnected ? String(localized: "media.systemMedia", defaultValue: "System media") : String(localized: "media.mediaUnavailable", defaultValue: "Media unavailable")
             title = String(localized: "media.nothingPlaying", defaultValue: "Nothing Playing")
             artist = isConnected ? String(localized: "media.playInAnyApp", defaultValue: "Play media in any app") : String(localized: "media.adapterMissing", defaultValue: "Media adapter is missing")
+            album = ""
+            sourceBundleIdentifier = nil
             isPlaying = false
             position = 0
             duration = 1
@@ -201,8 +346,10 @@ final class MediaController: ObservableObject {
             NSRunningApplication.runningApplications(withBundleIdentifier: $0).first?.localizedName
         }
         source = application ?? snapshot.bundleIdentifier ?? String(localized: "media.systemMedia", defaultValue: "System media")
+        sourceBundleIdentifier = snapshot.bundleIdentifier
         title = snapshot.title
         artist = snapshot.artist?.isEmpty == false ? snapshot.artist! : source
+        album = snapshot.album?.isEmpty == false ? snapshot.album! : ""
         isPlaying = snapshot.isPlaying
         position = snapshot.position
         duration = max(snapshot.duration, 1)
@@ -282,6 +429,7 @@ private struct SystemMediaSnapshot: Sendable {
     let bundleIdentifier: String?
     let title: String
     let artist: String?
+    let album: String?
     let isPlaying: Bool
     let position: Double
     let duration: Double
@@ -306,6 +454,7 @@ private enum SystemMediaBridge {
             bundleIdentifier: object["bundleIdentifier"] as? String,
             title: title,
             artist: object["artist"] as? String,
+            album: object["album"] as? String,
             isPlaying: object["playing"] as? Bool ?? false,
             position: number(object["elapsedTimeNow"] ?? object["elapsedTime"]),
             duration: number(object["duration"]),

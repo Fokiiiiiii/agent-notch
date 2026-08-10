@@ -12,12 +12,19 @@ struct NotchView: View {
     @StateObject private var media = MediaController.shared
     @StateObject private var usageStore = AgentUsageStore.shared
     @StateObject private var todayModel = TodayModel.shared
+    @ObservedObject private var settings = AppSettings.shared
     @StateObject private var systemMonitor = SystemMonitor.shared
     @StateObject private var backgroundActivity = BackgroundActivityMonitor.shared
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @State private var trayItems: [TrayItem] = []
     @State private var selectedTrayItemID: UUID?
     @State private var isDropTargeted = false
+    /// Where the Tray page's AirDrop well currently is, in the same top-left
+    /// coordinate space `FileDropContainerView` reports drops in. Zero while
+    /// the Tray page isn't on screen, so drops can never route to the well
+    /// when it isn't visible.
+    @State private var airDropWellFrame: CGRect = .zero
+    @State private var isAirDropTargeted = false
     @State private var trayFeedback: String?
     @State private var pendingTrayUndo: [TrayItem] = []
     @State private var trayUndoTask: Task<Void, Never>?
@@ -58,17 +65,33 @@ struct NotchView: View {
         }
         .onChange(of: uiState.mode) { _, mode in
             if mode != .closed { hideCompactMediaPreview() }
+            // Belt and braces on top of the mirror widget's own
+            // `onDisappear` — see `stopAllViewers()`.
+            if mode != .open { CameraPreviewController.shared.stopAllViewers() }
         }
         .onAppear {
             controller.installFileDropHandlers(
-                targeted: { isDropTargeted = $0 },
-                dropped: { urls in addTrayItems(urls) }
+                targeted: { active, location in
+                    let overWell = active && isOverAirDropWell(location)
+                    // Mutually exclusive so only one of the two wells lights
+                    // up as the pointer moves between them.
+                    isAirDropTargeted = overWell
+                    isDropTargeted = active && !overWell
+                },
+                dropped: { urls, location in
+                    if isOverAirDropWell(location) {
+                        sendViaAirDrop(urls)
+                    } else {
+                        addTrayItems(urls)
+                    }
+                }
             )
         }
         .onDisappear {
             compactMediaHoverTask?.cancel()
             trayUndoTask?.cancel()
             isDropTargeted = false
+            isAirDropTargeted = false
             controller.removeFileDropHandlers()
             controller.cancelInteractionTimers()
         }
@@ -82,7 +105,7 @@ struct NotchView: View {
     /// read of the same signal without adding a second `@Published` property.
     private var hasRealNotch: Bool { uiState.hoverTopClearance > 0 }
 
-    private var shellShape: UnevenRoundedRectangle {
+    private var shellShape: NotchShellShape {
         let radius: CGFloat
         if uiState.mode == .open {
             radius = DesignTokens.scaledOpenRadius()
@@ -95,12 +118,14 @@ struct NotchView: View {
         } else {
             radius = DesignTokens.scaledClosedRadius()
         }
-        return UnevenRoundedRectangle(
-            topLeadingRadius: 0,
-            bottomLeadingRadius: radius,
-            bottomTrailingRadius: radius,
-            topTrailingRadius: 0,
-            style: .continuous
+        // Only `.open` gets the concave flare where the panel meets the menu
+        // bar. `.closed`/`.hover`/`.notice` are the compact pill fused to the
+        // bar itself — square top corners already read correctly there, and
+        // an ordinary *convex* top radius was tried and rejected for looking
+        // like an inward seam.
+        return NotchShellShape(
+            bottomRadius: radius,
+            topFlareRadius: uiState.mode == .open ? DesignTokens.scaledNotchFlareRadius() : 0
         )
     }
 
@@ -437,11 +462,18 @@ struct NotchView: View {
         VStack(spacing: 7) {
             nookbar
             Group {
-                switch uiState.activeTab {
-                case .nook:
-                    nookContentView
-                case .tray:
-                    trayContent
+                if uiState.isShowingOnboarding {
+                    // Takes precedence over tabs and overlays alike: this is
+                    // shown before the user knows the notch does anything,
+                    // so nothing else should be competing for the space.
+                    OnboardingContent { controller.dismissOnboarding() }
+                } else {
+                    switch uiState.activeTab {
+                    case .nook:
+                        nookContentView
+                    case .tray:
+                        trayContent
+                    }
                 }
             }
             .transition(.asymmetric(
@@ -454,9 +486,13 @@ struct NotchView: View {
             .offset(y: reduceMotion ? 0 : rubberBand(verticalDrag, limit: 36) / 8)
             .opacity(reduceMotion ? 1 : 1 - min(abs(horizontalDrag) / 900, 0.08))
         }
-        .padding(.horizontal, 12)
-        .padding(.top, 6)
-        .padding(.bottom, 10)
+        // Breathing room between the panel edge and everything inside it.
+        // Applies to every page (Nook's Agents/Dashboard and Tray alike)
+        // because they all render inside this container — content used to
+        // sit close enough to the rounded edge to look cramped against it.
+        .padding(.horizontal, 16)
+        .padding(.top, 9)
+        .padding(.bottom, 13)
         .contentShape(Rectangle())
         .simultaneousGesture(horizontalSwipeGesture)
         .simultaneousGesture(verticalDetailGesture)
@@ -493,9 +529,13 @@ struct NotchView: View {
             .buttonStyle(.plain)
             .frame(maxWidth: .infinity, minHeight: 24)
             .help(String(localized: "notch.clickBarToClose", defaultValue: "Click the notch bar to close"))
+            AirPodsBatteryIndicator()
+            CompactBatteryIndicator(monitor: systemMonitor)
+            // Opens our own window rather than the SwiftUI `Settings` scene
+            // — see `SettingsWindowController` for why that scene never
+            // appeared in this `.accessory` app.
             Button {
-                NSApp.activate(ignoringOtherApps: true)
-                NSApp.sendAction(Selector(("showSettingsWindow:")), to: nil, from: nil)
+                SettingsWindowController.shared.show()
             } label: {
                 Image(systemName: "gearshape")
                     .font(.system(size: 13))
@@ -523,7 +563,13 @@ struct NotchView: View {
     private func tabButton(title: String, icon: String, count: Int, isActive: Bool, action: @escaping () -> Void) -> some View {
         Button(action: action) {
             HStack(spacing: 5) {
+                // The panel's width is now content-driven and can get narrow
+                // (see `dashboardWidth(for:maximum:)`); without this the tab
+                // label wraps to two lines rather than the bar simply being
+                // tight.
                 Label(title, systemImage: icon)
+                    .lineLimit(1)
+                    .fixedSize()
                 if count > 0 {
                     Text("\(count)")
                         .font(.system(size: 9, weight: .bold, design: .rounded))
@@ -556,7 +602,7 @@ struct NotchView: View {
                     case .agents:
                         AgentsCell(store: store, uiState: uiState)
                     case .dashboard:
-                        DashboardCell(media: media, today: todayModel, system: systemMonitor, background: backgroundActivity, focusEndsAt: $uiState.focusEndsAt)
+                        DashboardCell(media: media, today: todayModel, uiState: uiState, settings: settings)
                     }
                 }
             }
@@ -742,9 +788,43 @@ struct NotchView: View {
                     ("system.uptime", String(localized: "detail.system.uptime", defaultValue: "Uptime"), systemMonitor.uptime),
                     ("system.activity", String(localized: "detail.system.activity", defaultValue: "Also running"), systemMoreActivityValue)
                 ]))
+                dashboardFocusRow
             }
             .onAppear { todayModel.refresh() }
         }
+    }
+
+    /// The focus timer, moved here out of `DashboardTodaySection`. It's an
+    /// AgentNotch feature with no counterpart in NotchNook's calendar
+    /// widget, and having it sit in the always-visible row is part of what
+    /// made that widget read as cluttered. Behind "Details" it stays one
+    /// click away without competing with the calendar itself.
+    private var dashboardFocusRow: some View {
+        TimelineView(.periodic(from: .now, by: 1)) { context in
+            let remaining = uiState.focusEndsAt.map { max(Int($0.timeIntervalSince(context.date)), 0) }
+            let isIdle = remaining == nil || remaining == 0
+            Button {
+                SoundPlayer.shared.play(.action)
+                HapticPlayer.shared.perform(.confirm)
+                uiState.focusEndsAt = isIdle ? Date().addingTimeInterval(25 * 60) : nil
+            } label: {
+                Label(focusLabel(remaining), systemImage: isIdle ? "moon.fill" : "stop.fill")
+                    .font(.system(size: 10, weight: .semibold))
+                    .frame(maxWidth: .infinity)
+                    .frame(height: 24)
+                    .background(RoundedRectangle(cornerRadius: 8).fill(Color.white.opacity(0.09)))
+            }
+            .buttonStyle(NotchPressStyle())
+            .hoverLift(cornerRadius: 8)
+            .accessibilityIdentifier("today.focus")
+            .help(isIdle ? String(localized: "today.startFocusHelp", defaultValue: "Start a 25 minute local focus timer") : String(localized: "today.endFocus", defaultValue: "End Focus"))
+        }
+    }
+
+    private func focusLabel(_ remaining: Int?) -> String {
+        guard let remaining, remaining > 0 else { return String(localized: "today.startFocus", defaultValue: "Start Focus") }
+        let format = String(localized: "today.endFocusWithTime", defaultValue: "End Focus · %02d:%02d")
+        return String(format: format, remaining / 60, remaining % 60)
     }
 
     /// Reorders/filters `items` (each `(id, label, value)`) using
@@ -810,6 +890,9 @@ struct NotchView: View {
             items: $trayItems,
             selectedItemID: $selectedTrayItemID,
             isTargeted: isDropTargeted,
+            isAirDropTargeted: isAirDropTargeted,
+            shortcuts: settings.registeredShortcuts,
+            airDropWellFrame: $airDropWellFrame,
             feedback: trayFeedback,
             canUndo: !pendingTrayUndo.isEmpty
         ) { action in
@@ -877,12 +960,9 @@ struct NotchView: View {
                 NSPasteboard.general.setString(selectedURLs.map(\.path).joined(separator: "\n"), forType: .string)
                 trayFeedback = String(localized: "tray.feedback.pathsCopied", defaultValue: "Paths copied")
             case .airDrop:
-                if let service = NSSharingService(named: .sendViaAirDrop), service.canPerform(withItems: selectedURLs) {
-                    service.perform(withItems: selectedURLs)
-                    trayFeedback = String(localized: "tray.feedback.airDropOpened", defaultValue: "AirDrop opened")
-                } else {
-                    trayFeedback = String(localized: "tray.feedback.airDropUnavailable", defaultValue: "AirDrop unavailable")
-                }
+                sendViaAirDrop(selectedURLs)
+            case .runShortcut(let shortcut):
+                runShortcut(shortcut, with: selectedURLs)
             case .compress:
                 trayFeedback = String(localized: "tray.feedback.compressing", defaultValue: "Compressing…")
                 Task {
@@ -894,6 +974,34 @@ struct NotchView: View {
                 trayFeedback = String(localized: "tray.feedback.readyToPaste", defaultValue: "Ready to paste into agent")
             }
         }
+    }
+
+    /// `.zero` means the Tray page (and therefore the well) isn't laid out,
+    /// and `CGRect.zero.contains` would still be false for any real point —
+    /// but the explicit guard keeps that from being an accident of geometry.
+    private func isOverAirDropWell(_ location: CGPoint) -> Bool {
+        guard uiState.activeTab == .tray, !airDropWellFrame.isEmpty else { return false }
+        return airDropWellFrame.contains(location)
+    }
+
+    /// Fire-and-report: a shortcut can take arbitrarily long (it may show
+    /// its own UI or wait on the network), so the Tray shows "Running…"
+    /// immediately and replaces it when the run finishes.
+    private func runShortcut(_ shortcut: ShortcutBinding, with urls: [URL]) {
+        trayFeedback = String(localized: "tray.feedback.runningShortcut", defaultValue: "Running \(shortcut.name)…")
+        Task {
+            let failure = await ShortcutRunner.run(name: shortcut.name, inputPaths: urls.map(\.path))
+            trayFeedback = failure ?? String(localized: "tray.feedback.shortcutFinished", defaultValue: "\(shortcut.name) finished")
+        }
+    }
+
+    private func sendViaAirDrop(_ urls: [URL]) {
+        guard let service = NSSharingService(named: .sendViaAirDrop), service.canPerform(withItems: urls) else {
+            trayFeedback = String(localized: "tray.feedback.airDropUnavailable", defaultValue: "AirDrop unavailable")
+            return
+        }
+        service.perform(withItems: urls)
+        trayFeedback = String(localized: "tray.feedback.airDropOpened", defaultValue: "AirDrop opened")
     }
 
     private func addTrayItems(_ urls: [URL]) {
@@ -1586,7 +1694,10 @@ struct GlyphBox: View {
 
 // MARK: - Native interaction feedback
 
-private struct NotchPressStyle: ButtonStyle {
+/// Internal rather than file-private: `OnboardingContent` lives in its own
+/// file but is still notch chrome, and its button has to press like every
+/// other button in the panel.
+struct NotchPressStyle: ButtonStyle {
     var pressedScale: CGFloat = 0.97
 
     func makeBody(configuration: Configuration) -> some View {
@@ -1627,7 +1738,9 @@ private struct HoverLiftModifier: ViewModifier {
     }
 }
 
-private extension View {
+extension View {
+    /// Internal for the same reason as `NotchPressStyle`: `OnboardingContent`
+    /// is in its own file but is still part of the notch's chrome.
     func hoverLift(cornerRadius: CGFloat = 8, strength: Double = 0.055) -> some View {
         modifier(HoverLiftModifier(cornerRadius: cornerRadius, strength: strength))
     }
@@ -1917,7 +2030,6 @@ private struct AgentsCell: View {
     @ObservedObject var uiState: NotchUIState
     @ObservedObject private var usageStore = AgentUsageStore.shared
     @State private var actionFeedback: String?
-    @Environment(\.accessibilityReduceTransparency) private var reduceTransparency
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
     private var selected: AgentSession? {
@@ -1930,18 +2042,26 @@ private struct AgentsCell: View {
     var body: some View {
         cellShape
             .overlay(
-                VStack(alignment: .leading, spacing: 6) {
+                // Laid out like the Dashboard page: no card plates, regions
+                // separated by hairline rules on the bare panel, so both Nook
+                // pages read as one surface instead of two visual systems.
+                VStack(alignment: .leading, spacing: 0) {
                     if let selected {
                         UsageSummaryBar(agent: selected.agent, snapshot: usageStore.snapshots[selected.agent])
+                            .padding(.bottom, 7)
+                        sectionDivider
                         sessionList
+                            .padding(.vertical, 7)
                             .frame(maxHeight: .infinity)
+                        sectionDivider
                         footerRow
+                            .padding(.top, 7)
                     } else {
                         emptyState
                     }
                 }
-                .padding(.horizontal, 11)
-                .padding(.vertical, 10)
+                .padding(.horizontal, 4)
+                .padding(.vertical, 6)
                 .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
             )
             // `NotchWindowController` grows the panel to fit the session
@@ -2025,14 +2145,20 @@ private struct AgentsCell: View {
             .background(Capsule().fill(Color.white.opacity(0.055)))
     }
 
+    /// Agents is the one page that doesn't go through `CellSurface`, so it
+    /// keeps its own shape — stripped of the grey plate for the same reason
+    /// (see `CellSurface`), leaving a plain sizing container.
     private var cellShape: some View {
         RoundedRectangle(cornerRadius: DesignTokens.cellRadius)
-            .fill(reduceTransparency ? AnyShapeStyle(Color(white: 0.075)) : AnyShapeStyle(.ultraThinMaterial))
-            .overlay(RoundedRectangle(cornerRadius: DesignTokens.cellRadius).fill(Color.black.opacity(reduceTransparency ? 0 : 0.34)))
-            .overlay(
-                RoundedRectangle(cornerRadius: DesignTokens.cellRadius)
-                    .stroke(Color.white.opacity(0.055), lineWidth: 1)
-            )
+            .fill(Color.clear)
+    }
+
+    /// Horizontal counterpart of the Dashboard's `widgetDivider` — same
+    /// hairline, same token, rotated for a vertically stacked page.
+    private var sectionDivider: some View {
+        Divider()
+            .overlay(DesignTokens.line)
+            .padding(.horizontal, 6)
     }
 
     /// One row per tracked session. Selected/first row expands to show the
@@ -2042,17 +2168,20 @@ private struct AgentsCell: View {
     private func sessionRow(_ session: AgentSession, isSelected: Bool) -> some View {
         VStack(alignment: .leading, spacing: 3) {
             HStack(spacing: 8) {
+                // Fixed 24pt regardless of selection: the row already grows
+                // by two lines when selected, and resizing the icon on top of
+                // that made the list jump around on every click.
                 RoundedRectangle(cornerRadius: 7)
                     .fill(Color.white.opacity(0.09))
-                    .frame(width: isSelected ? 26 : 22, height: isSelected ? 26 : 22)
+                    .frame(width: 24, height: 24)
                     .overlay(
-                        glyphContent(session.agent, size: isSelected ? 10 : 9)
+                        glyphContent(session.agent, size: 9.5)
                             .foregroundColor(.white)
                     )
                 Circle().fill(statusColor(session.state)).frame(width: 6, height: 6)
                 Text(session.title)
-                    .font(.system(size: isSelected ? 11.5 : 11, weight: .semibold))
-                    .foregroundColor(.white)
+                    .font(.system(size: 11.5, weight: .semibold))
+                    .foregroundColor(.white.opacity(isSelected ? 1 : 0.78))
                     .lineLimit(1)
                     .truncationMode(.tail)
                     .layoutPriority(1)
@@ -2071,7 +2200,7 @@ private struct AgentsCell: View {
                         .lineLimit(1)
                         .truncationMode(.tail)
                 }
-                .padding(.leading, 34)
+                .padding(.leading, 32)
                 HStack(spacing: 6) {
                     Text(session.lastMessage)
                         .font(.system(size: 10))
@@ -2086,15 +2215,25 @@ private struct AgentsCell: View {
                             .lineLimit(1)
                     }
                 }
-                .padding(.leading, 34)
+                .padding(.leading, 32)
             }
         }
-        .padding(.horizontal, 8)
+        .padding(.leading, 10)
+        .padding(.trailing, 8)
         .padding(.vertical, isSelected ? 6 : 5)
-        .background(
-            RoundedRectangle(cornerRadius: 10)
-                .fill(Color.white.opacity(isSelected ? 0.065 : 0.03))
-        )
+        // Selection used to be a filled grey plate behind every row (a
+        // lighter one behind the unselected ones), which is exactly the
+        // stacked-panel look the Dashboard page dropped. A single accent
+        // rail marks the selected row instead, and the agent's own colour
+        // says which agent it belongs to.
+        .overlay(alignment: .leading) {
+            if isSelected {
+                Capsule()
+                    .fill(session.agent.accentColor)
+                    .frame(width: 2.5)
+                    .padding(.vertical, 3)
+            }
+        }
         .contentShape(Rectangle())
         .hoverLift(cornerRadius: 10, strength: 0.04)
         .onTapGesture(count: 2) {
@@ -2278,9 +2417,14 @@ private struct MiniButton: View {
 
 // MARK: - Nook pages
 
+/// Sizing/padding container for a Nook page. It used to also draw a
+/// translucent grey plate (`.ultraThinMaterial` + a black wash + a hairline
+/// border); that plate read as a second background floating inside the notch
+/// panel, which the Dashboard page had already dropped. The rectangle stays
+/// because it's what claims the available space — only the fill and stroke
+/// are gone, so every page now sits directly on the panel.
 private struct CellSurface<Content: View>: View {
     let content: Content
-    @Environment(\.accessibilityReduceTransparency) private var reduceTransparency
 
     init(@ViewBuilder content: () -> Content) {
         self.content = content()
@@ -2288,150 +2432,269 @@ private struct CellSurface<Content: View>: View {
 
     var body: some View {
         RoundedRectangle(cornerRadius: DesignTokens.cellRadius)
-            .fill(reduceTransparency ? AnyShapeStyle(Color(white: 0.075)) : AnyShapeStyle(.ultraThinMaterial))
-            .overlay(RoundedRectangle(cornerRadius: DesignTokens.cellRadius).fill(Color.black.opacity(reduceTransparency ? 0 : 0.32)))
-            .overlay(RoundedRectangle(cornerRadius: DesignTokens.cellRadius).stroke(Color.white.opacity(0.065), lineWidth: 0.75))
-            .overlay(content.padding(7))
-            .clipShape(RoundedRectangle(cornerRadius: DesignTokens.cellRadius, style: .continuous))
+            .fill(Color.clear)
+            // 10 rather than 7: every card in the app is drawn through this,
+            // and at 7 the contents sat visibly tight against the rounded
+            // border on all of them.
+            .overlay(content.padding(10))
     }
 }
 
-/// The merged Media/Today/System page — three independently-`CellSurface`d
-/// cards stacked vertically, matching macOS Control Center's "grid of
-/// rounded cards" pattern (chosen over a slot-swap/paged design because the
-/// user's request was specifically for everything visible "in one screen"
-/// at once). Each card keeps its own pre-merge implementation almost
-/// unchanged; only their outer `.frame(..., maxHeight: .infinity, ...)`
-/// stretch was removed so three stacked cards don't fight each other for
-/// vertical space (see each card's own comment on this).
+/// The merged Media/Today/System page — a single flat panel with the three
+/// sections arranged side-by-side, separated by thin dividers, and each
+/// trimmed to its most glanceable content. Replaces a first pass that
+/// stacked three full-size, individually-`CellSurface`d cards vertically
+/// (macOS Control Center's "grid of cards" pattern) — user feedback called
+/// that "just three things thrown together" and pointed at NotchNook's own
+/// reference screenshot instead, which lays Media/Calendar out in one row
+/// inside a single panel. System is deliberately reduced to one glanceable
+/// metric (battery) per explicit follow-up feedback that the original
+/// 3-card/background-activity System section was "about half unnecessary
+/// information" — the dropped detail (memory, storage, uptime, background
+/// activity) remains reachable through this tab's `expandedDetail` panel.
 private struct DashboardCell: View {
     @ObservedObject var media: MediaController
     @ObservedObject var today: TodayModel
-    @ObservedObject var system: SystemMonitor
-    @ObservedObject var background: BackgroundActivityMonitor
-    @Binding var focusEndsAt: Date?
+    @ObservedObject var uiState: NotchUIState
+    @ObservedObject var settings: AppSettings
+
+    /// No `CellSurface` here: NotchNook's widgets sit directly on the panel's
+    /// own dark background and are separated by hairline vertical rules, not
+    /// by their own tinted cards. Wrapping these in `CellSurface` produced
+    /// the washed-out grey slab the design was explicitly asked not to have.
+    ///
+    /// The row is built from `settings.tabLayouts`, so which widgets appear
+    /// and in what order comes from the Nook settings tab rather than being
+    /// hardcoded here.
+    private var widgets: [DashboardWidget] {
+        DashboardWidget.resolved(from: settings.tabLayouts[DashboardWidget.layoutKey])
+    }
 
     var body: some View {
-        VStack(spacing: 6) {
-            MediaCell(media: media)
-            TodayCell(model: today, focusEndsAt: $focusEndsAt)
-            SystemCell(monitor: system, background: background)
+        HStack(alignment: .center, spacing: 0) {
+            if widgets.isEmpty {
+                emptyState
+            } else {
+                ForEach(Array(widgets.enumerated()), id: \.element.id) { index, widget in
+                    if index > 0 { widgetDivider }
+                    widgetView(for: widget)
+                }
+            }
         }
+        .padding(.horizontal, 4)
+        .padding(.vertical, 6)
+        .onAppear {
+            today.refresh()
+            // Always open on today; a strip left scrolled to some other week
+            // from a previous visit is disorienting.
+            uiState.weekStripDayOffset = 0
+        }
+    }
+
+    /// Each widget carries its own width rule (`preferredWidth`), so adding
+    /// one doesn't mean editing the row's layout as well.
+    @ViewBuilder
+    private func widgetView(for widget: DashboardWidget) -> some View {
+        let content = Group {
+            switch widget {
+            case .media:
+                DashboardMediaSection(media: media)
+            case .today:
+                DashboardTodaySection(model: today, uiState: uiState)
+            case .camera:
+                DashboardCameraSection()
+            }
+        }
+        if let width = widget.preferredWidth {
+            content.frame(width: width, alignment: .leading)
+        } else {
+            content.frame(maxWidth: .infinity, alignment: .leading)
+        }
+    }
+
+    /// Reachable by turning every widget off in Settings. Says so plainly
+    /// rather than leaving a blank panel that reads as a rendering bug.
+    private var emptyState: some View {
+        Text(String(localized: "dashboard.noWidgets", defaultValue: "No widgets enabled — turn some on in Settings ▸ Nook"))
+            .font(.system(size: 11))
+            .foregroundColor(DesignTokens.muted)
+            .frame(maxWidth: .infinity, alignment: .center)
+    }
+
+    /// Hairline rule between widgets — the only separator NotchNook uses.
+    /// Runs nearly the full height of the row, as it does in the reference
+    /// screenshots, rather than floating as a short stub in the middle.
+    private var widgetDivider: some View {
+        Divider()
+            .overlay(DesignTokens.line)
+            .padding(.vertical, 2)
+            .padding(.horizontal, 14)
     }
 }
 
-private struct MediaCell: View {
+/// Live webcam mirror. Off by default (see `isEnabledByDefault`) and
+/// capturing only while this view is on screen — `addViewer`/`removeViewer`
+/// tie the camera's indicator light to something the user can actually see.
+private struct DashboardCameraSection: View {
+    @ObservedObject private var controller = CameraPreviewController.shared
+
+    var body: some View {
+        ZStack {
+            RoundedRectangle(cornerRadius: 10)
+                .fill(Color.white.opacity(0.05))
+            if controller.isRunning {
+                CameraPreviewView(session: controller.session)
+                    .clipShape(RoundedRectangle(cornerRadius: 10))
+            } else {
+                placeholder
+            }
+        }
+        .frame(maxHeight: .infinity)
+        .padding(.vertical, 2)
+        .onAppear { controller.addViewer() }
+        .onDisappear { controller.removeViewer() }
+        .accessibilityLabel(String(localized: "widget.camera", defaultValue: "Mirror"))
+    }
+
+    /// Covers three states with one shape so the widget's size never shifts:
+    /// starting up, no camera/denied, and access not yet requested.
+    private var placeholder: some View {
+        VStack(spacing: 5) {
+            Image(systemName: controller.errorMessage == nil ? "web.camera" : "exclamationmark.triangle")
+                .font(.system(size: 15))
+                .foregroundColor(DesignTokens.muted)
+            if let message = controller.errorMessage {
+                Text(message)
+                    .font(.system(size: 9))
+                    .foregroundColor(DesignTokens.muted)
+                    .multilineTextAlignment(.center)
+                    .lineLimit(2)
+            }
+        }
+        .padding(.horizontal, 6)
+    }
+}
+
+/// Artwork-forward layout modeled on NotchNook's own reference screenshot
+/// (large square artwork, bold title allowed to wrap to two lines, controls
+/// beneath) rather than the single-line-marquee/small-icon treatment this
+/// file's other Media surfaces (`compactMediaContent`, `HoverPeekView`) use
+/// — those stay on `MarqueeText` since they're width-constrained in ways
+/// this wider Dashboard section isn't.
+private struct DashboardMediaSection: View {
     @ObservedObject var media: MediaController
 
     var body: some View {
-        CellSurface {
-            HStack(spacing: 10) {
-                ZStack {
-                    RoundedRectangle(cornerRadius: 12)
-                        .fill(LinearGradient(colors: [.purple.opacity(0.75), .blue.opacity(0.55), .black], startPoint: .topLeading, endPoint: .bottomTrailing))
-                    if let artwork = media.artwork {
-                        Image(nsImage: artwork)
-                            .resizable()
-                            .scaledToFill()
-                    } else {
-                        Image(systemName: media.hasMedia ? "waveform" : "music.note")
-                            .font(.system(size: 21, weight: .light))
-                            .foregroundColor(.white.opacity(0.82))
-                    }
+        HStack(spacing: 14) {
+            ZStack {
+                RoundedRectangle(cornerRadius: 11)
+                    .fill(LinearGradient(colors: [.purple.opacity(0.75), .blue.opacity(0.55), .black], startPoint: .topLeading, endPoint: .bottomTrailing))
+                if let artwork = media.artwork {
+                    Image(nsImage: artwork)
+                        .resizable()
+                        .scaledToFill()
+                } else {
+                    Image(systemName: media.hasMedia ? "waveform" : "music.note")
+                        .font(.system(size: 24, weight: .light))
+                        .foregroundColor(.white.opacity(0.82))
                 }
-                .frame(width: 58, height: 58)
-                .clipShape(RoundedRectangle(cornerRadius: 10, style: .continuous))
-                .overlay(RoundedRectangle(cornerRadius: 10, style: .continuous).stroke(Color.white.opacity(0.08), lineWidth: 0.5))
-                VStack(alignment: .leading, spacing: 5) {
-                    MarqueeText(text: media.title, size: 12, weight: .semibold, speed: 24)
-                        .frame(height: 16)
-                        .help(media.title)
-                    Text(media.artist)
-                        .font(.system(size: 10))
-                        .foregroundColor(DesignTokens.muted)
-                        .lineLimit(1)
-                        .help(media.artist)
-                    ProgressView(value: media.progress)
-                        .progressViewStyle(.linear)
-                        .tint(Color(nsColor: media.accentColor))
-                        .accessibilityLabel(String(localized: "media.playbackProgress", defaultValue: "Playback progress"))
-                        .accessibilityValue(timeLabel)
-                    HStack {
-                        if media.hasMedia {
-                            MediaControlButton(icon: "backward.fill", help: String(localized: "media.previous", defaultValue: "Previous"), action: media.previous)
-                            MediaControlButton(icon: media.isPlaying ? "pause.fill" : "play.fill", help: media.isPlaying ? String(localized: "media.pause", defaultValue: "Pause") : String(localized: "media.play", defaultValue: "Play"), prominent: true, action: media.togglePlayback)
-                            MediaControlButton(icon: "forward.fill", help: String(localized: "media.next", defaultValue: "Next"), action: media.next)
-                        } else {
-                            Button {
-                                SoundPlayer.shared.play(.action)
-                                media.refresh()
-                            } label: {
-                                Label(String(localized: "media.checkNowPlaying", defaultValue: "Check Now Playing"), systemImage: "arrow.clockwise")
-                                    .font(.system(size: 8.5, weight: .medium))
-                                    .padding(.horizontal, 9)
-                                    .frame(height: 24)
-                                    .background(RoundedRectangle(cornerRadius: 8).fill(Color.white.opacity(0.09)))
-                            }
-                            .buttonStyle(NotchPressStyle())
-                            .hoverLift(cornerRadius: 8)
-                            .help(String(localized: "media.checkNowPlayingHelp", defaultValue: "Check the current macOS media session"))
-                        }
-                        Spacer()
-                        Text(media.hasMedia ? timeLabel : (media.isConnected ? media.source : String(localized: "media.unavailable", defaultValue: "Unavailable")))
-                            .font(.system(size: 9, design: .rounded))
-                            .foregroundColor(DesignTokens.muted)
-                        if media.hasMedia {
-                            Text(media.source)
-                                .font(.system(size: 9))
-                                .foregroundColor(DesignTokens.muted)
-                                .lineLimit(1)
-                                .help(media.source)
-                        }
-                    }
-                    .font(.system(size: 11))
-                }
-                .frame(maxWidth: .infinity, alignment: .leading)
             }
-            .foregroundColor(.white)
-            // maxHeight: .infinity dropped (was `alignment: .center`
-            // stretch-and-center) now that this card sits stacked with
-            // Today/System in DashboardCell instead of alone filling the
-            // whole Media tab — stretching would push the other two cards
-            // off-screen.
-            .frame(maxWidth: .infinity, alignment: .center)
+            .frame(width: 68, height: 68)
+            .clipShape(RoundedRectangle(cornerRadius: 10, style: .continuous))
+            .overlay(RoundedRectangle(cornerRadius: 10, style: .continuous).stroke(Color.white.opacity(0.08), lineWidth: 0.5))
+            VStack(alignment: .leading, spacing: 4) {
+                // Marquee-scrolled (rather than truncated) so a long title
+                // stays fully readable, matching the compact/hover media
+                // rows elsewhere in the app — see `MarqueeText`. The leading
+                // glyph says at a glance what kind of thing is playing
+                // (podcast/video/song) without spending a text line on it.
+                HStack(spacing: 5) {
+                    if media.hasMedia {
+                        Image(systemName: mediaSourceIcon(forBundleIdentifier: media.sourceBundleIdentifier))
+                            .font(.system(size: 10))
+                            .foregroundColor(DesignTokens.muted)
+                            .accessibilityHidden(true)
+                    }
+                    MarqueeText(text: media.hasMedia ? media.title : String(localized: "media.noMediaPlaying", defaultValue: "No media playing"), size: 13, weight: .bold, speed: 18)
+                }
+                .frame(height: 16)
+                Text(media.hasMedia ? media.artist : (media.isConnected ? media.source : String(localized: "media.unavailable", defaultValue: "Unavailable")))
+                    .font(.system(size: 10.5))
+                    .foregroundColor(DesignTokens.muted)
+                    .lineLimit(1)
+                    .help(media.artist)
+                if media.hasMedia, !media.album.isEmpty {
+                    Text(media.album)
+                        .font(.system(size: 9.5))
+                        .foregroundColor(DesignTokens.mutedFaint)
+                        .lineLimit(1)
+                        .help(media.album)
+                }
+                Spacer(minLength: 0)
+                if media.hasMedia {
+                    HStack(spacing: 6) {
+                        MediaControlButton(icon: "backward.fill", help: String(localized: "media.previous", defaultValue: "Previous"), action: media.previous)
+                        MediaControlButton(icon: media.isPlaying ? "pause.fill" : "play.fill", help: media.isPlaying ? String(localized: "media.pause", defaultValue: "Pause") : String(localized: "media.play", defaultValue: "Play"), prominent: true, action: media.togglePlayback)
+                        MediaControlButton(icon: "forward.fill", help: String(localized: "media.next", defaultValue: "Next"), action: media.next)
+                    }
+                } else {
+                    Button {
+                        SoundPlayer.shared.play(.action)
+                        media.refresh()
+                    } label: {
+                        Label(String(localized: "media.checkNowPlaying", defaultValue: "Check Now Playing"), systemImage: "arrow.clockwise")
+                            .font(.system(size: 9, weight: .medium))
+                            .padding(.horizontal, 9)
+                            .frame(height: 22)
+                            .background(RoundedRectangle(cornerRadius: 7).fill(Color.white.opacity(0.09)))
+                    }
+                    .buttonStyle(NotchPressStyle())
+                    .hoverLift(cornerRadius: 7)
+                    .help(String(localized: "media.checkNowPlayingHelp", defaultValue: "Check the current macOS media session"))
+                }
+            }
+            .frame(height: 68, alignment: .top)
         }
-    }
-
-    private var timeLabel: String {
-        guard media.hasMedia, media.duration > 1 else { return String(localized: "media.positionUnavailable", defaultValue: "Position unavailable") }
-        func format(_ seconds: Double) -> String {
-            let value = max(Int(seconds.rounded()), 0)
-            return String(format: "%d:%02d", value / 60, value % 60)
-        }
-        return "\(format(media.position)) / \(format(media.duration))"
+        .foregroundColor(.white)
     }
 }
 
 private struct CompactMediaWaveform: View {
     let isPlaying: Bool
     let color: Color
+    @ObservedObject private var visualizer = AudioVisualizer.shared
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
     var body: some View {
         TimelineView(.animation(minimumInterval: 0.16, paused: reduceMotion || !isPlaying)) { context in
             let phase = context.date.timeIntervalSinceReferenceDate * 5.5
+            let live = visualizer.amplitude
             HStack(alignment: .center, spacing: 2) {
                 ForEach(0..<4, id: \.self) { index in
-                    let level = reduceMotion ? 0.45 : 0.35 + abs(sin(phase + Double(index) * 1.35)) * 0.65
                     Capsule()
                         .fill(color.opacity(index == 2 ? 1 : 0.72))
-                        .frame(width: 2, height: 4 + 9 * level)
+                        .frame(width: 2, height: 4 + 9 * barLevel(index: index, phase: phase, live: live))
                 }
             }
             .frame(width: 16, height: 16)
             .shadow(color: color.opacity(0.3), radius: 3)
         }
         .accessibilityHidden(true)
+    }
+
+    /// Falls back to the synthetic `sin()` animation whenever there's no
+    /// live signal (`idleAmplitude`) — the visualizer is off by default, so
+    /// this is the ordinary path, not an error path.
+    private func barLevel(index: Int, phase: Double, live: Double) -> Double {
+        if reduceMotion { return 0.45 }
+        guard live >= 0 else {
+            return 0.35 + abs(sin(phase + Double(index) * 1.35)) * 0.65
+        }
+        // Bars still differ from each other while driven by one number:
+        // the outer pair reacts a little less than the middle, which reads
+        // as a level meter rather than four identical bars.
+        let weight = index == 2 ? 1.0 : (index == 1 ? 0.85 : 0.68)
+        return 0.12 + live * weight * 0.88
     }
 }
 
@@ -2510,217 +2773,425 @@ private struct MediaControlButton: View {
             action()
         } label: {
             Image(systemName: icon)
-                .frame(width: prominent ? 32 : 28, height: 30)
+                .font(.system(size: 14))
+                .frame(width: prominent ? 30 : 24, height: 24)
                 .background(Circle().fill(Color.white.opacity(prominent ? 0.11 : 0)))
         }
         .buttonStyle(NotchPressStyle())
-        .hoverLift(cornerRadius: 11, strength: 0.08)
+        .hoverLift(cornerRadius: 12, strength: 0.08)
         .help(help)
         .accessibilityLabel(help)
     }
 }
 
-private struct TodayCell: View {
+/// A month label + five-day strip + centered agenda line, matching the
+/// calendar widget in NotchNook's reference screenshots. Five columns (not
+/// seven): the reference shows five, and seven left each column too narrow
+/// for today's enlarged number.
+///
+/// Deliberately holds nothing but calendar information — the focus timer and
+/// the "grant calendar access" button that used to sit here are AgentNotch
+/// additions with no counterpart in the reference, and crowding them into
+/// this widget is what made it read as cluttered. The focus timer now lives
+/// in `NotchView.expandedDetail`; requesting access is folded into the
+/// agenda line itself.
+private struct DashboardTodaySection: View {
     @ObservedObject var model: TodayModel
-    @Binding var focusEndsAt: Date?
+    @ObservedObject var uiState: NotchUIState
+
+    /// The day the strip is centered on — today, shifted by however far the
+    /// user has scrolled the strip (`NotchWindowController.stepWeekStrip`).
+    private var selectedDate: Date {
+        Calendar.current.date(byAdding: .day, value: uiState.weekStripDayOffset, to: Date()) ?? Date()
+    }
+
+    private var weekStripDays: [WeekStripDay] {
+        centeredWeekStrip(around: selectedDate, count: 5)
+    }
+
+    private var selectedDayEvents: [TodayEvent] {
+        TodayModel.events(on: selectedDate, in: model.nearbyEvents)
+    }
 
     var body: some View {
-        CellSurface {
-            TimelineView(.periodic(from: .now, by: 1)) { context in
-                let remaining = focusEndsAt.map { max(Int($0.timeIntervalSince(context.date)), 0) }
-                if model.canReadCalendar {
-                    calendarContent(remaining: remaining)
-                } else {
-                    calendarPermissionContent(remaining: remaining)
-                }
-            }
-            .foregroundColor(.white)
-        }
-        .onAppear { model.refresh() }
-    }
-
-    private func calendarContent(remaining: Int?) -> some View {
-        HStack(spacing: 14) {
-            VStack(spacing: 1) {
-                Text(Date.now.formatted(.dateTime.day()))
-                    .font(.system(size: 34, weight: .light, design: .rounded))
-                Text(Date.now.formatted(.dateTime.month(.abbreviated).weekday(.abbreviated)).uppercased())
-                    .font(.system(size: 9.5, weight: .semibold))
-                    .tracking(0.5)
-                    .foregroundColor(DesignTokens.muted)
-            }
-            .frame(width: 76)
-            Divider().overlay(DesignTokens.line)
-            VStack(alignment: .leading, spacing: 7) {
-                if model.events.isEmpty {
-                    Label(String(localized: "today.noMoreEventsToday", defaultValue: "No more events today"), systemImage: "calendar.badge.checkmark")
-                        .font(.system(size: 10.5, weight: .medium))
-                        .foregroundColor(.white.opacity(0.72))
-                } else {
-                    ForEach(model.events.prefix(2)) { event in
-                        ScheduleRow(
-                            time: event.startDate.formatted(date: .omitted, time: .shortened),
-                            title: event.title,
-                            detail: event.calendar
-                        )
-                    }
-                }
-                Spacer(minLength: 0)
-                focusButton(remaining: remaining, prominent: false)
-            }
-        }
-    }
-
-    private func calendarPermissionContent(remaining: Int?) -> some View {
         VStack(spacing: 8) {
-            Label(remaining == nil || remaining == 0 ? String(localized: "today.focusFor25Minutes", defaultValue: "Focus for 25 minutes") : String(localized: "today.focusIsActive", defaultValue: "Focus is active"), systemImage: remaining == nil || remaining == 0 ? "moon.stars.fill" : "timer")
-                .font(.system(size: 12, weight: .semibold))
-            Text(remaining == nil || remaining == 0 ? String(localized: "today.focusLocalTimerDescription", defaultValue: "A local timer keeps the current task in view.") : String(localized: "today.focusContinuesDescription", defaultValue: "The timer continues when you switch views or close the Nook."))
-                .font(.system(size: 10))
-                .foregroundColor(DesignTokens.muted)
-                .multilineTextAlignment(.center)
-            focusButton(remaining: remaining, prominent: true)
+            HStack(spacing: 10) {
+                monthBlock
+                weekStrip
+            }
+            agendaLine
+        }
+        .foregroundColor(.white)
+        // Scrolling sideways anywhere over this widget steps the strip a day
+        // at a time; elsewhere in the panel the same gesture switches pages.
+        // `NotchWindowController.handleHorizontalScroll` reads this flag to
+        // tell the two apart.
+        .onHover { uiState.isHoveringWeekStrip = $0 }
+        .onDisappear { uiState.isHoveringWeekStrip = false }
+    }
+
+    /// Month label mirroring NotchNook's reference screenshot ("Sep" next to
+    /// the week strip). Follows the strip as it's scrolled, so the month
+    /// always names the days actually on screen. `Date.formatted` follows
+    /// the system locale, so no new localization key is needed (same
+    /// precedent as `weekday(.narrow)` below).
+    private var monthBlock: some View {
+        Text(selectedDate.formatted(.dateTime.month(.abbreviated)))
+            .font(.system(size: 18, weight: .bold, design: .rounded))
+            .foregroundColor(.white.opacity(0.9))
+    }
+
+    /// Week-of-dates strip. Pure `Calendar` date arithmetic — independent of
+    /// EventKit authorization, so it renders identically whether or not
+    /// calendar access has been granted.
+    private var weekStrip: some View {
+        HStack(spacing: 4) {
+            ForEach(weekStripDays, id: \.date) { day in
+                WeekDayColumn(date: day.date, hasEvent: hasEvent(on: day.date))
+                    .frame(maxWidth: .infinity)
+            }
+        }
+    }
+
+    /// Whether any day in the fetched window has something scheduled — this
+    /// is what puts the small dot under a date. Reads `nearbyEvents` (a wide
+    /// window around today) rather than `events` (today only), so days other
+    /// than today can be marked too.
+    private func hasEvent(on date: Date) -> Bool {
+        model.nearbyEvents.contains { Calendar.current.isDate($0.startDate, inSameDayAs: date) }
+    }
+
+    /// Small icon above a single line of text, centered under the strip —
+    /// the reference screenshot's "Nothing for today" treatment. All three
+    /// states (an event, no events, no access yet) use this one shape so the
+    /// widget's height never shifts between them.
+    @ViewBuilder
+    private var agendaLine: some View {
+        if !model.canReadCalendar {
             Button {
                 SoundPlayer.shared.play(.action)
                 model.requestAccess()
             } label: {
-                Label(String(localized: "today.showCalendarEvents", defaultValue: "Show today's Calendar events"), systemImage: "calendar.badge.plus")
-                    .font(.system(size: 10, weight: .medium))
-                    .padding(.horizontal, 10)
-                    .frame(height: 28)
-                    .background(RoundedRectangle(cornerRadius: 8).fill(Color.white.opacity(0.06)))
+                agendaBody(
+                    icon: "calendar.badge.plus",
+                    text: String(localized: "today.showCalendarEvents", defaultValue: "Show today's Calendar events"),
+                    color: .white.opacity(0.8)
+                )
             }
             .buttonStyle(NotchPressStyle())
-            .hoverLift(cornerRadius: 8)
             .accessibilityIdentifier("today.enable-calendar")
-            .help(String(localized: "today.allowAccessHelp", defaultValue: "Allow access to today's events"))
-            if let error = model.errorMessage {
-                Text(error)
-                    .font(.system(size: 9.5))
-                    .foregroundColor(DesignTokens.red)
-                    .lineLimit(1)
-                    .help(error)
-            }
+            .help(model.errorMessage ?? String(localized: "today.allowAccessHelp", defaultValue: "Allow access to today's events"))
+        } else if let reminder = nextReminder, isReminderSoonerThanFirstEvent(reminder) {
+            // An overdue or imminent reminder outranks a later event: it's
+            // the thing actually needing attention now.
+            agendaBody(
+                icon: reminder.isOverdue ? "exclamationmark.circle" : "checklist",
+                text: "\(reminder.title)  \(reminder.dueDate.formatted(.dateTime.hour().minute()))",
+                color: reminder.isOverdue ? DesignTokens.orange : .white.opacity(0.85)
+            )
+            .help(reminder.title)
+        } else if let event = selectedDayEvents.first {
+            agendaBody(
+                icon: "calendar",
+                text: "\(event.title)  \(eventTimeRange(event))",
+                color: .white.opacity(0.85)
+            )
+            .help(event.title)
+        } else if Calendar.current.isDateInToday(selectedDate) {
+            agendaBody(
+                icon: "calendar.badge.checkmark",
+                text: String(localized: "today.nothingForToday", defaultValue: "Nothing for today"),
+                color: DesignTokens.muted
+            )
+        } else {
+            // Scrolled off today: name the day, since "Nothing for today"
+            // would be describing a different date than the one on screen.
+            agendaBody(
+                icon: "calendar.badge.checkmark",
+                text: String(localized: "today.nothingScheduledOn", defaultValue: "Nothing on \(selectedDate.formatted(.dateTime.month().day()))"),
+                color: DesignTokens.muted
+            )
         }
-        // maxHeight: .infinity dropped — same reasoning as MediaCell above.
+    }
+
+    /// Reminders are only fetched for today, so they're only offered while
+    /// the strip is actually showing today — on a scrolled-to date they'd be
+    /// describing a different day than the one on screen.
+    private var nextReminder: TodayReminder? {
+        guard Calendar.current.isDateInToday(selectedDate) else { return nil }
+        return model.reminders.first
+    }
+
+    /// Which of the two competing lines gets the single agenda slot. Overdue
+    /// reminders always win; otherwise whichever comes first by time.
+    private func isReminderSoonerThanFirstEvent(_ reminder: TodayReminder) -> Bool {
+        if reminder.isOverdue { return true }
+        guard let event = selectedDayEvents.first else { return true }
+        return reminder.dueDate < event.startDate
+    }
+
+    private func agendaBody(icon: String, text: String, color: Color) -> some View {
+        VStack(spacing: 3) {
+            Image(systemName: icon)
+                .font(.system(size: 10))
+                .foregroundColor(DesignTokens.muted)
+            Text(text)
+                .font(.system(size: 10, weight: .medium))
+                .foregroundColor(color)
+                .lineLimit(1)
+        }
         .frame(maxWidth: .infinity)
     }
 
-    private func focusButton(remaining: Int?, prominent: Bool) -> some View {
+    /// "16:00–17:00"-style range mirroring NotchNook's reference screenshot,
+    /// which shows an event's start/end time alongside its title.
+    private func eventTimeRange(_ event: TodayEvent) -> String {
+        let start = event.startDate.formatted(.dateTime.hour().minute())
+        let end = event.endDate.formatted(.dateTime.hour().minute())
+        return "\(start)–\(end)"
+    }
+}
+
+/// One column of `DashboardTodaySection`'s week strip: a narrow weekday
+/// letter above the day-of-month number, today's rendered larger and in the
+/// accent color — mirrors NotchNook's reference screenshot's calendar.
+private struct WeekDayColumn: View {
+    let date: Date
+    let hasEvent: Bool
+
+    private var isToday: Bool { Calendar.current.isDateInToday(date) }
+    private var isWeekend: Bool { Calendar.current.isDateInWeekend(date) }
+
+    /// The bare day number, never a locale-formatted date. `.dateTime.day()`
+    /// renders as "8日" under a Japanese locale, which overflowed the column
+    /// and truncated today's own number to "•••" — the bug that made the
+    /// current day invisible on screen.
+    private var dayNumber: String {
+        String(Calendar.current.component(.day, from: date))
+    }
+
+    var body: some View {
+        VStack(spacing: 2) {
+            Text(date.formatted(.dateTime.weekday(.narrow)))
+                .font(.system(size: 7.5, weight: .medium))
+                .foregroundColor(isToday ? .white.opacity(0.9) : DesignTokens.muted)
+            Text(dayNumber)
+                .font(.system(size: isToday ? 16 : 10.5, weight: isToday ? .bold : .regular, design: .rounded))
+                .foregroundColor(numberColor)
+                .frame(height: 19, alignment: .center)
+            Circle()
+                .fill(DesignTokens.cyan)
+                .frame(width: 3.5, height: 3.5)
+                .opacity(hasEvent ? 1 : 0)
+        }
+        .frame(height: 37)
+        .accessibilityElement(children: .ignore)
+        .accessibilityLabel(accessibilityLabel)
+        .accessibilityAddTraits(isToday ? [.isSelected] : [])
+    }
+
+    /// Three tiers only — today, weekend, weekday. An earlier revision also
+    /// faded each column by its distance from today; stacking that on top of
+    /// the color tiers is what read as "weird colors", and the reference
+    /// screenshots have no such fade.
+    private var numberColor: Color {
+        if isToday { return DesignTokens.cyan }
+        if isWeekend { return DesignTokens.orange.opacity(0.75) }
+        return .white.opacity(0.5)
+    }
+
+    private var accessibilityLabel: String {
+        let base = date.formatted(.dateTime.weekday(.wide).day())
+        guard hasEvent else { return base }
+        return String(localized: "today.weekDayHasEvent", defaultValue: "\(base), has an event")
+    }
+}
+
+/// One day in `DashboardTodaySection`'s week strip: the date itself, plus
+/// its signed offset from today (0 = today, negative = past, positive =
+/// future). The offset is what makes "the strip is centered on today"
+/// checkable in `centeredWeekStrip`'s tests.
+struct WeekStripDay: Equatable {
+    let date: Date
+    let offset: Int
+}
+
+/// The notch panel's outline: square-cornered at the top where it meets the
+/// menu bar, rounded at the bottom, and — when `topFlareRadius > 0` —
+/// joined to the bar by a *concave* curve on each top corner.
+///
+/// That flare is the piece `UnevenRoundedRectangle` can't express. An
+/// ordinary corner radius bends toward the panel's interior, which reads as
+/// the panel being a separate slab tucked under the bar. Curving the other
+/// way makes the top edge the widest point, with the body tucking in
+/// beneath it, so the panel looks like it grows out of the bar.
+///
+/// `InsettableShape` because `shapeBackground` strokes it with
+/// `strokeBorder`, which insets by half the line width to keep the stroke
+/// inside the fill.
+struct NotchShellShape: Shape, InsettableShape {
+    var bottomRadius: CGFloat
+    /// `0` draws plain square top corners (every mode except `.open`).
+    var topFlareRadius: CGFloat
+    var insetAmount: CGFloat = 0
+
+    func path(in rect: CGRect) -> Path {
+        let r = rect.insetBy(dx: insetAmount, dy: insetAmount)
+        // Never let the curves overlap on a panel too small to hold them.
+        let bottom = min(bottomRadius, r.width / 2, r.height / 2)
+        let flare = min(topFlareRadius, r.width / 2, r.height / 2)
+
+        var path = Path()
+        // Top-left, at the panel's widest point.
+        path.move(to: CGPoint(x: r.minX, y: r.minY))
+        if flare > 0 {
+            // Curve away from the interior: down and inward, leaving the
+            // corner scooped out rather than filled in.
+            path.addQuadCurve(
+                to: CGPoint(x: r.minX + flare, y: r.minY + flare),
+                control: CGPoint(x: r.minX + flare, y: r.minY)
+            )
+            path.addLine(to: CGPoint(x: r.minX + flare, y: r.maxY - bottom))
+            path.addQuadCurve(
+                to: CGPoint(x: r.minX + flare + bottom, y: r.maxY),
+                control: CGPoint(x: r.minX + flare, y: r.maxY)
+            )
+            path.addLine(to: CGPoint(x: r.maxX - flare - bottom, y: r.maxY))
+            path.addQuadCurve(
+                to: CGPoint(x: r.maxX - flare, y: r.maxY - bottom),
+                control: CGPoint(x: r.maxX - flare, y: r.maxY)
+            )
+            path.addLine(to: CGPoint(x: r.maxX - flare, y: r.minY + flare))
+            path.addQuadCurve(
+                to: CGPoint(x: r.maxX, y: r.minY),
+                control: CGPoint(x: r.maxX - flare, y: r.minY)
+            )
+        } else {
+            path.addLine(to: CGPoint(x: r.minX, y: r.maxY - bottom))
+            path.addQuadCurve(
+                to: CGPoint(x: r.minX + bottom, y: r.maxY),
+                control: CGPoint(x: r.minX, y: r.maxY)
+            )
+            path.addLine(to: CGPoint(x: r.maxX - bottom, y: r.maxY))
+            path.addQuadCurve(
+                to: CGPoint(x: r.maxX, y: r.maxY - bottom),
+                control: CGPoint(x: r.maxX, y: r.maxY)
+            )
+            path.addLine(to: CGPoint(x: r.maxX, y: r.minY))
+        }
+        path.closeSubpath()
+        return path
+    }
+
+    func inset(by amount: CGFloat) -> NotchShellShape {
+        var copy = self
+        copy.insetAmount += amount
+        return copy
+    }
+}
+
+/// An SF Symbol describing what kind of thing is playing, chosen from the
+/// now-playing source's bundle identifier: a mic for spoken audio, a screen
+/// for video, a note for everything else. Matching is on substrings rather
+/// than an exhaustive bundle-id list so unlisted apps from the same family
+/// (regional Podcasts builds, Spotify betas, Chromium forks) still land on
+/// the right glyph.
+func mediaSourceIcon(forBundleIdentifier identifier: String?) -> String {
+    guard let identifier, !identifier.isEmpty else { return "music.note" }
+    let id = identifier.lowercased()
+    if id.contains("podcast") || id.contains("overcast") || id.contains("pocketcast") || id.contains("audible") {
+        return "mic.fill"
+    }
+    if id.contains("safari") || id.contains("chrome") || id.contains("chromium") || id.contains("brave")
+        || id.contains("firefox") || id.contains("arc") || id.contains("vlc") || id.contains("iina")
+        || id.contains("quicktime") || id.contains("appletv") || id.contains(".tv") {
+        return "play.rectangle.fill"
+    }
+    return "music.note"
+}
+
+/// Returns `count` consecutive days centered on `referenceDate` — `(count-1)/2`
+/// days before it, `referenceDate` itself, and the rest after. Pure/`Calendar`-
+/// parameterized so it's directly testable, same pattern as
+/// `NotchWindowController.computeClosedSize`.
+func centeredWeekStrip(around referenceDate: Date, count: Int, calendar: Calendar = .current) -> [WeekStripDay] {
+    guard count > 0 else { return [] }
+    let before = (count - 1) / 2
+    return (0..<count).compactMap { index -> WeekStripDay? in
+        let offset = index - before
+        guard let date = calendar.date(byAdding: .day, value: offset, to: referenceDate) else { return nil }
+        return WeekStripDay(date: date, offset: offset)
+    }
+}
+
+/// Connected AirPods' battery, next to the Mac's own. Renders nothing at
+/// all when the feature is off or nothing is connected — an empty slot
+/// beside the battery would be worse than no slot, and this way the bar's
+/// layout is unchanged for anyone not using it.
+private struct AirPodsBatteryIndicator: View {
+    @ObservedObject private var monitor = AirPodsBatteryMonitor.shared
+    @ObservedObject private var settings = AppSettings.shared
+
+    var body: some View {
+        if settings.airPodsStatusEnabled,
+           let battery = monitor.battery,
+           let label = AirPodsBatteryMonitor.summaryLabel(for: battery) {
+            HStack(spacing: 3) {
+                Image(systemName: "airpods.gen3")
+                    .font(.system(size: 11))
+                Text(label)
+                    .font(.system(size: 9, weight: .medium))
+            }
+            .foregroundColor(.white.opacity(0.62))
+            .frame(height: 28)
+            .accessibilityElement(children: .combine)
+            .accessibilityLabel(battery.name)
+            .accessibilityValue(label)
+            .help(battery.name)
+        }
+    }
+}
+
+/// Reduced to a single glanceable metric (battery) — see `DashboardCell`'s
+/// doc comment for why the original 3-card + background-activity layout
+/// was cut. Memory/storage/uptime/background-activity remain reachable via
+/// `NotchView.expandedDetail`'s `.dashboard` case (Today/System `DetailStrip`
+/// rows), which this section does not duplicate.
+private struct CompactBatteryIndicator: View {
+    @ObservedObject var monitor: SystemMonitor
+
+    var body: some View {
         Button {
-            SoundPlayer.shared.play(.action)
-            focusEndsAt = remaining == nil || remaining == 0 ? Date().addingTimeInterval(25 * 60) : nil
+            openSystemSettings("x-apple.systempreferences:com.apple.Battery-Settings.extension")
         } label: {
-            Label(focusLabel(remaining), systemImage: remaining == nil || remaining == 0 ? "moon.fill" : "stop.fill")
-                .font(.system(size: 10.5, weight: .semibold))
-                .padding(.horizontal, 12)
-                .frame(height: prominent ? 32 : 30)
-                .background(RoundedRectangle(cornerRadius: 9).fill(Color.white.opacity(prominent ? 0.14 : 0.09)))
+            HStack(spacing: 3) {
+                Image(systemName: monitor.isCharging ? "battery.100percent.bolt" : batteryIcon)
+                    .font(.system(size: 11))
+                if let level = monitor.batteryLevel {
+                    Text("\(level)%")
+                        .font(.system(size: 9, weight: .medium))
+                }
+            }
+            .foregroundColor(.white.opacity(0.62))
+            .frame(height: 28)
         }
         .buttonStyle(NotchPressStyle())
-        .hoverLift(cornerRadius: 9)
-        .accessibilityIdentifier("today.focus")
-        .help(remaining == nil || remaining == 0 ? String(localized: "today.startFocusHelp", defaultValue: "Start a 25 minute local focus timer") : String(localized: "today.endFocus", defaultValue: "End Focus"))
+        .hoverLift(cornerRadius: 8)
+        .accessibilityLabel(String(localized: "system.battery", defaultValue: "Battery"))
+        .accessibilityValue(monitor.batteryLevel.map { "\($0)%" } ?? String(localized: "system.acPower", defaultValue: "AC"))
+        .help(monitor.batteryLevel == nil ? String(localized: "system.noBatteryDetected", defaultValue: "No battery detected") : batteryDetail)
     }
 
-    private func focusLabel(_ remaining: Int?) -> String {
-        guard let remaining, remaining > 0 else { return String(localized: "today.startFocus", defaultValue: "Start Focus") }
-        let format = String(localized: "today.endFocusWithTime", defaultValue: "End Focus · %02d:%02d")
-        return String(format: format, remaining / 60, remaining % 60)
-    }
-}
-
-private struct ScheduleRow: View {
-    let time: String
-    let title: String
-    let detail: String
-    var body: some View {
-        HStack(alignment: .top, spacing: 8) {
-            Text(time).font(.system(size: 9.5, design: .monospaced)).foregroundColor(DesignTokens.muted).frame(width: 38, alignment: .leading)
-            VStack(alignment: .leading, spacing: 1) {
-                Text(title).font(.system(size: 10.5, weight: .semibold)).lineLimit(1)
-                Text(detail).font(.system(size: 9.5)).foregroundColor(DesignTokens.muted).lineLimit(1)
-            }
-        }
-    }
-}
-
-private struct SystemCell: View {
-    @ObservedObject var monitor: SystemMonitor
-    @ObservedObject var background: BackgroundActivityMonitor
-
-    var body: some View {
-        CellSurface {
-            VStack(spacing: 5) {
-                if let activity = background.activities.first {
-                    VStack(alignment: .leading, spacing: 8) {
-                        HStack(spacing: 10) {
-                            Image(systemName: activity.symbol)
-                                .font(.system(size: 20, weight: .medium))
-                                .foregroundColor(.white.opacity(0.82))
-                                .frame(width: 34, height: 34)
-                                .background(RoundedRectangle(cornerRadius: 9).fill(Color.white.opacity(0.07)))
-                            VStack(alignment: .leading, spacing: 3) {
-                                Text(activity.title).font(.system(size: 12, weight: .semibold))
-                                Text(activity.detail).font(.system(size: 10)).foregroundColor(DesignTokens.muted).lineLimit(1)
-                            }
-                            Spacer()
-                            ProgressView().controlSize(.small).tint(.white.opacity(0.8))
-                        }
-                        HStack {
-                            Label(String(localized: "system.runningInBackground", defaultValue: "Running in background"), systemImage: "clock.arrow.circlepath")
-                                .font(.system(size: 9.5, weight: .medium))
-                                .foregroundColor(.white.opacity(0.58))
-                            if background.activities.count > 1 {
-                                Text(String(localized: "system.moreActivities", defaultValue: "+\(String(background.activities.count - 1)) more"))
-                                    .font(.system(size: 9.5, weight: .medium))
-                                    .foregroundColor(DesignTokens.muted)
-                            }
-                            Spacer()
-                            activityMonitorButton
-                        }
-                    }
-                    .padding(.horizontal, 12)
-                    .padding(.vertical, 10)
-                    // maxHeight: .infinity dropped — same reasoning as
-                    // MediaCell/TodayCell above.
-                    .frame(maxWidth: .infinity)
-                    .background(RoundedRectangle(cornerRadius: 11).fill(Color.white.opacity(0.055)))
-                    .help(activity.detail)
-                } else {
-                    HStack(spacing: 6) {
-                        SystemActionCard(
-                            icon: monitor.isCharging ? "battery.100percent.bolt" : "battery.75percent",
-                            title: monitor.batteryLevel == nil ? String(localized: "system.power", defaultValue: "Power") : String(localized: "system.battery", defaultValue: "Battery"),
-                            value: monitor.batteryLevel.map { "\($0)%" } ?? String(localized: "system.acPower", defaultValue: "AC power"),
-                            detail: monitor.batteryLevel == nil ? String(localized: "system.noBatteryDetected", defaultValue: "No battery detected") : batteryDetail
-                        ) { openSystemSettings("x-apple.systempreferences:com.apple.Battery-Settings.extension") }
-                        SystemActionCard(icon: "memorychip", title: String(localized: "system.memory", defaultValue: "Memory"), value: monitor.memoryUsed, detail: monitor.memoryDetail) {
-                            NSWorkspace.shared.open(URL(fileURLWithPath: "/System/Applications/Utilities/Activity Monitor.app"))
-                        }
-                        SystemActionCard(icon: "externaldrive", title: String(localized: "system.freeStorage", defaultValue: "Free storage"), value: monitor.storageAvailable, detail: monitor.storageDetail) {
-                            openSystemSettings("x-apple.systempreferences:com.apple.settings.Storage")
-                        }
-                    }
-                    HStack(spacing: 7) {
-                        Image(systemName: "checkmark.circle")
-                            .font(.system(size: 11, weight: .medium))
-                            .foregroundColor(.white.opacity(0.55))
-                        VStack(alignment: .leading, spacing: 1) {
-                            Text(String(localized: "system.noActiveBackgroundWork", defaultValue: "No active background work"))
-                                .font(.system(size: 10.5, weight: .medium))
-                            Text(String(localized: "system.noActiveBackgroundWorkDetail", defaultValue: "Builds, Git transfers and downloads appear here"))
-                                .font(.system(size: 9.5))
-                                .foregroundColor(DesignTokens.muted)
-                        }
-                        Spacer()
-                        activityMonitorButton
-                    }
-                    .padding(.horizontal, 8)
-                    .frame(height: 36)
-                    .background(RoundedRectangle(cornerRadius: 9).fill(Color.white.opacity(0.045)))
-                }
-            }.foregroundColor(.white)
+    /// The pre-merge `SystemCell` hardcoded `"battery.75percent"` for every
+    /// non-charging level; picking the closest SF Symbol bucket here is a
+    /// (small, incidental) correctness fix alongside the redesign.
+    private var batteryIcon: String {
+        guard let level = monitor.batteryLevel else { return "battery.100percent" }
+        switch level {
+        case ..<20: return "battery.25percent"
+        case ..<50: return "battery.50percent"
+        case ..<80: return "battery.75percent"
+        default: return "battery.100percent"
         }
     }
 
@@ -2731,54 +3202,9 @@ private struct SystemCell: View {
         return monitor.isCharging ? String(localized: "system.chargingRemaining", defaultValue: "Charging · \(remaining) remaining") : String(localized: "system.remaining", defaultValue: "\(remaining) remaining")
     }
 
-    private var activityMonitorButton: some View {
-        Button {
-            NSWorkspace.shared.open(URL(fileURLWithPath: "/System/Applications/Utilities/Activity Monitor.app"))
-        } label: {
-            Label(String(localized: "system.activityMonitor", defaultValue: "Activity Monitor"), systemImage: "gauge.with.dots.needle.50percent")
-                .font(.system(size: 9.5, weight: .medium))
-                .padding(.horizontal, 10)
-                .frame(height: 30)
-                .background(RoundedRectangle(cornerRadius: 8).fill(Color.white.opacity(0.075)))
-        }
-        .buttonStyle(NotchPressStyle())
-        .hoverLift(cornerRadius: 8)
-        .accessibilityIdentifier("system.activity-monitor")
-    }
-
     private func openSystemSettings(_ rawURL: String) {
         guard let url = URL(string: rawURL) else { return }
         NSWorkspace.shared.open(url)
-    }
-}
-
-private struct SystemActionCard: View {
-    let icon: String, title: String, value: String, detail: String
-    let action: () -> Void
-    var body: some View {
-        Button {
-            SoundPlayer.shared.play(.action)
-            action()
-        } label: {
-            HStack(spacing: 7) {
-                Image(systemName: icon).font(.system(size: 12)).foregroundColor(.white.opacity(0.76))
-                VStack(alignment: .leading, spacing: 2) {
-                    Text(title).font(.system(size: 9.5)).foregroundColor(DesignTokens.muted)
-                    Text(value).font(.system(size: 11, weight: .semibold)).lineLimit(1)
-                    Text(detail).font(.system(size: 9)).foregroundColor(.white.opacity(0.46)).lineLimit(1)
-                }
-                Spacer(minLength: 0)
-                Image(systemName: "chevron.right")
-                    .font(.system(size: 8, weight: .semibold))
-                    .foregroundColor(.white.opacity(0.24))
-            }
-            .padding(.horizontal, 9)
-            .frame(maxWidth: .infinity, minHeight: 48)
-            .background(RoundedRectangle(cornerRadius: 10).fill(Color.white.opacity(0.055)))
-        }
-        .buttonStyle(NotchPressStyle())
-        .hoverLift(cornerRadius: 10)
-        .help(String(localized: "system.openDetailsHelp", defaultValue: "Open \(title) details"))
     }
 }
 
@@ -2787,12 +3213,56 @@ private struct TrayItem: Identifiable {
     let url: URL
 }
 
-private enum TrayAction { case choose, open, reveal, airDrop, compress, copyPath, attach, removeSelected, removeItem(UUID), clear, undo }
+private enum TrayAction {
+    case choose, open, reveal, airDrop, compress, copyPath, attach, removeSelected, removeItem(UUID), clear, undo
+    /// Run a user-registered Shortcuts shortcut with the current selection
+    /// as its input.
+    case runShortcut(ShortcutBinding)
+}
+
+/// SF Symbols ships no `airdrop` glyph (checked at runtime — `airplayaudio`
+/// exists but reads as AirPlay), so the mark is drawn: three concentric arcs
+/// opening downward over a small upward wedge, which is what the system's
+/// AirDrop icon is. Meant to be `.stroke`d, not filled.
+private struct AirDropGlyph: Shape {
+    func path(in rect: CGRect) -> Path {
+        let side = min(rect.width, rect.height)
+        let center = CGPoint(x: rect.midX, y: rect.midY)
+        var path = Path()
+        // Near-full rings with a gap at the bottom (115°→65° the long way
+        // round), which is the notch in the system's AirDrop mark. Each ring
+        // needs its own `move(to:)` — without it `addArc` joins to the
+        // previous subpath's end and draws a stray chord across the glyph.
+        for scale in [0.22, 0.34, 0.46] {
+            let radius = side * scale
+            let start = Angle.degrees(115)
+            path.move(to: CGPoint(
+                x: center.x + radius * cos(start.radians),
+                y: center.y + radius * sin(start.radians)
+            ))
+            path.addArc(
+                center: center,
+                radius: radius,
+                startAngle: start,
+                endAngle: .degrees(65),
+                clockwise: false
+            )
+        }
+        let dot = side * 0.055
+        path.addEllipse(in: CGRect(x: center.x - dot, y: center.y - dot, width: dot * 2, height: dot * 2))
+        return path
+    }
+}
 
 private struct TrayCell: View {
     @Binding var items: [TrayItem]
     @Binding var selectedItemID: UUID?
     let isTargeted: Bool
+    let isAirDropTargeted: Bool
+    let shortcuts: [ShortcutBinding]
+    /// Reported upward so `NotchView` can route an incoming drop to AirDrop
+    /// instead of the Tray — see `isOverAirDropWell`.
+    @Binding var airDropWellFrame: CGRect
     let feedback: String?
     let canUndo: Bool
     let action: (TrayAction) -> Void
@@ -2800,7 +3270,10 @@ private struct TrayCell: View {
     var body: some View {
         CellSurface {
             VStack(spacing: 8) {
-                trayShelf
+                HStack(spacing: 8) {
+                    trayShelf
+                    airDropShelf
+                }
                 HStack(spacing: 6) {
                     Text(statusLabel)
                         .font(.system(size: 10, weight: .medium))
@@ -2831,6 +3304,15 @@ private struct TrayCell: View {
                         Menu {
                             Button(String(localized: "tray.compress", defaultValue: "Compress"), systemImage: "archivebox") { action(.compress) }
                             Button(String(localized: "tray.copyPath", defaultValue: "Copy Path"), systemImage: "doc.on.doc") { action(.copyPath) }
+                            // Only shown once the user has registered one in
+                            // Settings — an empty "Shortcuts" submenu would
+                            // just be a dead end.
+                            if !shortcuts.isEmpty {
+                                Divider()
+                                ForEach(shortcuts) { shortcut in
+                                    Button(shortcut.name, systemImage: "bolt") { action(.runShortcut(shortcut)) }
+                                }
+                            }
                             Divider()
                             Button(String(localized: "tray.removeSelected", defaultValue: "Remove Selected"), systemImage: "minus.circle", role: .destructive) { action(.removeSelected) }
                             Button(String(localized: "tray.clearAll", defaultValue: "Clear All"), systemImage: "trash", role: .destructive) {
@@ -2859,6 +3341,41 @@ private struct TrayCell: View {
             return String(localized: "tray.itemCount", defaultValue: "\(String(items.count)) item\(items.count == 1 ? "" : "s")")
         }
         return String(localized: "tray.selectedItemCount", defaultValue: "\(selected.url.lastPathComponent) · \(String(items.count)) item\(items.count == 1 ? "" : "s")")
+    }
+
+    /// A second, smaller well beside the Tray: dropping here hands the files
+    /// straight to AirDrop instead of stashing them. Deliberately narrow —
+    /// the Tray stays the primary target and this sits next to it as a
+    /// shortcut, not as an equal half of the page.
+    private var airDropShelf: some View {
+        RoundedRectangle(cornerRadius: 13)
+            .fill(DesignTokens.airDropWell.opacity(isAirDropTargeted ? 0.62 : 0.34))
+            .overlay(
+                RoundedRectangle(cornerRadius: 13)
+                    .stroke(Color.accentColor.opacity(isAirDropTargeted ? 0.75 : 0.2), lineWidth: 1)
+            )
+            .overlay(alignment: .topLeading) {
+                VStack(alignment: .leading, spacing: 6) {
+                    AirDropGlyph()
+                        .stroke(Color.accentColor, style: StrokeStyle(lineWidth: 1.6, lineCap: .round))
+                        .frame(width: 19, height: 19)
+                    Text(String(localized: "tray.airDrop", defaultValue: "AirDrop"))
+                        .font(.system(size: 11, weight: .semibold))
+                        .foregroundColor(.white.opacity(0.92))
+                }
+                .padding(11)
+            }
+            .frame(width: 118)
+            // No `.dropDestination` here: the panel's AppKit container view
+            // owns the whole drag session (see `FileDropContainerView`), so a
+            // SwiftUI drop target would be competing with it. This publishes
+            // its frame instead and lets that one owner route the drop.
+            .onGeometryChange(for: CGRect.self, of: { $0.frame(in: .global) }) { frame in
+                airDropWellFrame = frame
+            }
+            .onDisappear { airDropWellFrame = .zero }
+            .help(String(localized: "tray.airDropWellHelp", defaultValue: "Drop files here to send them with AirDrop"))
+            .accessibilityLabel(String(localized: "tray.airDropWellHelp", defaultValue: "Drop files here to send them with AirDrop"))
     }
 
     @ViewBuilder
@@ -3433,6 +3950,7 @@ private struct QuestionChoiceButton: View {
     var body: some View {
         Button {
             SoundPlayer.shared.play(.approve)
+            HapticPlayer.shared.perform(.confirm)
             action()
         } label: {
             HStack(spacing: 9) {
@@ -3728,6 +4246,7 @@ private struct ApprovalOverlayView: View {
     private func decide(_ newDecision: ApprovalDecision) {
         guard decision == nil else { return }
         SoundPlayer.shared.play(newDecision == .allow ? .approve : .deny)
+        HapticPlayer.shared.perform(newDecision == .allow ? .confirm : .reject)
         withAnimation(reduceMotion ? .easeOut(duration: 0.12) : DesignTokens.scaledSpring()) {
             decision = newDecision
         }
@@ -3837,6 +4356,7 @@ private struct PlanApprovalOverlayView: View {
     private func decide(_ newDecision: ApprovalDecision) {
         guard decision == nil else { return }
         SoundPlayer.shared.play(newDecision == .allow ? .approve : .deny)
+        HapticPlayer.shared.perform(newDecision == .allow ? .confirm : .reject)
         withAnimation(reduceMotion ? .easeOut(duration: 0.12) : DesignTokens.scaledSpring()) {
             decision = newDecision
         }

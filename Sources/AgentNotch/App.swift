@@ -55,6 +55,18 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         self.nativeNotifier = nativeNotifier
         self.notchWindowController = controller
 
+        // Resumes a visualizer the user had switched on before quitting.
+        // Off by default, so this normally does nothing and no capture
+        // stream (or permission prompt) is ever created.
+        if AppSettings.shared.visualizerEnabled {
+            Task { await AudioVisualizer.shared.start() }
+        }
+        // Same shape, and the same reason to gate it: polling touches
+        // IOBluetooth, which needs Bluetooth permission.
+        if AppSettings.shared.airPodsStatusEnabled {
+            AirPodsBatteryMonitor.shared.setEnabled(true)
+        }
+
         let watcher = ClaudeWatcher(store: store)
         watcher.start()
         self.claudeWatcher = watcher
@@ -96,6 +108,18 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                 self?.handleQueueChange(isEmpty: queue.isEmpty)
             }
             .store(in: &cancellables)
+
+        NotificationCenter.default.publisher(for: .agentNotchReplayOnboarding)
+            .sink { [weak controller] _ in
+                controller?.showOnboarding(force: true)
+            }
+            .store(in: &cancellables)
+
+        // First run only — explains the gestures, since an `.accessory` app
+        // with no Dock icon gives no other hint that the notch is
+        // interactive at all. Shown in the notch rather than a window: the
+        // gestures it describes only exist there. No-op on later launches.
+        controller.showOnboarding()
     }
 
     private func handle(event: HookEvent) {

@@ -12,6 +12,33 @@ final class AppSettings: ObservableObject {
     @Published var soundEnabled: Bool {
         didSet { UserDefaults.standard.set(soundEnabled, forKey: Keys.soundEnabled) }
     }
+    @Published var hapticsEnabled: Bool {
+        didSet { UserDefaults.standard.set(hapticsEnabled, forKey: Keys.hapticsEnabled) }
+    }
+    /// Sideways scrolling over the compact/hover pill steps tracks. Only
+    /// applies while the panel is *not* open — open uses that same gesture
+    /// to switch pages.
+    @Published var mediaSwipeEnabled: Bool {
+        didSet { UserDefaults.standard.set(mediaSwipeEnabled, forKey: Keys.mediaSwipeEnabled) }
+    }
+    /// Swaps which direction advances: off, swiping left plays the next
+    /// track (the content flicks away with the gesture).
+    @Published var invertMediaSwipe: Bool {
+        didSet { UserDefaults.standard.set(invertMediaSwipe, forKey: Keys.invertMediaSwipe) }
+    }
+    /// Set once the welcome screen has been dismissed, so it only appears on
+    /// a genuine first run. Settings can reopen it regardless.
+    @Published var hasSeenOnboarding: Bool {
+        didSet { UserDefaults.standard.set(hasSeenOnboarding, forKey: Keys.hasSeenOnboarding) }
+    }
+    /// Whether an approval/question/plan request expands the panel on
+    /// arrival (the long-standing behavior) or only surfaces the compact
+    /// badge, leaving the user to click into it. Off is for people who
+    /// don't want the panel taking over the screen mid-task; the request
+    /// still waits either way. Read by `NotchWindowController.showAttention`.
+    @Published var autoOpenOnAttention: Bool {
+        didSet { UserDefaults.standard.set(autoOpenOnAttention, forKey: Keys.autoOpenOnAttention) }
+    }
     @Published var languageOverride: String? {
         didSet { UserDefaults.standard.set(languageOverride, forKey: Keys.languageOverride) }
     }
@@ -28,14 +55,12 @@ final class AppSettings: ObservableObject {
         didSet { UserDefaults.standard.set(animationSpeedScale, forKey: Keys.animationSpeedScale) }
     }
     /// Per-tab widget layout (order/visibility/size). Keyed by a stable
-    /// identifier — since Media/Today/System merged into one Dashboard Nook
-    /// page (see `NookView`), these keys (`"agents"`, `"today"`, `"system"`)
-    /// now identify `expandedDetail`'s per-source-tab item groups within
-    /// that merged page rather than top-level tabs; `orderedDetailItems`
-    /// is still the only actual consumer. Not yet editable from any UI —
-    /// this is the storage foundation a future "customize layout" settings
-    /// screen will read/write. Absence of a key means "use the built-in
-    /// default order, all widgets visible."
+    /// identifier: `DashboardWidget.layoutKey` is the Dashboard page's own
+    /// widget row (edited from Settings ▸ Nook, read by `DashboardCell`),
+    /// while `"agents"`/`"today"`/`"system"` identify `expandedDetail`'s
+    /// per-source item groups within that merged page rather than top-level
+    /// tabs. Absence of a key means "use the built-in default order, all
+    /// widgets visible."
     @Published var tabLayouts: [String: TabLayoutConfiguration] {
         didSet {
             if let data = try? JSONEncoder().encode(tabLayouts) {
@@ -44,27 +69,73 @@ final class AppSettings: ObservableObject {
         }
     }
 
+    /// Whether the nook bar shows connected AirPods' battery level. Off by
+    /// default: it reads private IOBluetooth API and needs Bluetooth
+    /// permission (see `AirPodsBatteryMonitor`). Read by the nook bar's
+    /// indicator and the Settings toggle.
+    @Published var airPodsStatusEnabled: Bool {
+        didSet { UserDefaults.standard.set(airPodsStatusEnabled, forKey: Keys.airPodsStatusEnabled) }
+    }
+    /// Whether the compact waveform is driven by real system audio instead
+    /// of its synthetic animation. Off by default: turning it on starts a
+    /// ScreenCaptureKit stream, which needs Screen Recording permission.
+    /// Read by `AgentNotchApp` on launch and by the Settings toggle.
+    @Published var visualizerEnabled: Bool {
+        didSet { UserDefaults.standard.set(visualizerEnabled, forKey: Keys.visualizerEnabled) }
+    }
+    /// Shortcuts the user has pinned to the Tray's action menu, in the
+    /// order they appear there. Read by `TrayCell`; edited from
+    /// Settings ▸ Nook.
+    @Published var registeredShortcuts: [ShortcutBinding] {
+        didSet {
+            if let data = try? JSONEncoder().encode(registeredShortcuts) {
+                UserDefaults.standard.set(data, forKey: Keys.registeredShortcuts)
+            }
+        }
+    }
+
     private enum Keys {
         static let soundEnabled = "agentnotch.soundEnabled"
+        static let hapticsEnabled = "agentnotch.hapticsEnabled"
+        static let mediaSwipeEnabled = "agentnotch.mediaSwipeEnabled"
+        static let invertMediaSwipe = "agentnotch.invertMediaSwipe"
+        static let hasSeenOnboarding = "agentnotch.hasSeenOnboarding"
+        static let autoOpenOnAttention = "agentnotch.autoOpenOnAttention"
         static let languageOverride = "agentnotch.languageOverride"
         static let uiScale = "agentnotch.uiScale"
         static let cornerRadiusScale = "agentnotch.cornerRadiusScale"
         static let animationSpeedScale = "agentnotch.animationSpeedScale"
         static let tabLayouts = "agentnotch.tabLayouts"
+        static let registeredShortcuts = "agentnotch.registeredShortcuts"
+        static let visualizerEnabled = "agentnotch.visualizerEnabled"
+        static let airPodsStatusEnabled = "agentnotch.airPodsStatusEnabled"
     }
 
     private init() {
         let defaults = UserDefaults.standard
         soundEnabled = defaults.object(forKey: Keys.soundEnabled) as? Bool ?? true
+        hapticsEnabled = defaults.object(forKey: Keys.hapticsEnabled) as? Bool ?? true
+        mediaSwipeEnabled = defaults.object(forKey: Keys.mediaSwipeEnabled) as? Bool ?? true
+        invertMediaSwipe = defaults.object(forKey: Keys.invertMediaSwipe) as? Bool ?? false
+        hasSeenOnboarding = defaults.object(forKey: Keys.hasSeenOnboarding) as? Bool ?? false
+        autoOpenOnAttention = defaults.object(forKey: Keys.autoOpenOnAttention) as? Bool ?? true
         languageOverride = defaults.string(forKey: Keys.languageOverride)
         uiScale = defaults.object(forKey: Keys.uiScale) as? Double ?? 1.0
         cornerRadiusScale = defaults.object(forKey: Keys.cornerRadiusScale) as? Double ?? 1.0
         animationSpeedScale = defaults.object(forKey: Keys.animationSpeedScale) as? Double ?? 1.0
+        visualizerEnabled = defaults.object(forKey: Keys.visualizerEnabled) as? Bool ?? false
+        airPodsStatusEnabled = defaults.object(forKey: Keys.airPodsStatusEnabled) as? Bool ?? false
         if let data = defaults.data(forKey: Keys.tabLayouts),
            let decoded = try? JSONDecoder().decode([String: TabLayoutConfiguration].self, from: data) {
             tabLayouts = decoded
         } else {
             tabLayouts = [:]
+        }
+        if let data = defaults.data(forKey: Keys.registeredShortcuts),
+           let decoded = try? JSONDecoder().decode([ShortcutBinding].self, from: data) {
+            registeredShortcuts = decoded
+        } else {
+            registeredShortcuts = []
         }
     }
 }
@@ -167,6 +238,89 @@ struct WidgetLayoutItem: Codable, Identifiable, Equatable {
         showsInExpanded = try container.decodeIfPresent(Bool.self, forKey: .showsInExpanded) ?? true
         fullscreenBehavior = try container.decodeIfPresent(WidgetFullscreenBehavior.self, forKey: .fullscreenBehavior) ?? .hoverOnly
         sizeScale = try container.decodeIfPresent(Double.self, forKey: .sizeScale) ?? 1.0
+    }
+}
+
+/// The widgets that can occupy the Dashboard page's row, in the order they
+/// ship in. Each case's `id` is what gets persisted in
+/// `AppSettings.tabLayouts[DashboardWidget.layoutKey]`, so renaming a case's
+/// raw value would orphan an existing user layout.
+enum DashboardWidget: String, CaseIterable, Identifiable {
+    case media, today, camera
+
+    /// Key under which the Dashboard's arrangement is stored. Distinct from
+    /// the `"today"`/`"system"` keys already in `tabLayouts`, which group
+    /// `expandedDetail`'s items rather than page widgets.
+    static let layoutKey = "dashboard"
+
+    var id: String { rawValue }
+
+    static var defaultOrder: [String] { allCases.map(\.id) }
+
+    /// What this widget contributes to the panel's total width. Every widget
+    /// needs a concrete number here even the flexible one, because this is
+    /// what sizes the *panel* — `preferredWidth` below is the separate
+    /// question of how the widget is drawn once the panel has a width.
+    var layoutWidth: CGFloat {
+        switch self {
+        case .media: return 235
+        case .today: return 236
+        case .camera: return 132
+        }
+    }
+
+    /// Media takes whatever the row has left over, so its rendered width
+    /// isn't fixed; Today's five-column date strip is laid out around a
+    /// known column size, and the mirror is deliberately small.
+    var absorbsLeftoverWidth: Bool { self == .media }
+
+    /// `nil` means "take whatever width is left" at render time.
+    var preferredWidth: CGFloat? {
+        absorbsLeftoverWidth ? nil : layoutWidth
+    }
+
+    /// Whether the widget is on for someone who has never opened Settings.
+    /// The camera mirror is opt-in: showing it by default would turn on the
+    /// webcam (and its indicator light) the first time the panel opened.
+    var isEnabledByDefault: Bool {
+        switch self {
+        case .media, .today: return true
+        case .camera: return false
+        }
+    }
+
+    var displayName: String {
+        switch self {
+        case .media: return String(localized: "widget.media", defaultValue: "Media")
+        case .today: return String(localized: "widget.today", defaultValue: "Calendar")
+        case .camera: return String(localized: "widget.camera", defaultValue: "Mirror")
+        }
+    }
+
+    var symbolName: String {
+        switch self {
+        case .media: return "music.note"
+        case .today: return "calendar"
+        case .camera: return "web.camera"
+        }
+    }
+
+    /// Resolves a stored arrangement into the widgets to actually draw.
+    /// Separate from the view so the ordering/visibility rules are testable
+    /// without standing up SwiftUI.
+    static func resolved(from configuration: TabLayoutConfiguration?) -> [DashboardWidget] {
+        guard let configuration else {
+            return allCases.filter(\.isEnabledByDefault)
+        }
+        return configuration.applying(to: defaultOrder)
+            .compactMap(DashboardWidget.init(rawValue:))
+            // `applying(to:)` appends ids the stored layout has never seen,
+            // so that a widget added in a later build isn't invisible to
+            // existing users. An opt-in widget must not be swept in that
+            // way — it stays off until it's explicitly in the layout.
+            .filter { widget in
+                configuration.widgets.contains { $0.id == widget.id } || widget.isEnabledByDefault
+            }
     }
 }
 

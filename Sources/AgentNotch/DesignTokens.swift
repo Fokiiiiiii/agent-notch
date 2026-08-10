@@ -16,7 +16,17 @@ enum DesignTokens {
 
     // Neutral text/surface colors
     static let muted = Color.white.opacity(0.48)
+    /// Fainter than `muted` — for a third tier of text (e.g. an album name
+    /// sitting below title/artist) that should recede further without
+    /// disappearing entirely.
+    static let mutedFaint = Color.white.opacity(0.34)
     static let line = Color.white.opacity(0.085)
+    /// Fill for the Tray page's AirDrop well. A saturated blue rather than a
+    /// neutral, because AirDrop is the one surface in the app that should
+    /// read as a distinct destination and not as another grey plate; it is
+    /// always drawn at partial opacity over the dark panel, which is what
+    /// turns it into the deep navy the well actually shows.
+    static let airDropWell = Color(red: 0x1A / 255, green: 0x47 / 255, blue: 0x9E / 255)
 
     /// "done" status dot color (`#AEB4BF` in the mock).
     static let doneGray = Color(red: 0xAE / 255, green: 0xB4 / 255, blue: 0xBF / 255)
@@ -43,6 +53,21 @@ enum DesignTokens {
     /// corner curvature so the virtual shell's edge continues it rather than
     /// visibly diverging from it. Approximate — tune after visual QA.
     static let notchHuggingRadius: CGFloat = 10
+
+    /// Radius of the concave corners where `.open`'s top edge meets the menu
+    /// bar. Unlike an ordinary (convex) rounded corner, this curves *away*
+    /// from the panel, so the widest point is the top edge itself and the
+    /// body tucks in beneath it — reading as the panel growing out of the
+    /// bar rather than being pasted below it. `.closed`/`.hover` keep square
+    /// top corners: they're the compact pill fused to the bar, which has no
+    /// visible seam to soften. Approximate — tune after visual QA.
+    static let notchFlareRadius: CGFloat = 11
+
+    /// `notchFlareRadius` scaled by `AppSettings.cornerRadiusScale`.
+    @MainActor
+    static func scaledNotchFlareRadius(_ settings: AppSettings? = nil) -> CGFloat {
+        notchFlareRadius * (settings ?? .shared).cornerRadiusScale
+    }
 
     /// Minimum width `compactAgentContent` (see `NotchView.swift`) needs to
     /// avoid clipping: 22pt icon + spacing + status text + horizontal padding

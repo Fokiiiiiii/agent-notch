@@ -6,9 +6,16 @@ private final class KeyableNotchPanel: NSPanel {
     override var canBecomeKey: Bool { true }
 }
 
+/// Owns every file drop onto the panel. The SwiftUI content is a subview, so
+/// a SwiftUI `.dropDestination` inside it would compete with this view for
+/// the same drag session; instead this stays the single entry point and
+/// reports *where* the drop landed, letting the SwiftUI layer route it (Tray
+/// vs. the AirDrop well) by hit-testing its own recorded frames.
 private final class FileDropContainerView: NSView {
-    var fileDropHandler: (([URL]) -> Void)?
-    var fileDragStateHandler: ((Bool) -> Void)?
+    /// Points are top-left-origin, matching SwiftUI's coordinate space —
+    /// see `flippedLocation(of:)`.
+    var fileDropHandler: (([URL], CGPoint) -> Void)?
+    var fileDragStateHandler: ((Bool, CGPoint) -> Void)?
 
     override init(frame frameRect: NSRect) {
         super.init(frame: frameRect)
@@ -23,24 +30,41 @@ private final class FileDropContainerView: NSView {
     override func draggingEntered(_ sender: NSDraggingInfo) -> NSDragOperation {
         let urls = fileURLs(from: sender)
         guard !urls.isEmpty else { return [] }
-        fileDragStateHandler?(true)
+        fileDragStateHandler?(true, flippedLocation(of: sender))
+        return .copy
+    }
+
+    /// Needed for the well's hover highlight: `draggingEntered` fires once at
+    /// the panel's edge, so without this the pointer's position would never
+    /// update while the drag moves between the Tray and the well.
+    override func draggingUpdated(_ sender: NSDraggingInfo) -> NSDragOperation {
+        guard !fileURLs(from: sender).isEmpty else { return [] }
+        fileDragStateHandler?(true, flippedLocation(of: sender))
         return .copy
     }
 
     override func draggingExited(_ sender: NSDraggingInfo?) {
-        fileDragStateHandler?(false)
+        fileDragStateHandler?(false, .zero)
     }
 
     override func draggingEnded(_ sender: NSDraggingInfo) {
-        fileDragStateHandler?(false)
+        fileDragStateHandler?(false, .zero)
     }
 
     override func performDragOperation(_ sender: NSDraggingInfo) -> Bool {
         let urls = fileURLs(from: sender)
-        fileDragStateHandler?(false)
+        let location = flippedLocation(of: sender)
+        fileDragStateHandler?(false, .zero)
         guard !urls.isEmpty else { return false }
-        fileDropHandler?(urls)
+        fileDropHandler?(urls, location)
         return true
+    }
+
+    /// AppKit hands out window coordinates with a bottom-left origin; the
+    /// SwiftUI frames this gets compared against are top-left.
+    private func flippedLocation(of sender: NSDraggingInfo) -> CGPoint {
+        let inView = convert(sender.draggingLocation, from: nil)
+        return CGPoint(x: inView.x, y: bounds.height - inView.y)
     }
 
     private func fileURLs(from draggingInfo: NSDraggingInfo) -> [URL] {
@@ -146,6 +170,20 @@ final class NotchUIState: ObservableObject {
     @Published var trayItemCount = 0
     @Published var reopenTrayOnNextOpen = false
     @Published var focusEndsAt: Date?
+    /// How many days the Dashboard's week strip is scrolled away from today
+    /// (0 = centered on today). Lives here rather than in
+    /// `DashboardTodaySection`'s own `@State` because the scroll that drives
+    /// it is an `NSEvent` monitor in `NotchWindowController`, not a SwiftUI
+    /// gesture. Clamped to ±`weekStripScrollLimitDays`.
+    @Published var weekStripDayOffset: Int = 0
+    /// Whether the pointer is over the week strip. Routes horizontal scroll
+    /// to day-stepping instead of page-switching while true — without it the
+    /// two gestures would be indistinguishable.
+    @Published var isHoveringWeekStrip = false
+    /// Shows the first-run gesture guide in place of the normal panel
+    /// contents. Takes priority over everything else the panel can show:
+    /// it appears before the user has any idea the notch is interactive.
+    @Published var isShowingOnboarding = false
     /// The fixed on-screen size of the `.closed`-mode notch shape. Shared
     /// with `NotchWindowController` so the panel's real frame can grow
     /// (invisibly, for file-drag hit-testing) without the visible shape
@@ -210,6 +248,7 @@ final class NotchWindowController: NSObject {
     /// know about it.
     private let attention: AttentionCenter
     private let nativeNotifier: NativeNotifier?
+    private let settings = AppSettings.shared
     private var screen: NSScreen
     /// Geometry-only mirror of `screen`, recomputed alongside it. See
     /// `ScreenSnapshot`.
@@ -232,7 +271,7 @@ final class NotchWindowController: NSObject {
     private var visualClosedSize: CGSize
     private let noticeSize = CGSize(width: 320, height: 50)
     private let openSize = CGSize(width: 540, height: 206)
-    private let trayOpenSize = CGSize(width: 560, height: 222)
+    private let trayOpenSize = CGSize(width: 560, height: 234)
     private let openDetailSize = CGSize(width: 540, height: 264)
     private let openOverlaySize = CGSize(width: 540, height: 246)
     private let openQuestionSize = CGSize(width: 540, height: 316)
@@ -272,7 +311,7 @@ final class NotchWindowController: NSObject {
     /// float outside the card). Derived empirically from `AgentsCell`'s
     /// layout (usage bar ~27pt + selected row ~70pt + footer 30pt + padding
     ////spacing) plus the chrome above/below it (nookbar, view tabs).
-    private let agentsBaseHeight: CGFloat = 246
+    private let agentsBaseHeight: CGFloat = 252
     /// Extra height contributed by each additional, unselected session row
     /// (row height + list spacing) once more than one session is tracked.
     private let agentsRowHeight: CGFloat = 36
@@ -286,55 +325,80 @@ final class NotchWindowController: NSObject {
     /// capped a bit below that so the panel still comfortably fits on
     /// screen rather than growing exactly to the theoretical max.
     private let agentsMaxHeight: CGFloat = 400
-    /// Height budget for the Dashboard Nook page (merged Media/Today/System,
-    /// three stacked cards — see `NotchView.DashboardCell`). Concrete values
-    /// are estimates derived from each card's known content height
-    /// (`MediaCell` ~84pt, `TodayCell` ~64pt with events / +
-    /// `dashboardPermissionPromptExtra` without calendar access, `SystemCell`
-    /// ~103pt) plus chrome (nookbar/view tabs) and `DashboardCell`'s 6pt
-    /// inter-card spacing × 2 — same "estimate, then eyeball-tune on a real
-    /// device" status as `agentsBaseHeight`.
-    static let dashboardBaseHeight: CGFloat = 340
-    /// Extra height per calendar event shown (`TodayCell` renders up to 2
-    /// via `model.events.prefix(2)` — see `NotchView.swift`), mirroring
-    /// `agentsRowHeight`'s role for the Agents page.
-    static let dashboardEventRowHeight: CGFloat = 28
-    /// Extra height when `TodayCell` is showing its "grant calendar access"
-    /// prompt (description text + Focus button + Allow button) instead of
-    /// the compact 0-events state.
-    static let dashboardPermissionPromptExtra: CGFloat = 50
-    /// Extra height for the two-row `DetailStrip` `expandedDetail` shows for
-    /// `.dashboard` (Today's 3 items + System's 2, split across two rows —
-    /// see `NotchView.expandedDetail`'s `.dashboard` case) — larger than the
-    /// other tabs' single-row detail height (`openDetailSize.height -
-    /// openSize.height` = 58pt) since it's two `DetailBox` rows instead of
-    /// one.
-    static let dashboardDetailExpandedHeight: CGFloat = 96
+    /// Height budget for the Dashboard Nook page — Media and Today sitting
+    /// side by side in one row, separated by a hairline rule and drawn
+    /// directly on the panel background (see `NotchView.DashboardCell`).
+    /// The row's height is set by its tallest widget rather than by how much
+    /// content each holds, so it varies with neither event count nor
+    /// calendar-permission state: `DashboardTodaySection` renders one agenda
+    /// line in every state. Concrete value is an estimate derived from the
+    /// tallest widget plus `DashboardCell`'s 12pt vertical padding plus
+    /// chrome. Today is the taller of the two widgets (~74pt: 37pt week
+    /// strip + 8pt spacing + ~29pt two-line agenda block), having overtaken
+    /// Media's 68pt artwork when its agenda line became an icon-over-text
+    /// stack.
+    ///
+    /// Summed rather than estimated, after a too-small value clipped the
+    /// view-tab row off the bottom of the panel: `openContent`'s 6pt top
+    /// padding + 30pt nookbar + its 7pt `VStack` spacing + 86pt
+    /// `DashboardCell` (74pt Today + 12pt vertical padding) +
+    /// `nookContentView`'s 4pt spacing + 28pt `viewTabs` + 10pt bottom
+    /// padding = 171pt, plus a 5pt cushion for font-metric drift.
+    static let dashboardBaseHeight: CGFloat = 182
+    /// Extra height for `expandedDetail`'s `.dashboard` case — two stacked
+    /// `DetailStrip`s (Today's 3 items + System's 2) plus the focus-timer
+    /// row that moved here out of `DashboardTodaySection`.
+    static let dashboardDetailExpandedHeight: CGFloat = 126
     /// Absolute ceiling on the Dashboard tab height — same safety-net role
     /// as `agentsMaxHeight`. Set above the worst case the formula above can
-    /// actually produce (`dashboardBaseHeight` + 2 events × `dashboardEventRowHeight`
-    /// + `dashboardDetailExpandedHeight` = 340 + 56 + 96 = 492) with a little
+    /// actually produce (`dashboardBaseHeight` +
+    /// `dashboardDetailExpandedHeight` = 176 + 126 = 302) with a little
     /// headroom — unlike Agents' cap (which exists specifically to hand off
     /// to `AgentsCell`'s own `ScrollView` once a real overflow risk exists),
     /// Dashboard has no scroll fallback, so a cap tighter than its own worst
     /// case would silently clip real content instead of protecting anything.
-    static let dashboardMaxHeight: CGFloat = 500
+    static let dashboardMaxHeight: CGFloat = 320
+    /// Height for the first-run gesture guide: four icon-over-caption
+    /// columns (~72pt, captions wrap to two lines at this width) + 16pt
+    /// spacing + a 30pt button + the same nookbar/padding chrome the other
+    /// pages sit in.
+    static let onboardingHeight: CGFloat = 196
 
     /// `static` (unlike `agentsOpenSize`, a `private` instance method) so
     /// it's a pure function `DashboardSizingTests` can call directly without
     /// standing up a whole `NotchWindowController` — same reasoning as
     /// `computeClosedSize`/`computeHoverContentHeight`.
-    static func dashboardOpenSize(width: CGFloat, eventCount: Int, needsCalendarPermission: Bool, detailExpanded: Bool) -> CGSize {
+    static func dashboardOpenSize(width: CGFloat, detailExpanded: Bool) -> CGSize {
         var height = dashboardBaseHeight
-        if needsCalendarPermission {
-            height += dashboardPermissionPromptExtra
-        } else {
-            height += CGFloat(min(max(eventCount, 0), 2)) * dashboardEventRowHeight
-        }
         if detailExpanded {
             height += dashboardDetailExpandedHeight
         }
         return CGSize(width: width, height: min(height, dashboardMaxHeight))
+    }
+
+    /// Hairline rule plus its 14pt padding either side — `DashboardCell`'s
+    /// `widgetDivider`, which sits between neighbouring widgets only.
+    static let dashboardDividerWidth: CGFloat = 29
+    /// `openContent`'s 16pt horizontal padding plus `DashboardCell`'s own
+    /// 4pt, on both sides.
+    static let dashboardHorizontalChrome: CGFloat = 40
+    /// Below this the nook bar (Nook/Tray, battery, gear, close) and the
+    /// page tabs underneath start crowding each other, so a page with very
+    /// little in it stops shrinking here rather than becoming unusable.
+    /// Measured, not guessed: at 420 the "Nook" tab label wrapped onto a
+    /// second line on a real panel.
+    static let dashboardMinWidth: CGFloat = 470
+
+    /// The Dashboard's width follows what's actually in it: every widget
+    /// contributes its own `layoutWidth`, plus a divider between each
+    /// neighbouring pair and the panel's fixed horizontal chrome. Clamped
+    /// to `maximum` so a wide arrangement can't run off the screen.
+    static func dashboardWidth(for widgets: [DashboardWidget], maximum: CGFloat) -> CGFloat {
+        guard !widgets.isEmpty else { return dashboardMinWidth }
+        let content = widgets.reduce(0) { $0 + $1.layoutWidth }
+        let dividers = CGFloat(widgets.count - 1) * dashboardDividerWidth
+        let total = content + dividers + dashboardHorizontalChrome
+        return min(max(total, dashboardMinWidth), max(maximum, dashboardMinWidth))
     }
     private var hoverTask: Task<Void, Never>?
     /// Second-stage dwell timer: while already visible in `.closed` and
@@ -491,6 +555,25 @@ final class NotchWindowController: NSObject {
         let defaultSize = CGSize(width: 320, height: 90)
         guard hasNotch else { return defaultSize }
         return CGSize(width: max(notchWidth + 120, defaultSize.width), height: defaultSize.height)
+    }
+
+    /// The real window frame `.hover` gets, which is *not* the size of what
+    /// it draws: the visible peek stays `contentSize` (pinned to the top by
+    /// `NotchView`'s `ZStack(alignment: .top)`), while the window itself is
+    /// never allowed to be smaller than the closed one.
+    ///
+    /// `closedSize` is deliberately padded out beyond the visible pill
+    /// (+40w/+70h, for file-drag hit-testing). Before this, hovering could
+    /// *shrink* the window — 104pt tall closed vs. 90pt hovering on a
+    /// notchless screen — so a pointer resting in the ~14pt band between
+    /// them fell outside the moment hover began: hover ended, the window
+    /// grew back under the pointer, hover began again, and the panel
+    /// flickered open/closed indefinitely.
+    static func hoverWindowSize(contentSize: CGSize, closedSize: CGSize) -> CGSize {
+        CGSize(
+            width: max(contentSize.width, closedSize.width),
+            height: max(contentSize.height, closedSize.height)
+        )
     }
 
     /// Small safety margin added on top of the measured `notchHeight`.
@@ -755,6 +838,17 @@ final class NotchWindowController: NSObject {
             }
             .store(in: &cancellables)
 
+        // The Dashboard's width is derived from which widgets are enabled
+        // (see `dashboardWidth(for:maximum:)`), so editing the arrangement in
+        // Settings has to resize the panel that's already open.
+        settings.$tabLayouts
+            .dropFirst()
+            .sink { [weak self] _ in
+                guard let self, self.uiState.mode == .open else { return }
+                self.scheduleResize()
+            }
+            .store(in: &cancellables)
+
         uiState.$activeTab
             .dropFirst()
             .sink { [weak self] _ in
@@ -816,34 +910,13 @@ final class NotchWindowController: NSObject {
             }
             .store(in: &cancellables)
 
-        // `dashboardOpenSize` grows/shrinks with the number of calendar
-        // events shown and whether calendar access is granted — resize live
-        // while Dashboard is the visible page, same guard shape as the
-        // Agents `store.$sessions` subscription above. `BackgroundActivityMonitor`/
-        // `SystemMonitor` state deliberately isn't subscribed here: neither
-        // contributes to `dashboardOpenSize`'s calculation (the "activity"
-        // vs. "3 cards" branches in `SystemCell` are close enough in height
-        // that a size parameter for it wasn't worth the complexity).
-        TodayModel.shared.$events
-            .dropFirst()
-            .sink { [weak self] _ in
-                guard let self,
-                      self.uiState.mode == .open,
-                      self.uiState.activeTab == .nook,
-                      self.uiState.activeView == .dashboard else { return }
-                self.scheduleResize()
-            }
-            .store(in: &cancellables)
-        TodayModel.shared.$authorizationStatus
-            .dropFirst()
-            .sink { [weak self] _ in
-                guard let self,
-                      self.uiState.mode == .open,
-                      self.uiState.activeTab == .nook,
-                      self.uiState.activeView == .dashboard else { return }
-                self.scheduleResize()
-            }
-            .store(in: &cancellables)
+        // No `TodayModel` subscription here: `dashboardOpenSize` depends on
+        // nothing `TodayModel` publishes. `DashboardTodaySection` renders
+        // the same single agenda line whether access is granted, denied, or
+        // there are no events at all, and its week strip is fixed at five
+        // columns — so neither `$authorizationStatus` nor `$events` can
+        // change the row's height. `SystemMonitor`'s battery state likewise
+        // never did.
 
         // `.hover`'s row count (one vs. two) also depends on whether media
         // is playing — resize live if playback starts/stops mid-peek.
@@ -1126,17 +1199,22 @@ final class NotchWindowController: NSObject {
     }
 
     func installFileDropHandlers(
-        targeted: @escaping (Bool) -> Void,
-        dropped: @escaping ([URL]) -> Void
+        targeted: @escaping (Bool, CGPoint) -> Void,
+        dropped: @escaping ([URL], CGPoint) -> Void
     ) {
-        fileDropView.fileDragStateHandler = { [weak self] active in
+        fileDropView.fileDragStateHandler = { [weak self] active, location in
             guard let self else { return }
-            targeted(active)
-            if active {
-                self.uiState.isVisible = true
-                self.uiState.activeTab = .tray
-                self.setMode(.open)
-            }
+            targeted(active, location)
+            guard active else { return }
+            // This now fires on every pointer move (`draggingUpdated`, added
+            // so the AirDrop well can highlight as the drag passes over it),
+            // not once per drag. `@Published` doesn't compare values, so
+            // assigning the same state again would republish and redraw the
+            // whole panel on every mouse move — hence the guards. `setMode`
+            // already early-returns for an unchanged mode.
+            if !self.uiState.isVisible { self.uiState.isVisible = true }
+            if self.uiState.activeTab != .tray { self.uiState.activeTab = .tray }
+            self.setMode(.open)
         }
         fileDropView.fileDropHandler = dropped
     }
@@ -1150,6 +1228,14 @@ final class NotchWindowController: NSObject {
     /// size for `mode` (and, for `.open`, to the taller overlay size when
     /// `uiState.hasOverlay` is true).
     func setMode(_ mode: IslandMode, forceResize: Bool = false) {
+        // The first-run guide holds the panel open until it's dismissed.
+        // Guarding here rather than at each call site because the paths that
+        // collapse the panel are many and unrelated (empty attention queues,
+        // hover exit, fullscreen changes, the app delegate's collapse timer)
+        // — and a guide that vanishes seconds after launch teaches nothing.
+        // `dismissOnboarding` clears the flag before closing, so it still
+        // gets through.
+        if uiState.isShowingOnboarding, mode != .open { return }
         guard uiState.mode != mode || forceResize else { return }
         if mode != .closed {
             uiState.isMediaPreviewVisible = false
@@ -1212,6 +1298,12 @@ final class NotchWindowController: NSObject {
         case .notice:
             targetSize = noticeSize
         case .open:
+            // Checked ahead of `overlay` because the guide replaces the whole
+            // panel body — see `NotchView.openContent`.
+            if uiState.isShowingOnboarding {
+                targetSize = CGSize(width: openSize.width, height: Self.onboardingHeight)
+                break
+            }
             switch uiState.overlay {
             case .question:
                 targetSize = questions.queue.first.map(questionOpenSize(for:)) ?? openQuestionSize
@@ -1232,9 +1324,12 @@ final class NotchWindowController: NSObject {
                     targetSize = agentsOpenSize(sessionCount: store.sessions.count, detailExpanded: uiState.isDetailExpanded)
                 } else {
                     targetSize = Self.dashboardOpenSize(
-                        width: openSize.width,
-                        eventCount: TodayModel.shared.events.count,
-                        needsCalendarPermission: !TodayModel.shared.canReadCalendar,
+                        width: Self.dashboardWidth(
+                            for: DashboardWidget.resolved(from: settings.tabLayouts[DashboardWidget.layoutKey]),
+                            // Leaves a margin either side rather than letting
+                            // the panel reach the screen edges.
+                            maximum: screen.frame.width - 120
+                        ),
                         detailExpanded: uiState.isDetailExpanded
                     )
                 }
@@ -1265,7 +1360,13 @@ final class NotchWindowController: NSObject {
             uiState.closedContentSize = scaled(previewActive ? mediaPreviewSize : visualClosedSize)
         }
 
-        let targetFrame = NotchWindowController.frame(for: scaled(targetSize), on: screenSnapshot)
+        // `.hover` draws `targetSize` but must not *occupy* less than the
+        // closed window does — see `hoverWindowSize`'s doc comment for the
+        // open/closed flicker that caused.
+        let windowSize = uiState.mode == .hover
+            ? NotchWindowController.hoverWindowSize(contentSize: targetSize, closedSize: closedSize)
+            : targetSize
+        let targetFrame = NotchWindowController.frame(for: scaled(windowSize), on: screenSnapshot)
 
         NSAnimationContext.runAnimationGroup { context in
             context.duration = (uiState.mode == .closed ? 0.25 : 0.40) * AppSettings.shared.animationSpeedScale
@@ -1282,7 +1383,7 @@ final class NotchWindowController: NSObject {
     /// measured — see its doc comment — since it can run to several lines
     /// and a fixed budget either clipped long prompts or wasted space on
     /// short ones).
-    private let questionBaseHeight: CGFloat = 98
+    private let questionBaseHeight: CGFloat = 110
     /// One `QuestionChoiceButton` row (32pt, or 42pt when any option has a
     /// `detail` line) plus the 5pt spacing before the next row.
     private let questionOptionRowHeight: CGFloat = 37
@@ -1354,7 +1455,7 @@ final class NotchWindowController: NSObject {
     /// `ApprovalOverlayView.summaryBoxMaxHeight`, since beyond that it
     /// becomes internally scrollable instead of growing the panel further —
     /// see `ApprovalOverlayView`'s doc comment on that constant.
-    private let approvalBaseHeight: CGFloat = 200
+    private let approvalBaseHeight: CGFloat = 212
     private let approvalMinHeight: CGFloat = 195
     /// Deliberately *not* `openOverlaySize.height` (246) — the summary box
     /// has no `lineLimit`, so a long command/diff excerpt must be allowed to
@@ -1372,7 +1473,7 @@ final class NotchWindowController: NSObject {
     /// a header row plus two 38pt `PlanChoiceButton`s — so unlike the
     /// regular approval card it needs no live measurement, just a smaller
     /// constant than the `openOverlaySize` it used to reuse.
-    private let planApprovalOpenSize = CGSize(width: 540, height: 190)
+    private let planApprovalOpenSize = CGSize(width: 540, height: 202)
 
     /// `PlanReviewView`'s content is entirely fixed/`lineLimit`-capped
     /// (title is 1 line, summary is capped at 2, the comment field and
@@ -1520,6 +1621,29 @@ final class NotchWindowController: NSObject {
         setMode(.open)
     }
 
+    /// Opens the notch onto the first-run gesture guide. Pinned open, since
+    /// the whole point is that the user hasn't yet learned the hover/click
+    /// behaviour that would otherwise dismiss it out from under them.
+    /// `force` is what the Settings button uses to replay it.
+    func showOnboarding(force: Bool = false) {
+        guard force || !AppSettings.shared.hasSeenOnboarding else { return }
+        dwellTask?.cancel()
+        hideTask?.cancel()
+        hoverTask?.cancel()
+        hoverExpandTask?.cancel()
+        uiState.isShowingOnboarding = true
+        uiState.isVisible = true
+        isClickPinned = true
+        setMode(.open)
+    }
+
+    func dismissOnboarding() {
+        AppSettings.shared.hasSeenOnboarding = true
+        uiState.isShowingOnboarding = false
+        isClickPinned = false
+        setMode(.closed)
+    }
+
     /// Important events reveal the compact notch but never take over the
     /// current page. The user opens the actionable surface with a click.
     func showAttention() {
@@ -1532,6 +1656,14 @@ final class NotchWindowController: NSObject {
         isClickPinned = false
         uiState.isVisible = true
         syncOverlay()
+        guard AppSettings.shared.autoOpenOnAttention else {
+            // Badge only. The request still sits in its queue waiting — this
+            // just declines to take over the screen to announce it, leaving
+            // the click to the user. `scheduleHideIfIdle` won't hide it
+            // either: it bails while any attention queue is non-empty.
+            setMode(.closed, forceResize: true)
+            return
+        }
         setMode(.open, forceResize: true)
     }
 
@@ -1766,6 +1898,11 @@ final class NotchWindowController: NSObject {
     private func refreshVisibilityForCurrentSpace() {
         let wasPersisting = shouldPersistVisible
         shouldPersistVisible = !Self.isNonFinderFullscreen(on: screen)
+        // The first-run guide outlives fullscreen suppression: it's the one
+        // surface the user hasn't been taught to bring back, so hiding it
+        // out from under them would leave the gestures unexplained with no
+        // way to ask again short of Settings.
+        if uiState.isShowingOnboarding { return }
         if shouldPersistVisible {
             if !wasPersisting, !permissions.queue.isEmpty || !questions.queue.isEmpty || !plans.queue.isEmpty {
                 // Surface anything that arrived while fullscreen suppressed the notch.
@@ -1802,6 +1939,7 @@ final class NotchWindowController: NSObject {
             try? await Task.sleep(nanoseconds: 600_000_000)
             guard !Task.isCancelled else { return }
             guard let self else { return }
+            guard !self.uiState.isShowingOnboarding else { return }
             guard !self.isHovering else { return }
             guard self.permissions.queue.isEmpty, self.questions.queue.isEmpty, self.plans.queue.isEmpty else { return }
             guard !self.uiState.trayHasItems else { return }
@@ -1819,18 +1957,87 @@ final class NotchWindowController: NSObject {
 
     private func handleScroll(_ event: NSEvent) {
         guard uiState.isVisible,
-              uiState.mode == .open,
               uiState.overlay == nil,
               event.window === panel || panel.frame.contains(NSEvent.mouseLocation) else { return }
 
         let deltaX = event.scrollingDeltaX
         let deltaY = event.scrollingDeltaY
+        let isHorizontal = abs(deltaX) > abs(deltaY) * 1.15 && abs(deltaX) > 0.25
+
+        // Compact/hover: sideways scrolling steps tracks. Vertical is left
+        // alone there — opening and closing stay a click or the dwell
+        // gesture, so a stray scroll over the pill can't resize the panel.
+        guard uiState.mode == .open else {
+            if isHorizontal { handleCompactMediaScroll(event, delta: deltaX) }
+            return
+        }
+
         if abs(deltaY) > abs(deltaX) * 1.15, abs(deltaY) > 0.25 {
             handleVerticalScroll(event, delta: deltaY)
-        } else if abs(deltaX) > abs(deltaY) * 1.15, abs(deltaX) > 0.25 {
+        } else if isHorizontal {
             handleHorizontalScroll(event, delta: deltaX)
         }
     }
+
+    /// Track-stepping via sideways scroll over the compact/hover pill. Uses
+    /// the same accumulate-then-commit shape as `handleHorizontalScroll`,
+    /// and can safely share its accumulator state: that one only ever runs
+    /// while `.open`, this one only while not.
+    private func handleCompactMediaScroll(_ event: NSEvent, delta deltaX: CGFloat) {
+        guard AppSettings.shared.mediaSwipeEnabled, MediaController.shared.hasMedia else { return }
+
+        if event.phase == .began {
+            horizontalScrollTotal = 0
+            didCommitCurrentScroll = false
+        }
+
+        horizontalScrollTotal += deltaX
+        let isDiscreteWheel = event.phase.isEmpty && event.momentumPhase.isEmpty
+        let now = event.timestamp
+        let canCommit = isDiscreteWheel
+            ? now - lastDiscreteScrollSwitch > 0.34
+            : !didCommitCurrentScroll
+
+        guard canCommit, abs(horizontalScrollTotal) >= 18 else {
+            if event.phase == .ended || event.phase == .cancelled {
+                horizontalScrollTotal = 0
+                didCommitCurrentScroll = false
+            }
+            return
+        }
+
+        didCommitCurrentScroll = true
+        lastDiscreteScrollSwitch = now
+        if NotchWindowController.swipeAdvancesTrack(
+            scrollTotal: horizontalScrollTotal,
+            inverted: AppSettings.shared.invertMediaSwipe
+        ) {
+            MediaController.shared.next()
+        } else {
+            MediaController.shared.previous()
+        }
+        SoundPlayer.shared.play(.navigation)
+        HapticPlayer.shared.perform(.confirm)
+
+        if isDiscreteWheel {
+            horizontalScrollTotal = 0
+            didCommitCurrentScroll = false
+        }
+    }
+
+    /// Whether a swipe should advance to the next track rather than go back.
+    /// Swiping left (negative scroll total) advances by default — the
+    /// content flicks away in the direction of travel — and `inverted`
+    /// swaps that, matching the "invert media gesture" setting.
+    static func swipeAdvancesTrack(scrollTotal: CGFloat, inverted: Bool) -> Bool {
+        let advances = scrollTotal < 0
+        return inverted ? !advances : advances
+    }
+
+    /// How far either side of today the week strip can be scrolled. Well
+    /// inside `TodayModel.eventFetchRadiusDays`, so a scrolled-to day always
+    /// has its events already fetched.
+    static let weekStripScrollLimitDays = 21
 
     private func handleHorizontalScroll(_ event: NSEvent, delta deltaX: CGFloat) {
 
@@ -1856,7 +2063,11 @@ final class NotchWindowController: NSObject {
 
         didCommitCurrentScroll = true
         lastDiscreteScrollSwitch = now
-        navigatePage(forward: horizontalScrollTotal < 0)
+        if uiState.isHoveringWeekStrip {
+            stepWeekStrip(forward: horizontalScrollTotal < 0)
+        } else {
+            navigatePage(forward: horizontalScrollTotal < 0)
+        }
 
         if isDiscreteWheel {
             horizontalScrollTotal = 0
@@ -1903,6 +2114,23 @@ final class NotchWindowController: NSObject {
             verticalScrollTotal = 0
             didCommitCurrentVerticalScroll = false
         }
+    }
+
+    /// Steps the week strip one day forward/back, clamped so it can't be
+    /// scrolled past the range `TodayModel` has actually fetched events for.
+    private func stepWeekStrip(forward: Bool) {
+        let limit = Self.weekStripScrollLimitDays
+        let next = uiState.weekStripDayOffset + (forward ? 1 : -1)
+        let clamped = min(max(next, -limit), limit)
+        guard clamped != uiState.weekStripDayOffset else { return }
+
+        let animation: Animation = NSWorkspace.shared.accessibilityDisplayShouldReduceMotion
+            ? .easeOut(duration: 0.1)
+            : DesignTokens.scaledContentTransition()
+        withAnimation(animation) {
+            uiState.weekStripDayOffset = clamped
+        }
+        SoundPlayer.shared.play(.navigation)
     }
 
     private func navigatePage(forward: Bool) {
