@@ -248,6 +248,7 @@ final class NotchWindowController: NSObject {
     /// know about it.
     private let attention: AttentionCenter
     private let nativeNotifier: NativeNotifier?
+    private let settings = AppSettings.shared
     private var screen: NSScreen
     /// Geometry-only mirror of `screen`, recomputed alongside it. See
     /// `ScreenSnapshot`.
@@ -373,6 +374,31 @@ final class NotchWindowController: NSObject {
             height += dashboardDetailExpandedHeight
         }
         return CGSize(width: width, height: min(height, dashboardMaxHeight))
+    }
+
+    /// Hairline rule plus its 14pt padding either side — `DashboardCell`'s
+    /// `widgetDivider`, which sits between neighbouring widgets only.
+    static let dashboardDividerWidth: CGFloat = 29
+    /// `openContent`'s 16pt horizontal padding plus `DashboardCell`'s own
+    /// 4pt, on both sides.
+    static let dashboardHorizontalChrome: CGFloat = 40
+    /// Below this the nook bar (Nook/Tray, battery, gear, close) and the
+    /// page tabs underneath start crowding each other, so a page with very
+    /// little in it stops shrinking here rather than becoming unusable.
+    /// Measured, not guessed: at 420 the "Nook" tab label wrapped onto a
+    /// second line on a real panel.
+    static let dashboardMinWidth: CGFloat = 470
+
+    /// The Dashboard's width follows what's actually in it: every widget
+    /// contributes its own `layoutWidth`, plus a divider between each
+    /// neighbouring pair and the panel's fixed horizontal chrome. Clamped
+    /// to `maximum` so a wide arrangement can't run off the screen.
+    static func dashboardWidth(for widgets: [DashboardWidget], maximum: CGFloat) -> CGFloat {
+        guard !widgets.isEmpty else { return dashboardMinWidth }
+        let content = widgets.reduce(0) { $0 + $1.layoutWidth }
+        let dividers = CGFloat(widgets.count - 1) * dashboardDividerWidth
+        let total = content + dividers + dashboardHorizontalChrome
+        return min(max(total, dashboardMinWidth), max(maximum, dashboardMinWidth))
     }
     private var hoverTask: Task<Void, Never>?
     /// Second-stage dwell timer: while already visible in `.closed` and
@@ -808,6 +834,17 @@ final class NotchWindowController: NSObject {
             .dropFirst()
             .sink { [weak self] _ in
                 guard let self, self.uiState.mode == .closed else { return }
+                self.scheduleResize()
+            }
+            .store(in: &cancellables)
+
+        // The Dashboard's width is derived from which widgets are enabled
+        // (see `dashboardWidth(for:maximum:)`), so editing the arrangement in
+        // Settings has to resize the panel that's already open.
+        settings.$tabLayouts
+            .dropFirst()
+            .sink { [weak self] _ in
+                guard let self, self.uiState.mode == .open else { return }
                 self.scheduleResize()
             }
             .store(in: &cancellables)
@@ -1287,7 +1324,12 @@ final class NotchWindowController: NSObject {
                     targetSize = agentsOpenSize(sessionCount: store.sessions.count, detailExpanded: uiState.isDetailExpanded)
                 } else {
                     targetSize = Self.dashboardOpenSize(
-                        width: openSize.width,
+                        width: Self.dashboardWidth(
+                            for: DashboardWidget.resolved(from: settings.tabLayouts[DashboardWidget.layoutKey]),
+                            // Leaves a margin either side rather than letting
+                            // the panel reach the screen edges.
+                            maximum: screen.frame.width - 120
+                        ),
                         detailExpanded: uiState.isDetailExpanded
                     )
                 }

@@ -563,7 +563,13 @@ struct NotchView: View {
     private func tabButton(title: String, icon: String, count: Int, isActive: Bool, action: @escaping () -> Void) -> some View {
         Button(action: action) {
             HStack(spacing: 5) {
+                // The panel's width is now content-driven and can get narrow
+                // (see `dashboardWidth(for:maximum:)`); without this the tab
+                // label wraps to two lines rather than the bar simply being
+                // tight.
                 Label(title, systemImage: icon)
+                    .lineLimit(1)
+                    .fixedSize()
                 if count > 0 {
                     Text("\(count)")
                         .font(.system(size: 9, weight: .bold, design: .rounded))

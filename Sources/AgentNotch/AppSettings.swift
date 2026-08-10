@@ -257,15 +257,26 @@ enum DashboardWidget: String, CaseIterable, Identifiable {
 
     static var defaultOrder: [String] { allCases.map(\.id) }
 
-    /// `nil` means "take whatever width is left". Today is a fixed width
-    /// because its five-column date strip is laid out around a known column
-    /// size; Media absorbs the remainder.
-    var preferredWidth: CGFloat? {
+    /// What this widget contributes to the panel's total width. Every widget
+    /// needs a concrete number here even the flexible one, because this is
+    /// what sizes the *panel* — `preferredWidth` below is the separate
+    /// question of how the widget is drawn once the panel has a width.
+    var layoutWidth: CGFloat {
         switch self {
-        case .media: return nil
+        case .media: return 235
         case .today: return 236
         case .camera: return 132
         }
+    }
+
+    /// Media takes whatever the row has left over, so its rendered width
+    /// isn't fixed; Today's five-column date strip is laid out around a
+    /// known column size, and the mirror is deliberately small.
+    var absorbsLeftoverWidth: Bool { self == .media }
+
+    /// `nil` means "take whatever width is left" at render time.
+    var preferredWidth: CGFloat? {
+        absorbsLeftoverWidth ? nil : layoutWidth
     }
 
     /// Whether the widget is on for someone who has never opened Settings.
