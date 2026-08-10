@@ -129,8 +129,8 @@ extension AudioVisualizer: SCStreamOutput {
     ) {
         guard type == .audio, let samples = Self.extractSamples(from: sampleBuffer) else { return }
         let level = Self.rms(samples: samples)
-        Task { @MainActor in
-            AudioVisualizer.shared.apply(level)
+        Task { @MainActor [weak self] in
+            self?.apply(level)
         }
     }
 

@@ -65,6 +65,9 @@ struct NotchView: View {
         }
         .onChange(of: uiState.mode) { _, mode in
             if mode != .closed { hideCompactMediaPreview() }
+            // Belt and braces on top of the mirror widget's own
+            // `onDisappear` — see `stopAllViewers()`.
+            if mode != .open { CameraPreviewController.shared.stopAllViewers() }
         }
         .onAppear {
             controller.installFileDropHandlers(

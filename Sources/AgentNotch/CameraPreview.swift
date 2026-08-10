@@ -39,6 +39,17 @@ final class CameraPreviewController: ObservableObject {
         stop()
     }
 
+    /// Hard stop, regardless of the viewer count. The count is driven by
+    /// SwiftUI's appear/disappear pairing, which isn't guaranteed to be
+    /// symmetric across every panel state change — and a camera still
+    /// running after the panel closed is the one failure here that actually
+    /// matters. A later `removeViewer()` from a disappear that arrives after
+    /// this is harmless: the count is already clamped at zero.
+    func stopAllViewers() {
+        viewerCount = 0
+        stop()
+    }
+
     func requestAccess() {
         AVCaptureDevice.requestAccess(for: .video) { [weak self] granted in
             Task { @MainActor [weak self] in

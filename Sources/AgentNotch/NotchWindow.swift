@@ -1168,11 +1168,16 @@ final class NotchWindowController: NSObject {
         fileDropView.fileDragStateHandler = { [weak self] active, location in
             guard let self else { return }
             targeted(active, location)
-            if active {
-                self.uiState.isVisible = true
-                self.uiState.activeTab = .tray
-                self.setMode(.open)
-            }
+            guard active else { return }
+            // This now fires on every pointer move (`draggingUpdated`, added
+            // so the AirDrop well can highlight as the drag passes over it),
+            // not once per drag. `@Published` doesn't compare values, so
+            // assigning the same state again would republish and redraw the
+            // whole panel on every mouse move — hence the guards. `setMode`
+            // already early-returns for an unchanged mode.
+            if !self.uiState.isVisible { self.uiState.isVisible = true }
+            if self.uiState.activeTab != .tray { self.uiState.activeTab = .tray }
+            self.setMode(.open)
         }
         fileDropView.fileDropHandler = dropped
     }
