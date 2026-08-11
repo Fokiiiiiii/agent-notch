@@ -425,13 +425,21 @@ final class NotchWindowController: NSObject {
     private var visibilityRefreshTask: Task<Void, Never>?
     private var shouldPersistVisible = true
     private var isClickPinned = false
-    private var workspaceObserver: NSObjectProtocol?
-    private var spaceObserver: NSObjectProtocol?
-    private var screenParametersObserver: NSObjectProtocol?
+    // Registration tokens, not state: each is assigned once during setup and
+    // read once in `deinit` to unregister. `deinit` is `nonisolated` even on
+    // a `@MainActor` class, so touching main-actor storage from it is an
+    // error under the Swift 6 language mode — `nonisolated(unsafe)` is the
+    // accurate claim here, since write-once/read-once from a single thread
+    // leaves nothing to race.
+    nonisolated(unsafe) private var workspaceObserver: NSObjectProtocol?
+    nonisolated(unsafe) private var spaceObserver: NSObjectProtocol?
+    nonisolated(unsafe) private var screenParametersObserver: NSObjectProtocol?
     private var screenGeometryRefreshTask: Task<Void, Never>?
-    private var scrollMonitor: Any?
-    private var outsideClickLocalMonitor: Any?
-    private var outsideClickGlobalMonitor: Any?
+    // Same as the observers above — `NSEvent` monitor tokens, unregistered
+    // from `deinit`.
+    nonisolated(unsafe) private var scrollMonitor: Any?
+    nonisolated(unsafe) private var outsideClickLocalMonitor: Any?
+    nonisolated(unsafe) private var outsideClickGlobalMonitor: Any?
     private var horizontalScrollTotal: CGFloat = 0
     private var didCommitCurrentScroll = false
     private var lastDiscreteScrollSwitch: TimeInterval = 0

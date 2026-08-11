@@ -64,7 +64,10 @@ final class AgentUsageStore: ObservableObject {
     @Published private(set) var snapshots: [AgentKind: AgentUsageSnapshot] = [:]
     @Published private(set) var isRefreshing = false
 
-    private var refreshTimer: Timer?
+    // Assigned once at startup and invalidated once in `deinit`, which is
+    // `nonisolated` even here — see the same treatment of the observer
+    // tokens in `NotchWindow.swift`.
+    nonisolated(unsafe) private var refreshTimer: Timer?
 
     private init() {
         refresh()
