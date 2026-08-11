@@ -83,9 +83,13 @@ final class AgentUsageStore: ObservableObject {
     func refresh() {
         guard !isRefreshing else { return }
         isRefreshing = true
-        DispatchQueue.global(qos: .utility).async { [weak self] in
+        // Two hops, so `self` has to be re-captured weakly for the inner one
+        // too: capturing the outer closure's `self` binding would carry a
+        // mutable variable across concurrency domains (an error under the
+        // Swift 6 language mode).
+        DispatchQueue.global(qos: .utility).async {
             let result = Self.fetchFromCodexBar()
-            DispatchQueue.main.async {
+            DispatchQueue.main.async { [weak self] in
                 guard let self else { return }
                 self.snapshots = result
                 self.isRefreshing = false

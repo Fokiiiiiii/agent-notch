@@ -28,12 +28,12 @@ final class AudioVisualizer: NSObject, ObservableObject {
     /// The value that means "no live signal". `CompactMediaWaveform` treats
     /// it as "animate synthetically", so it must not be 0 (silence) — 0 is a
     /// real reading that should flatten the bars.
-    static let idleAmplitude: Double = -1
+    nonisolated static let idleAmplitude: Double = -1
 
     /// How much of the previous reading survives into the next one. Audio
     /// buffers arrive far faster than the 0.16s the waveform redraws at, so
     /// without smoothing the bars would jitter at a rate nobody can read.
-    static let smoothingFactor: Double = 0.72
+    nonisolated static let smoothingFactor: Double = 0.72
 
     private var stream: SCStream?
     private let sampleQueue = DispatchQueue(label: "com.chaos.agent-notch.audio-visualizer")

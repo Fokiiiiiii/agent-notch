@@ -92,10 +92,10 @@ final class SocketServerTests: XCTestCase {
         let path = makeTempSocketPath()
         defer { Darwin.unlink(path) }
         let receivedEvent = expectation(description: "received AgentNotchPing event")
-        var capturedConnection: SocketConnection?
+        let capturedConnection = LockedBox<SocketConnection?>(nil)
 
         let server = SocketServer(socketPath: path, onEvent: { event in
-            capturedConnection = event.connection
+            capturedConnection.value = event.connection
             receivedEvent.fulfill()
         })
         defer { server.stop() } // torn down before `path` is unlinked (LIFO defer order)
@@ -107,7 +107,7 @@ final class SocketServerTests: XCTestCase {
 
         await fulfillment(of: [receivedEvent], timeout: 2.0)
 
-        let connection = try XCTUnwrap(capturedConnection, "AgentNotchPing must carry a connection so App.swift can reply")
+        let connection = try XCTUnwrap(capturedConnection.value, "AgentNotchPing must carry a connection so App.swift can reply")
         XCTAssertGreaterThan(server.debugConnectionCount(), 0, "connection should still be tracked while a response is pending")
 
         connection.respond(json: ["ok": true])
@@ -228,15 +228,49 @@ final class SocketServerTests: XCTestCase {
     /// exceeds it regardless of filesystem state.
     func testStartupFailureCallbackFiresOnceForOversizedSocketPath() {
         let oversizedPath = "/tmp/" + String(repeating: "a", count: 200) + ".sock"
-        var failureCount = 0
+        // The callback is `@Sendable` now, so a plain captured `var` can't be
+        // mutated from it. A locked counter is the same assertion, expressed
+        // in a way the concurrency checker can verify.
+        let failures = LockedCounter()
 
         let server = SocketServer(
             socketPath: oversizedPath,
             onEvent: { _ in },
-            onStartupFailure: { failureCount += 1 }
+            onStartupFailure: { failures.increment() }
         )
         server.start()
 
-        XCTAssertEqual(failureCount, 1, "onStartupFailure must fire exactly once when start() can't bind an oversized path")
+        XCTAssertEqual(failures.value, 1, "onStartupFailure must fire exactly once when start() can't bind an oversized path")
+    }
+}
+
+/// Minimal thread-safe counter for assertions made from `@Sendable`
+/// callbacks that fire on the socket's own queues.
+private final class LockedBox<Value>: @unchecked Sendable {
+    private let lock = NSLock()
+    private var stored: Value
+
+    init(_ value: Value) { stored = value }
+
+    var value: Value {
+        get { lock.lock(); defer { lock.unlock() }; return stored }
+        set { lock.lock(); stored = newValue; lock.unlock() }
+    }
+}
+
+private final class LockedCounter: @unchecked Sendable {
+    private let lock = NSLock()
+    private var count = 0
+
+    func increment() {
+        lock.lock()
+        count += 1
+        lock.unlock()
+    }
+
+    var value: Int {
+        lock.lock()
+        defer { lock.unlock() }
+        return count
     }
 }

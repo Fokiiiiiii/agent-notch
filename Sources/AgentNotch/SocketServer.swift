@@ -2,7 +2,12 @@ import Foundation
 import Darwin
 
 /// A single parsed hook event received from the bridge CLI.
-struct HookEvent {
+/// `@unchecked Sendable`: every field is a `let`, and `toolInput` holds only
+/// the value types `JSONSerialization` produces (strings, numbers, arrays,
+/// dictionaries) which are never mutated after parsing. The event is built
+/// on a read queue and consumed on the main actor, so it does cross domains
+/// — `[String: Any]` just can't express that it's safe.
+struct HookEvent: @unchecked Sendable {
     let eventName: String
     let sessionId: String
     let cwd: String
@@ -14,7 +19,10 @@ struct HookEvent {
 
 /// Wraps an accepted client file descriptor. Blocking approval and question
 /// hooks keep it open until the user responds in the notch.
-final class SocketConnection {
+/// `@unchecked Sendable`: all mutable state (`isClosed`, `onClose`) is
+/// guarded by `lock`, and the fd is immutable. Connections are created on
+/// the accept queue and responded to from the main actor.
+final class SocketConnection: @unchecked Sendable {
     private let fd: Int32
     private let lock = NSLock()
     private var isClosed = false
@@ -151,9 +159,15 @@ private final class IncomingConnection: @unchecked Sendable {
 /// (Network.framework's AF_UNIX support is unreliable for this use case).
 @MainActor
 final class SocketServer {
-    private let onEvent: (HookEvent) -> Void
-    private let onCancel: (SocketConnection) -> Void
-    private let onStartupFailure: (() -> Void)?
+    // `@MainActor @Sendable`: they're stored and passed around on the socket
+    // queues (hence `@Sendable`) but only ever *invoked* after a hop to the
+    // main actor, which is also where their bodies touch app state. Saying
+    // both lets the call sites stay synchronous instead of each opening its
+    // own nested `Task` — an extra hop that delayed the AgentNotchPing reply
+    // enough for the client to give up waiting.
+    private let onEvent: @MainActor @Sendable (HookEvent) -> Void
+    private let onCancel: @MainActor @Sendable (SocketConnection) -> Void
+    private let onStartupFailure: (@MainActor @Sendable () -> Void)?
 
     private let queue = DispatchQueue(label: "com.chaos.agent-notch.socket")
     private let socketPath: String
@@ -168,7 +182,12 @@ final class SocketServer {
     /// temporary path so they never touch the real socket a live app (or
     /// other concurrent Claude Code/Codex sessions on the same Mac) might
     /// be using.
-    init(socketPath: String? = nil, onEvent: @escaping (HookEvent) -> Void, onCancel: @escaping (SocketConnection) -> Void = { _ in }, onStartupFailure: (() -> Void)? = nil) {
+    init(
+        socketPath: String? = nil,
+        onEvent: @escaping @MainActor @Sendable (HookEvent) -> Void,
+        onCancel: @escaping @MainActor @Sendable (SocketConnection) -> Void = { _ in },
+        onStartupFailure: (@MainActor @Sendable () -> Void)? = nil
+    ) {
         self.onEvent = onEvent
         self.onCancel = onCancel
         self.onStartupFailure = onStartupFailure
@@ -226,8 +245,11 @@ final class SocketServer {
                 incoming.source?.cancel()
                 incoming.source = nil
                 incoming.connection.closeWithoutResponse()
+                // Hand the task the connection alone: `incoming` is a
+                // non-Sendable box owned by this queue and must not escape.
+                let connection = incoming.connection
                 Task { @MainActor in
-                    deliverCancel(incoming.connection)
+                    deliverCancel(connection)
                 }
             }
             connections.removeAll()
@@ -306,8 +328,8 @@ final class SocketServer {
     /// Runs on `queue`. Accepts every pending connection and wires up a
     /// per-connection read source.
     nonisolated private func acceptLoop(
-        deliverEvent: @escaping (HookEvent) -> Void,
-        deliverCancel: @escaping (SocketConnection) -> Void,
+        deliverEvent: @escaping @MainActor @Sendable (HookEvent) -> Void,
+        deliverCancel: @escaping @MainActor @Sendable (SocketConnection) -> Void,
         workQueue: DispatchQueue
     ) {
         while true {
@@ -388,8 +410,8 @@ final class SocketServer {
     /// Runs on `queue`.
     nonisolated private func handleReadable(
         _ incoming: IncomingConnection,
-        deliverEvent: @escaping (HookEvent) -> Void,
-        deliverCancel: @escaping (SocketConnection) -> Void
+        deliverEvent: @escaping @MainActor @Sendable (HookEvent) -> Void,
+        deliverCancel: @escaping @MainActor @Sendable (SocketConnection) -> Void
     ) {
         var chunk = [UInt8](repeating: 0, count: 4096)
         let n = chunk.withUnsafeMutableBytes { raw -> Int in
@@ -411,8 +433,9 @@ final class SocketServer {
                 // only the Center-side removal happened here, leaking the
                 // fd forever on every early disconnect of this kind.
                 incoming.connection.closeWithoutResponse()
+                let connection = incoming.connection
                 Task { @MainActor in
-                    deliverCancel(incoming.connection)
+                    deliverCancel(connection)
                 }
             } else {
                 incoming.connection.closeWithoutResponse()

@@ -50,10 +50,16 @@ enum MediaKeyDecoder {
 /// Wraps `NSEvent.addGlobalMonitorForEvents(matching: .systemDefined)` to
 /// observe hardware media-key/remote skip presses. Passive observer only —
 /// `onSkip` must never call back into playback control (see call site).
+// Main-actor isolated: its only owner (`MediaController`) is, `onSkip`
+// updates published UI state, and the global event monitor's callback hops
+// here anyway. Saying so lets `self` be referenced from that hop without an
+// escape hatch.
+@MainActor
 final class MediaKeyMonitor {
     var onSkip: ((SkipDirection) -> Void)?
 
-    private var monitor: Any?
+    // Read from the nonisolated `deinit`; see there for why that's safe.
+    nonisolated(unsafe) private var monitor: Any?
 
     /// Whether Accessibility trust has been granted, checked *without*
     /// prompting.
@@ -67,7 +73,11 @@ final class MediaKeyMonitor {
     /// missing, so having `start()` do it meant a system dialog on every
     /// single app start for anyone who hadn't granted it.
     static func requestAccessibilityTrust() {
-        _ = AXIsProcessTrustedWithOptions([kAXTrustedCheckOptionPrompt.takeUnretainedValue(): true] as CFDictionary)
+        // The key is spelled out rather than read from
+        // `kAXTrustedCheckOptionPrompt`: that symbol is a global `var` in the
+        // C headers, which isn't concurrency-safe to reference. Its value is
+        // a documented, stable constant.
+        _ = AXIsProcessTrustedWithOptions(["AXTrustedCheckOptionPrompt": true] as CFDictionary)
     }
 
     func start() {
@@ -80,8 +90,11 @@ final class MediaKeyMonitor {
             guard let self,
                   let direction = MediaKeyDecoder.decodeSkipDirection(subtypeRawValue: event.subtype.rawValue, data1: event.data1)
             else { return }
-            let callback = self.onSkip
-            Task { @MainActor in callback?(direction) }
+            // Hop with the direction only. `onSkip` is a non-`Sendable`
+            // closure, so reading it here and carrying it into the task
+            // would send it across a concurrency boundary; reading it on the
+            // main actor instead keeps it on one side.
+            Task { @MainActor in self.onSkip?(direction) }
         }
     }
 
@@ -93,6 +106,12 @@ final class MediaKeyMonitor {
     }
 
     deinit {
-        stop()
+        // `deinit` is nonisolated even on a main-actor type, so it can't call
+        // `stop()`. The monitor token is only written on `start()`/`stop()`
+        // and read once here, so unregistering it directly is equivalent —
+        // same treatment as the observer tokens in `NotchWindow.swift`.
+        if let monitor {
+            NSEvent.removeMonitor(monitor)
+        }
     }
 }

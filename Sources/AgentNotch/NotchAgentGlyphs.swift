@@ -298,6 +298,11 @@ struct LocalIconView: View {
     }
 }
 
+// Builds `LocalIconView`, whose initializer is main-actor isolated (it
+// reads an image cache). SwiftUI only ever calls this from `body`, which is
+// already on the main actor — saying so removes the isolation warning
+// without changing where it runs.
+@MainActor
 @ViewBuilder
 func glyphContent(_ agent: AgentKind?, size: CGFloat) -> some View {
     if let agent = agent {

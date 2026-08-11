@@ -80,6 +80,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         self.antigravityWatcher = antigravityWatcher
 
         let server = SocketServer(
+            // `SocketServer` hops to the main actor before invoking these,
+            // so they run synchronously from here — the AgentNotchPing reply
+            // in particular has a client blocked waiting on it.
             onEvent: { [weak self] event in
                 self?.handle(event: event)
             },

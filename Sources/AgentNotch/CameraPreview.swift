@@ -17,6 +17,7 @@ final class CameraPreviewController: ObservableObject {
     /// a configuration failure. Rendered in place of the picture.
     @Published private(set) var errorMessage: String?
 
+    /// Handed to background work through `UncheckedSendableSession`.
     let session = AVCaptureSession()
     private var isConfigured = false
     private var viewerCount = 0
@@ -81,21 +82,26 @@ final class CameraPreviewController: ObservableObject {
         guard !session.isRunning else { return }
         // `startRunning()` blocks until the device is ready, which is long
         // enough to drop frames on the main thread.
-        let session = session
-        Task.detached(priority: .userInitiated) {
-            session.startRunning()
-            await MainActor.run { [weak self] in
-                self?.isRunning = session.isRunning
-            }
+        //
+        // The detached task captures only the session and returns a `Bool`:
+        // keeping `self` out of it means nothing but a value crosses back,
+        // so there's no reference shared across concurrency domains.
+        let box = UncheckedSendableSession(session: session)
+        Task { [weak self] in
+            let isRunning = await Task.detached(priority: .userInitiated) {
+                box.session.startRunning()
+                return box.session.isRunning
+            }.value
+            self?.isRunning = isRunning
         }
     }
 
     private func stop() {
         guard session.isRunning else { return }
-        let session = session
+        let box = UncheckedSendableSession(session: session)
         isRunning = false
         Task.detached(priority: .utility) {
-            session.stopRunning()
+            box.session.stopRunning()
         }
     }
 
@@ -128,6 +134,17 @@ final class CameraPreviewController: ObservableObject {
         errorMessage = nil
         return true
     }
+}
+
+/// Carries an `AVCaptureSession` across a concurrency boundary.
+///
+/// `startRunning()`/`stopRunning()` are documented as callable from any
+/// thread, and they're the only thing this app does with the session off the
+/// main actor — but `AVCaptureSession` isn't marked `Sendable`, so the
+/// compiler can't know that. Stating it once here is better than repeating
+/// an escape hatch at each call site.
+private struct UncheckedSendableSession: @unchecked Sendable {
+    let session: AVCaptureSession
 }
 
 /// Hosts the capture session's preview layer. A plain `NSView` with a

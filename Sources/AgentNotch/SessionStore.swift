@@ -19,7 +19,10 @@ enum ProcessInspector {
         var buf = [Int8](repeating: 0, count: 4 * 1024)
         let ret = proc_pidpath(pid, &buf, UInt32(buf.count))
         guard ret > 0 else { return nil }
-        return String(cString: buf)
+        // `String(cString:)` is deprecated under the Swift 6 toolchain.
+        // `proc_pidpath` returns the length it wrote, so slice to exactly
+        // that rather than scanning for a terminator.
+        return String(decoding: buf[..<Int(ret)].map { UInt8(bitPattern: $0) }, as: UTF8.self)
     }
 
     static func startTime(for pid: Int32) -> Date? {
