@@ -1008,12 +1008,20 @@ struct NotchView: View {
     private func addTrayItems(_ urls: [URL]) {
         trayUndoTask?.cancel()
         pendingTrayUndo.removeAll()
-        for url in urls where !trayItems.contains(where: { $0.url.standardizedFileURL == url.standardizedFileURL }) {
+        // Resolve symlinks, drop anything that no longer exists, and cap the
+        // batch — see `TrayIntake` for why a Tray entry has to stay valid
+        // long after the drop that created it.
+        let accepted = TrayIntake.acceptable(dropped: urls, existing: trayItems.map(\.url))
+        for url in accepted {
             trayItems.append(TrayItem(url: url))
         }
         selectedTrayItemID = trayItems.last?.id
         isDropTargeted = false
-        trayFeedback = urls.isEmpty ? String(localized: "tray.feedback.dropFailed", defaultValue: "Drop failed") : String(localized: "tray.feedback.savedTemporarily", defaultValue: "Saved temporarily")
+        // Reports on what was actually taken, not on how many paths arrived:
+        // a drop of only dangling references is a failed drop.
+        trayFeedback = (urls.isEmpty || TrayIntake.isEmptyResult(dropped: urls, accepted: accepted))
+            ? String(localized: "tray.feedback.dropFailed", defaultValue: "Drop failed")
+            : String(localized: "tray.feedback.savedTemporarily", defaultValue: "Saved temporarily")
         syncTrayState()
         if !trayItems.isEmpty { controller.keepTrayOpen() }
         SoundPlayer.shared.play(.action)
