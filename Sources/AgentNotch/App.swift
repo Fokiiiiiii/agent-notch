@@ -84,12 +84,14 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             // so they run synchronously from here — the AgentNotchPing reply
             // in particular has a client blocked waiting on it.
             onEvent: { [weak self] event in
-                self?.handle(event: event)
+                Task { @MainActor in self?.handle(event: event) }
             },
             onCancel: { [weak self] connection in
-                self?.permissionCenter?.cancel(connection: connection)
-                self?.questionCenter?.cancel(connection: connection)
-                self?.planCenter?.cancel(connection: connection)
+                Task { @MainActor in
+                    self?.permissionCenter?.cancel(connection: connection)
+                    self?.questionCenter?.cancel(connection: connection)
+                    self?.planCenter?.cancel(connection: connection)
+                }
             },
             onStartupFailure: { [weak self] in
                 // Best-effort only, same as every other `nativeNotifier`
@@ -97,10 +99,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                 // (this can fire moments after `requestAuthorizationIfNeeded()`,
                 // before its async callback returns), `notify()` silently
                 // no-ops. No retry — matches NativeNotifier's own policy.
-                self?.nativeNotifier?.notify(
+                Task { @MainActor in self?.nativeNotifier?.notify(
                     title: String(localized: "notification.socketServerFailure.title", defaultValue: "AgentNotch can't receive events"),
                     body: String(localized: "notification.socketServerFailure.body", defaultValue: "The local socket failed to start. Hook events from Claude/Codex won't reach the notch until AgentNotch is restarted.")
-                )
+                ) }
             }
         )
         server.start()

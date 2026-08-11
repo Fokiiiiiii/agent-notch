@@ -157,17 +157,26 @@ private final class IncomingConnection: @unchecked Sendable {
 /// Listens on `~/.agent-notch/run/agent-notch.sock` for NDJSON hook events
 /// forwarded by the bridge CLI. Implemented with raw BSD sockets + GCD
 /// (Network.framework's AF_UNIX support is unreliable for this use case).
-@MainActor
-final class SocketServer {
+/// Not main-actor isolated: every field is owned by `queue`, the serial
+/// dispatch queue all socket I/O runs on, and the accept/read handlers fire
+/// there. It was previously declared `@MainActor` while nearly every member
+/// was marked `nonisolated` to escape that — a contradiction Swift 5.10
+/// accepted silently but the Swift 6 runtime traps on, because the accept
+/// handler touches `self` from the socket queue.
+///
+/// `@unchecked Sendable`: the app delegate holds it from the main actor
+/// while its own work happens on `queue`; that separation is what makes it
+/// safe, and it isn't something the compiler can verify here.
+final class SocketServer: @unchecked Sendable {
     // `@MainActor @Sendable`: they're stored and passed around on the socket
     // queues (hence `@Sendable`) but only ever *invoked* after a hop to the
     // main actor, which is also where their bodies touch app state. Saying
     // both lets the call sites stay synchronous instead of each opening its
     // own nested `Task` — an extra hop that delayed the AgentNotchPing reply
     // enough for the client to give up waiting.
-    private let onEvent: @MainActor @Sendable (HookEvent) -> Void
-    private let onCancel: @MainActor @Sendable (SocketConnection) -> Void
-    private let onStartupFailure: (@MainActor @Sendable () -> Void)?
+    private let onEvent: @Sendable (HookEvent) -> Void
+    private let onCancel: @Sendable (SocketConnection) -> Void
+    private let onStartupFailure: (@Sendable () -> Void)?
 
     private let queue = DispatchQueue(label: "com.chaos.agent-notch.socket")
     private let socketPath: String
@@ -184,9 +193,9 @@ final class SocketServer {
     /// be using.
     init(
         socketPath: String? = nil,
-        onEvent: @escaping @MainActor @Sendable (HookEvent) -> Void,
-        onCancel: @escaping @MainActor @Sendable (SocketConnection) -> Void = { _ in },
-        onStartupFailure: (@MainActor @Sendable () -> Void)? = nil
+        onEvent: @escaping @Sendable (HookEvent) -> Void,
+        onCancel: @escaping @Sendable (SocketConnection) -> Void = { _ in },
+        onStartupFailure: (@Sendable () -> Void)? = nil
     ) {
         self.onEvent = onEvent
         self.onCancel = onCancel
@@ -327,9 +336,9 @@ final class SocketServer {
 
     /// Runs on `queue`. Accepts every pending connection and wires up a
     /// per-connection read source.
-    nonisolated private func acceptLoop(
-        deliverEvent: @escaping @MainActor @Sendable (HookEvent) -> Void,
-        deliverCancel: @escaping @MainActor @Sendable (SocketConnection) -> Void,
+    private func acceptLoop(
+        deliverEvent: @escaping @Sendable (HookEvent) -> Void,
+        deliverCancel: @escaping @Sendable (SocketConnection) -> Void,
         workQueue: DispatchQueue
     ) {
         while true {
@@ -397,7 +406,7 @@ final class SocketServer {
     /// once for the same connection, and safe even if the fd has since been
     /// recycled by a newer `accept()` (the identity check below leaves that
     /// newer connection's dictionary entry untouched).
-    nonisolated private func detach(_ incoming: IncomingConnection) {
+    private func detach(_ incoming: IncomingConnection) {
         if let source = incoming.source {
             incoming.source = nil
             source.cancel()
@@ -408,10 +417,10 @@ final class SocketServer {
     }
 
     /// Runs on `queue`.
-    nonisolated private func handleReadable(
+    private func handleReadable(
         _ incoming: IncomingConnection,
-        deliverEvent: @escaping @MainActor @Sendable (HookEvent) -> Void,
-        deliverCancel: @escaping @MainActor @Sendable (SocketConnection) -> Void
+        deliverEvent: @escaping @Sendable (HookEvent) -> Void,
+        deliverCancel: @escaping @Sendable (SocketConnection) -> Void
     ) {
         var chunk = [UInt8](repeating: 0, count: 4096)
         let n = chunk.withUnsafeMutableBytes { raw -> Int in
@@ -486,7 +495,7 @@ final class SocketServer {
         }
     }
 
-    nonisolated private static func parseEvent(_ lineData: Data, connection: SocketConnection) -> HookEvent? {
+    private static func parseEvent(_ lineData: Data, connection: SocketConnection) -> HookEvent? {
         guard let envelope = (try? JSONSerialization.jsonObject(with: lineData)) as? [String: Any],
               let payload = envelope["payload"] as? [String: Any]
         else {
