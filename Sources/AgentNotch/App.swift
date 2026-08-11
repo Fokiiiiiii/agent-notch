@@ -195,25 +195,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         }
     }
 
-    /// Append-only event log for debugging hook delivery (~/.agent-notch/events.log).
+    /// Append-only event log for debugging hook delivery. Size-capped and
+    /// rotated by `EventLog`, which also owns the file's permissions.
     private static func logEvent(_ event: HookEvent) {
         let line = "\(ISO8601DateFormatter().string(from: Date())) \(event.eventName) session=\(event.sessionId) tool=\(event.toolName ?? "-")\n"
-        let url = FileManager.default.homeDirectoryForCurrentUser
-            .appendingPathComponent(".agent-notch/events.log")
-        if let handle = try? FileHandle(forWritingTo: url) {
-            _ = try? handle.seekToEnd()
-            try? handle.write(contentsOf: Data(line.utf8))
-            try? handle.close()
-        } else {
-            // First write creates the file. It records project paths and
-            // tool names, so it's created owner-only rather than at
-            // whatever `umask` yields (0644 in practice).
-            FileManager.default.createFile(
-                atPath: url.path,
-                contents: Data(line.utf8),
-                attributes: [.posixPermissions: 0o600]
-            )
-        }
+        EventLog.append(line)
     }
 
     private func handleQueueChange(isEmpty: Bool) {
