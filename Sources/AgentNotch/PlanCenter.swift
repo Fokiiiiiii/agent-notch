@@ -1,4 +1,5 @@
 import Foundation
+import AgentNotchCore
 
 @MainActor
 final class PlanCenter: ObservableObject {

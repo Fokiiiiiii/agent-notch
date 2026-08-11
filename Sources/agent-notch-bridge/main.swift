@@ -152,7 +152,9 @@ private func repeatedOptions(_ name: String, in arguments: [String]) -> [String]
     }
 }
 
-private let supportedAgents = AgentIdentifiers.all
+// Derived from the enum itself, so a new agent can't be accepted by the app
+// but rejected here (or vice versa) — these used to be two hand-synced lists.
+private let supportedAgents = AgentKind.allCases.map(\.rawValue)
 
 private func sendCLIEvent(_ payload: [String: Any]) -> Bool {
     let fd = connectSocket()

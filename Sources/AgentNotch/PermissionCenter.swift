@@ -1,4 +1,5 @@
 import Foundation
+import AgentNotchCore
 
 /// Tracks PermissionRequest hook events awaiting an Allow/Deny decision from
 /// the notch UI. Each entry keeps the open `SocketConnection` so a decision

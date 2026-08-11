@@ -1,43 +1,7 @@
 import SwiftUI
+import AgentNotchCore
 
-enum AgentKind: String, CaseIterable, Hashable, Sendable {
-    case claude, codex, antigravity, gemini, copilot, cursor, opencode, aider, goose
-    // Usage-dashboard-only providers (Stage 4): no watcher ever creates
-    // sessions for these, they exist purely for AgentUsageStore rows.
-    case mistral, deepseek, kimi
-    case zcode, trae, mimocode, droid, qoder, qwen, codebuddy, workbuddy, kiro, hermes, amp, pi, ohmypi, gajae
-
-    var displayName: String {
-        switch self {
-        case .claude: return "Claude"
-        case .codex: return "Codex"
-        case .antigravity: return "Antigravity"
-        case .gemini: return "Gemini"
-        case .copilot: return "Copilot"
-        case .cursor: return "Cursor"
-        case .opencode: return "OpenCode"
-        case .aider: return "Aider"
-        case .goose: return "Goose"
-        case .mistral: return "Mistral Vibe"
-        case .deepseek: return "DeepSeek"
-        case .kimi: return "Kimi Code"
-        case .zcode: return "ZCode"
-        case .trae: return "Trae"
-        case .mimocode: return "MiMoCode"
-        case .droid: return "Droid"
-        case .qoder: return "Qoder"
-        case .qwen: return "Qwen"
-        case .codebuddy: return "CodeBuddy"
-        case .workbuddy: return "WorkBuddy"
-        case .kiro: return "Kiro"
-        case .hermes: return "Hermes"
-        case .amp: return "Amp"
-        case .pi: return "Pi Agent"
-        case .ohmypi: return "Oh My Pi"
-        case .gajae: return "Gajae Code"
-        }
-    }
-
+extension AgentKind {
     var accentColor: Color {
         switch self {
         case .claude: return Color(red: 0.85, green: 0.45, blue: 0.35)

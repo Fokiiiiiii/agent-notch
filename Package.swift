@@ -18,7 +18,7 @@ let package = Package(
         ),
         .testTarget(
             name: "AgentNotchTests",
-            dependencies: ["AgentNotch"],
+            dependencies: ["AgentNotch", "AgentNotchCore"],
             path: "Tests/AgentNotchTests"
         ),
     ]

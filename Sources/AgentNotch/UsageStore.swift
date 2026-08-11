@@ -1,4 +1,5 @@
 import Foundation
+import AgentNotchCore
 
 struct UsageWindow: Sendable {
     let usedPercent: Double
@@ -52,11 +53,6 @@ struct AgentUsageSnapshot: Sendable {
     let error: String?
     let updatedAt: Date
 
-    var compactLabel: String {
-        let windows = [primary, secondary].compactMap { $0?.label }
-        if !windows.isEmpty { return windows.joined(separator: " · ") }
-        return error == nil ? "No usage window" : "Unavailable"
-    }
 }
 
 /// Reads the same provider-normalized JSON that CodexBar exposes. The UI

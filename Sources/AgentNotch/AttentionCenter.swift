@@ -1,5 +1,6 @@
 import Foundation
 import Combine
+import AgentNotchCore
 
 /// Sort priority for the unified attention list — higher wins. Preserves
 /// the exact ordering the old hand-rolled if/else chains in

@@ -1,5 +1,6 @@
 import XCTest
 @testable import AgentNotch
+import AgentNotchCore
 
 @MainActor
 final class SessionStoreTests: XCTestCase {

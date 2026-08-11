@@ -2,6 +2,7 @@ import Foundation
 import UserNotifications
 import SwiftUI
 import AppKit
+import AgentNotchCore
 
 /// Posts native macOS notifications for hook events that arrive while the
 /// notch itself may not be visible/hovered. Best-effort only: an unsigned

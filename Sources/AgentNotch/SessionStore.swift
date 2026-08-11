@@ -1,5 +1,6 @@
 import Foundation
 import Darwin
+import AgentNotchCore
 
 /// PID再利用検知用のプロセス識別情報の取得と照合。純粋な照合ロジックを
 /// 単体テストしやすいよう`internal`な静的関数として切り出す。
@@ -69,10 +70,6 @@ final class SessionStore: ObservableObject {
 
     init() {
         self.sessions = []
-    }
-
-    var hasActivity: Bool {
-        sessions.contains { $0.state == .running || $0.state == .waitingApproval }
     }
 
     var isEmpty: Bool {

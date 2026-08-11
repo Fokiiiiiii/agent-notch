@@ -1,6 +1,7 @@
 import AppKit
 import SwiftUI
 import Combine
+import AgentNotchCore
 
 private final class KeyableNotchPanel: NSPanel {
     override var canBecomeKey: Bool { true }
@@ -838,6 +839,27 @@ final class NotchWindowController: NSObject {
             }
             .store(in: &cancellables)
 
+        // Media/system polling spawns work (a Perl process, `ps`, IOKit
+        // reads) on a timer, so it follows what's actually on screen rather
+        // than running for the whole session. Any of these three inputs can
+        // change what's visible, so they share one recomputation.
+        Publishers.CombineLatest3(uiState.$mode, uiState.$isVisible, uiState.$isDetailExpanded)
+            .sink { [weak self] mode, isVisible, isDetailExpanded in
+                self?.applyPollingDemand(mode: mode, isVisible: isVisible, isDetailExpanded: isDetailExpanded)
+            }
+            .store(in: &cancellables)
+
+        uiState.$isMediaPreviewVisible
+            .sink { [weak self] _ in
+                guard let self else { return }
+                self.applyPollingDemand(
+                    mode: self.uiState.mode,
+                    isVisible: self.uiState.isVisible,
+                    isDetailExpanded: self.uiState.isDetailExpanded
+                )
+            }
+            .store(in: &cancellables)
+
         // The Dashboard's width is derived from which widgets are enabled
         // (see `dashboardWidth(for:maximum:)`), so editing the arrangement in
         // Settings has to resize the panel that's already open.
@@ -1253,6 +1275,18 @@ final class NotchWindowController: NSObject {
     /// duplicate requests queued before it runs, so several state changes
     /// firing in the same tick (e.g. `activeTab` and `activeView` both
     /// updating from one tab switch) collapse into a single animation.
+    /// Routes the current panel state to the polling monitors. Media keeps a
+    /// slow tick even when hidden (the closed pill still shows a now-playing
+    /// state); the other two stop entirely, since nothing they produce is on
+    /// screen unless the panel — or its detail strip — is open.
+    private func applyPollingDemand(mode: IslandMode, isVisible: Bool, isDetailExpanded: Bool) {
+        let panelOpen = isVisible && mode == .open
+        let mediaOnScreen = isVisible && (mode == .open || mode == .hover || uiState.isMediaPreviewVisible)
+        MediaController.shared.setPanelVisible(mediaOnScreen)
+        SystemMonitor.shared.setPollingEnabled(panelOpen)
+        BackgroundActivityMonitor.shared.setPollingEnabled(panelOpen && isDetailExpanded)
+    }
+
     private func scheduleResize() {
         guard !resizeScheduled else { return }
         resizeScheduled = true
@@ -1588,13 +1622,6 @@ final class NotchWindowController: NSObject {
         }
     }
 
-    /// Called on dwell-band hover changes (the always-present top-8px hit
-    /// region in `NotchView`). Only relevant while hidden: 300ms of
-    /// continuous hover reveals the minimal notch.
-    func dwellHoverChanged(_ inside: Bool) {
-        hoverChanged(inside)
-    }
-
     /// Makes the minimal notch visible without changing `mode` (it is
     /// always `.closed` while hidden, so this is a no-op on sizing).
     private func showMinimal(bypassFullscreenSuppression: Bool = false) {
@@ -1606,19 +1633,6 @@ final class NotchWindowController: NSObject {
         // fullscreen-suppressed) even though SwiftUI now renders full-width
         // `.closed` content into it — physically clipping the right side.
         scheduleResize()
-    }
-
-    /// Shows the notch immediately and expands it, from any starting state
-    /// (including fully hidden). Used by AppDelegate for PermissionRequest
-    /// auto-expansion (requirement 6).
-    func forceShow() {
-        guard shouldPersistVisible else { return }
-        syncOverlay()
-        dwellTask?.cancel()
-        hideTask?.cancel()
-        isClickPinned = false
-        uiState.isVisible = true
-        setMode(.open)
     }
 
     /// Opens the notch onto the first-run gesture guide. Pinned open, since

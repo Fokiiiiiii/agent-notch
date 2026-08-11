@@ -260,7 +260,29 @@ final class MediaController: ObservableObject {
     /// Symbol as feedback — auto-clears itself, see `handleSkip(_:)`.
     @Published private(set) var activeSkipDirection: SkipDirection?
 
+    /// Every poll spawns `/usr/bin/perl` (see `SystemMediaBridge.run`), and
+    /// profiling the idle app showed that spawn dominating its CPU time —
+    /// so the rate follows how much the answer is actually worth right now:
+    ///
+    /// - panel on screen: the user is reading the track, keep it live
+    /// - closed but playing: the pill shows a waveform, so track changes
+    ///   still need to land, just not instantly
+    /// - closed and stopped: nothing media-related is drawn at all; this
+    ///   only has to notice playback *starting* within a few seconds
+    static let activeInterval: TimeInterval = 1.5
+    static let idlePlayingInterval: TimeInterval = 5
+    static let idleStoppedInterval: TimeInterval = 15
+
+    /// The interval that applies for a given state. Pure, so the policy is
+    /// testable without timers.
+    static func pollInterval(panelVisible: Bool, isPlaying: Bool) -> TimeInterval {
+        if panelVisible { return activeInterval }
+        return isPlaying ? idlePlayingInterval : idleStoppedInterval
+    }
+
     private var timer: AnyCancellable?
+    private var panelVisible = false
+    private var currentInterval: TimeInterval = idleStoppedInterval
     private var refreshInFlight = false
     private var artworkIdentifier: String?
     private let adapterScriptPath: String?
@@ -276,11 +298,7 @@ final class MediaController: ObservableObject {
         isConnected = adapterScriptPath.map(FileManager.default.fileExists) == true
             && adapterLibraryPath.map(FileManager.default.fileExists) == true
         refresh()
-        timer = Timer.publish(every: 1.5, on: .main, in: .common)
-            .autoconnect()
-            .sink { [weak self] _ in
-                self?.refresh()
-            }
+        startTimer(interval: Self.idleStoppedInterval)
         mediaKeyMonitor.onSkip = { [weak self] direction in self?.handleSkip(direction) }
         mediaKeyMonitor.start()
     }
@@ -310,6 +328,33 @@ final class MediaController: ObservableObject {
     func next() { send(command: 4) }
     func connect() { refresh() }
 
+    /// Called by `NotchWindowController` as the panel opens and closes.
+    /// Becoming visible refreshes immediately, so the panel never opens onto
+    /// a reading up to `idleStoppedInterval` old.
+    func setPanelVisible(_ visible: Bool) {
+        panelVisible = visible
+        applyPollInterval()
+        if visible { refresh() }
+    }
+
+    /// Re-evaluated after every poll as well as on visibility changes, since
+    /// starting or stopping playback moves the app between the two idle
+    /// rates.
+    private func applyPollInterval() {
+        let interval = Self.pollInterval(panelVisible: panelVisible, isPlaying: isPlaying)
+        guard interval != currentInterval else { return }
+        startTimer(interval: interval)
+    }
+
+    private func startTimer(interval: TimeInterval) {
+        currentInterval = interval
+        timer = Timer.publish(every: interval, on: .main, in: .common)
+            .autoconnect()
+            .sink { [weak self] _ in
+                self?.refresh()
+            }
+    }
+
     func refresh() {
         guard !refreshInFlight,
               let script = adapterScriptPath,
@@ -321,6 +366,7 @@ final class MediaController: ObservableObject {
             }.value
             refreshInFlight = false
             apply(snapshot)
+            applyPollInterval()
         }
     }
 
@@ -514,9 +560,25 @@ final class SystemMonitor: ObservableObject {
         return formatter
     }()
 
+    /// Nothing here is on screen unless the panel is open (battery in the
+    /// nook bar, the rest in the detail strip), so polling is gated on that
+    /// rather than running for the whole session.
+    static let pollInterval: TimeInterval = 3
+
     init() {
         refresh()
-        timer = Timer.publish(every: 3, on: .main, in: .common)
+    }
+
+    func setPollingEnabled(_ enabled: Bool) {
+        guard enabled else {
+            timer = nil
+            return
+        }
+        guard timer == nil else { return }
+        // Immediately, so an opening panel shows current values rather than
+        // whatever was true when it last closed.
+        refresh()
+        timer = Timer.publish(every: Self.pollInterval, on: .main, in: .common)
             .autoconnect()
             .sink { [weak self] _ in self?.refresh() }
     }
@@ -619,9 +681,22 @@ final class BackgroundActivityMonitor: ObservableObject {
     private var timer: AnyCancellable?
     private var refreshInFlight = false
 
-    init() {
+    /// Each poll runs `/bin/ps -axo …`. Its only consumer is one line in the
+    /// expanded detail strip, so it polls exclusively while that is open —
+    /// previously this spawned a process every 3s for the entire session to
+    /// feed a row almost nobody had on screen.
+    static let pollInterval: TimeInterval = 3
+
+    init() {}
+
+    func setPollingEnabled(_ enabled: Bool) {
+        guard enabled else {
+            timer = nil
+            return
+        }
+        guard timer == nil else { return }
         refresh()
-        timer = Timer.publish(every: 3, on: .main, in: .common)
+        timer = Timer.publish(every: Self.pollInterval, on: .main, in: .common)
             .autoconnect()
             .sink { [weak self] _ in self?.refresh() }
     }

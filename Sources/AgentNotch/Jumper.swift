@@ -1,4 +1,5 @@
 import AppKit
+import AgentNotchCore
 
 /// Activates the running terminal app (if any) so the user can jump to it
 /// from a notch session row. Best-effort, two-tier strategy:

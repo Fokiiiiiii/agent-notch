@@ -1,5 +1,6 @@
 import SwiftUI
 import UniformTypeIdentifiers
+import AgentNotchCore
 
 struct NotchView: View {
     @ObservedObject var store: SessionStore
