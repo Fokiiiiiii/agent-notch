@@ -127,7 +127,11 @@ final class ClaudeWatcher {
         return results
     }
 
-    private func parseSession(atPath path: String, modDate: Date, now: Date) -> AgentSession? {
+    /// `internal` rather than `private` so the transcript-parsing rules can
+    /// be tested directly — the same reason `needsReparse` is internal. This
+    /// is the app's core job (turning a Claude transcript into a session
+    /// row) and was previously reachable only through the polling timer.
+    func parseSession(atPath path: String, modDate: Date, now: Date) -> AgentSession? {
         guard let lines = readTailLines(atPath: path) else { return nil }
 
         var sessionId: String?

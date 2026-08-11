@@ -145,7 +145,10 @@ final class CodexWatcher {
         return results
     }
 
-    private func parseSession(atPath path: String, modDate: Date, now: Date) -> AgentSession? {
+    /// `internal` for the same reason as `ClaudeWatcher.parseSession` — the
+    /// rollout-file parsing rules are core behaviour and are otherwise only
+    /// reachable through the polling timer.
+    func parseSession(atPath path: String, modDate: Date, now: Date) -> AgentSession? {
         guard let lines = readTailLines(atPath: path) else { return nil }
 
         var cwd: String?
