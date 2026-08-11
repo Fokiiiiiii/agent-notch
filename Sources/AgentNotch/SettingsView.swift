@@ -197,21 +197,21 @@ private struct GeneralSettingsTab: View {
                     title: String(localized: "settings.panelSize", defaultValue: "Panel size"),
                     help: String(localized: "settings.panelSizeHelp", defaultValue: "Scales the notch panel's width and height."),
                     value: $settings.uiScale,
-                    range: 0.8...1.3,
+                    range: AppSettings.uiScaleRange,
                     defaultValue: 1.0
                 )
                 ScaleRow(
                     title: String(localized: "settings.cornerRoundness", defaultValue: "Corner roundness"),
                     help: String(localized: "settings.cornerRoundnessHelp", defaultValue: "Scales the panel's corner radius."),
                     value: $settings.cornerRadiusScale,
-                    range: 0.5...1.5,
+                    range: AppSettings.cornerRadiusScaleRange,
                     defaultValue: 1.0
                 )
                 ScaleRow(
                     title: String(localized: "settings.animationSpeed", defaultValue: "Animation speed"),
                     help: String(localized: "settings.animationSpeedHelp", defaultValue: "Scales how long spring/fade animations take. Lower is faster."),
                     value: $settings.animationSpeedScale,
-                    range: 0.5...2.0,
+                    range: AppSettings.animationSpeedScaleRange,
                     defaultValue: 1.0,
                     formatter: { String(format: "%.1f×", $0) }
                 )

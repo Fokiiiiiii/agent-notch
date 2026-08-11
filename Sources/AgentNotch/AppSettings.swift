@@ -44,15 +44,42 @@ final class AppSettings: ObservableObject {
     }
     /// Global multiplier applied to notch window sizes (1.0 = current default sizes).
     @Published var uiScale: Double {
-        didSet { UserDefaults.standard.set(uiScale, forKey: Keys.uiScale) }
+        didSet {
+            // Re-clamp on write as well: the setter is reachable from any
+            // future control, not only the range-limited slider.
+            let clamped = Self.clampedScale(uiScale, into: Self.uiScaleRange)
+            if clamped != uiScale {
+                uiScale = clamped
+                return
+            }
+            UserDefaults.standard.set(uiScale, forKey: Keys.uiScale)
+        }
     }
     /// Multiplier applied to corner radii (1.0 = current defaults).
     @Published var cornerRadiusScale: Double {
-        didSet { UserDefaults.standard.set(cornerRadiusScale, forKey: Keys.cornerRadiusScale) }
+        didSet {
+            // Re-clamp on write as well: the setter is reachable from any
+            // future control, not only the range-limited slider.
+            let clamped = Self.clampedScale(cornerRadiusScale, into: Self.cornerRadiusScaleRange)
+            if clamped != cornerRadiusScale {
+                cornerRadiusScale = clamped
+                return
+            }
+            UserDefaults.standard.set(cornerRadiusScale, forKey: Keys.cornerRadiusScale)
+        }
     }
     /// Multiplier applied to animation/spring response durations (1.0 = current defaults).
     @Published var animationSpeedScale: Double {
-        didSet { UserDefaults.standard.set(animationSpeedScale, forKey: Keys.animationSpeedScale) }
+        didSet {
+            // Re-clamp on write as well: the setter is reachable from any
+            // future control, not only the range-limited slider.
+            let clamped = Self.clampedScale(animationSpeedScale, into: Self.animationSpeedScaleRange)
+            if clamped != animationSpeedScale {
+                animationSpeedScale = clamped
+                return
+            }
+            UserDefaults.standard.set(animationSpeedScale, forKey: Keys.animationSpeedScale)
+        }
     }
     /// Per-tab widget layout (order/visibility/size). Keyed by a stable
     /// identifier: `DashboardWidget.layoutKey` is the Dashboard page's own
@@ -94,6 +121,34 @@ final class AppSettings: ObservableObject {
         }
     }
 
+    /// The ranges the Settings sliders offer, and the only values the app
+    /// promises to render correctly. Declared here rather than in the view
+    /// so the slider and the persistence check can't drift apart.
+    static let uiScaleRange: ClosedRange<Double> = 0.8...1.3
+    static let cornerRadiusScaleRange: ClosedRange<Double> = 0.5...1.5
+    static let animationSpeedScaleRange: ClosedRange<Double> = 0.5...2.0
+
+    /// Brings a persisted scale back into range on read.
+    ///
+    /// A stored value outside it can only come from a hand-edited defaults
+    /// entry, a corrupted preferences file, or a build whose range differed
+    /// — but the consequence is severe and unrecoverable through the UI:
+    /// measured, `uiScale = 40` produced a 21600×10080 panel on a 1680×1050
+    /// screen, entirely off-screen, so the gear button needed to undo it
+    /// couldn't be reached. Non-finite values (NaN/∞, which `defaults write`
+    /// accepts) collapse the layout the same way.
+    static func clampedScale(_ stored: Double?, into range: ClosedRange<Double>, fallback: Double = 1.0) -> Double {
+        guard let stored, stored.isFinite else { return fallback }
+        return min(max(stored, range.lowerBound), range.upperBound)
+    }
+
+    /// Replaces a stored scale with its clamped value when the two differ.
+    private static func normalizePersistedScale(_ clamped: Double, key: String, in defaults: UserDefaults) {
+        guard let stored = defaults.object(forKey: key) as? Double else { return }
+        guard !stored.isFinite || stored != clamped else { return }
+        defaults.set(clamped, forKey: key)
+    }
+
     private enum Keys {
         static let soundEnabled = "agentnotch.soundEnabled"
         static let hapticsEnabled = "agentnotch.hapticsEnabled"
@@ -120,9 +175,9 @@ final class AppSettings: ObservableObject {
         hasSeenOnboarding = defaults.object(forKey: Keys.hasSeenOnboarding) as? Bool ?? false
         autoOpenOnAttention = defaults.object(forKey: Keys.autoOpenOnAttention) as? Bool ?? true
         languageOverride = defaults.string(forKey: Keys.languageOverride)
-        uiScale = defaults.object(forKey: Keys.uiScale) as? Double ?? 1.0
-        cornerRadiusScale = defaults.object(forKey: Keys.cornerRadiusScale) as? Double ?? 1.0
-        animationSpeedScale = defaults.object(forKey: Keys.animationSpeedScale) as? Double ?? 1.0
+        uiScale = Self.clampedScale(defaults.object(forKey: Keys.uiScale) as? Double, into: Self.uiScaleRange)
+        cornerRadiusScale = Self.clampedScale(defaults.object(forKey: Keys.cornerRadiusScale) as? Double, into: Self.cornerRadiusScaleRange)
+        animationSpeedScale = Self.clampedScale(defaults.object(forKey: Keys.animationSpeedScale) as? Double, into: Self.animationSpeedScaleRange)
         visualizerEnabled = defaults.object(forKey: Keys.visualizerEnabled) as? Bool ?? false
         airPodsStatusEnabled = defaults.object(forKey: Keys.airPodsStatusEnabled) as? Bool ?? false
         if let data = defaults.data(forKey: Keys.tabLayouts),
@@ -137,6 +192,16 @@ final class AppSettings: ObservableObject {
         } else {
             registeredShortcuts = []
         }
+
+        // Write the corrected values back, now that every stored property is
+        // initialized. `didSet` doesn't fire during `init`, so without this a
+        // poisoned entry would sit in the preferences file indefinitely —
+        // harmless at runtime (it's clamped on every read) but confusing to
+        // anyone inspecting `defaults`, and it would take effect again the
+        // moment this clamp is ever relaxed.
+        Self.normalizePersistedScale(uiScale, key: Keys.uiScale, in: defaults)
+        Self.normalizePersistedScale(cornerRadiusScale, key: Keys.cornerRadiusScale, in: defaults)
+        Self.normalizePersistedScale(animationSpeedScale, key: Keys.animationSpeedScale, in: defaults)
     }
 }
 
