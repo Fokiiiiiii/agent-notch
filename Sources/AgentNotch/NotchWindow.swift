@@ -271,9 +271,9 @@ final class NotchWindowController: NSObject {
     /// SwiftUI content didn't follow, leaving a transparent gap).
     private var visualClosedSize: CGSize
     private let noticeSize = CGSize(width: 320, height: 50)
-    private let openSize = CGSize(width: 540, height: 206)
+    static let openSize = CGSize(width: 540, height: 206)
     private let trayOpenSize = CGSize(width: 560, height: 234)
-    private let openDetailSize = CGSize(width: 540, height: 264)
+    static let openDetailSize = CGSize(width: 540, height: 264)
     private let openOverlaySize = CGSize(width: 540, height: 246)
     private let openQuestionSize = CGSize(width: 540, height: 316)
     /// Intermediate size for `.hover` — a lightweight peek shown after a
@@ -312,20 +312,27 @@ final class NotchWindowController: NSObject {
     /// float outside the card). Derived empirically from `AgentsCell`'s
     /// layout (usage bar ~27pt + selected row ~70pt + footer 30pt + padding
     ////spacing) plus the chrome above/below it (nookbar, view tabs).
-    private let agentsBaseHeight: CGFloat = 252
+    static let agentsBaseHeight: CGFloat = 252
     /// Extra height contributed by each additional, unselected session row
     /// (row height + list spacing) once more than one session is tracked.
-    private let agentsRowHeight: CGFloat = 36
+    static let agentsRowHeight: CGFloat = 36
     /// Sessions beyond this count no longer grow the panel further —
     /// `AgentsCell.sessionList`'s own `ScrollView` takes over instead, so
     /// the notch never grows large enough to run off-screen.
-    private let agentsMaxVisibleRows = 6
+    static let agentsMaxVisibleRows = 6
     /// Absolute ceiling on the Agents tab height, independent of session
-    /// count, as a second safety net alongside `agentsMaxVisibleRows`.
-    /// `agentsBaseHeight + agentsRowHeight * 5` (6 visible rows) = 426pt;
-    /// capped a bit below that so the panel still comfortably fits on
-    /// screen rather than growing exactly to the theoretical max.
-    private let agentsMaxHeight: CGFloat = 400
+    /// count — a backstop for an unforeseen input, not the thing that
+    /// decides the height in normal use. `agentsMaxVisibleRows` is what
+    /// bounds ordinary growth.
+    ///
+    /// It must therefore sit *above* the formula's own worst case, which is
+    /// `agentsBaseHeight + agentsRowHeight * (agentsMaxVisibleRows - 1)`
+    /// plus the detail strip: 252 + 36×5 + 58 = 490pt. It previously sat at
+    /// 400 — below the 6-row height — so the sixth session row grew the
+    /// panel by 4pt instead of 36 and was left clipped. The two constants
+    /// were describing different intentions; `AgentsPanelSizingTests`
+    /// now pins the relationship.
+    static let agentsMaxHeight: CGFloat = 500
     /// Height budget for the Dashboard Nook page — Media and Today sitting
     /// side by side in one row, separated by a hairline rule and drawn
     /// directly on the panel background (see `NotchView.DashboardCell`).
@@ -1199,10 +1206,30 @@ final class NotchWindowController: NSObject {
         return CGSize(width: size.width * scale, height: size.height * scale)
     }
 
-    private static func frame(for size: CGSize, on snapshot: ScreenSnapshot) -> NSRect {
+    /// Where the panel sits: horizontally centred on the screen, flush with
+    /// its top edge (the notch grows downward from the menu bar).
+    ///
+    /// `internal` so the placement is testable — it has to stay correct on a
+    /// secondary display, whose frame origin is offset from zero and can be
+    /// negative when the display is arranged to the left of the primary.
+    static func frame(for size: CGSize, on snapshot: ScreenSnapshot) -> NSRect {
         let x = snapshot.frame.midX - size.width / 2
         let y = snapshot.frame.maxY - size.height
         return NSRect(x: x, y: y, width: size.width, height: size.height)
+    }
+
+    /// How close a window union has to come to filling the screen before it
+    /// counts as fullscreen. A few points of slack absorb rounding and the
+    /// shadow insets reported by the window server.
+    static let fullscreenTolerance: CGFloat = 12
+
+    /// The geometric half of `isNonFinderFullscreen`, split out so the
+    /// tolerance can be tested without a live window server. Getting this
+    /// wrong in either direction is user-visible: too strict and the notch
+    /// covers fullscreen video, too loose and it hides during ordinary use.
+    static func coversScreen(union: CGRect, screenFrame: CGRect) -> Bool {
+        union.width >= screenFrame.width - fullscreenTolerance
+            && union.height >= screenFrame.height - fullscreenTolerance
     }
 
     private static func isNonFinderFullscreen(on screen: NSScreen) -> Bool {
@@ -1221,7 +1248,7 @@ final class NotchWindowController: NSObject {
             unionRect = unionRect?.union(bounds) ?? bounds
         }
         guard let unionRect else { return false }
-        return unionRect.width >= screenFrame.width - 12 && unionRect.height >= screenFrame.height - 12
+        return coversScreen(union: unionRect, screenFrame: screenFrame)
     }
 
     func showWindow() {
@@ -1343,7 +1370,7 @@ final class NotchWindowController: NSObject {
             // Checked ahead of `overlay` because the guide replaces the whole
             // panel body — see `NotchView.openContent`.
             if uiState.isShowingOnboarding {
-                targetSize = CGSize(width: openSize.width, height: Self.onboardingHeight)
+                targetSize = CGSize(width: Self.openSize.width, height: Self.onboardingHeight)
                 break
             }
             switch uiState.overlay {
@@ -1363,7 +1390,7 @@ final class NotchWindowController: NSObject {
                 if uiState.activeTab == .tray {
                     targetSize = trayOpenSize
                 } else if uiState.activeView == .agents {
-                    targetSize = agentsOpenSize(sessionCount: store.sessions.count, detailExpanded: uiState.isDetailExpanded)
+                    targetSize = Self.agentsOpenSize(sessionCount: store.sessions.count, detailExpanded: uiState.isDetailExpanded)
                 } else {
                     targetSize = Self.dashboardOpenSize(
                         width: Self.dashboardWidth(
@@ -1536,13 +1563,16 @@ final class NotchWindowController: NSObject {
     /// up to `agentsMaxVisibleRows`/`agentsMaxHeight`, is what fixes that;
     /// beyond the cap `AgentsCell.sessionList`'s own `ScrollView` takes
     /// over so the notch never grows large enough to run off-screen.
-    private func agentsOpenSize(sessionCount: Int, detailExpanded: Bool) -> CGSize {
-        let visibleRows = max(1, min(sessionCount, agentsMaxVisibleRows))
-        var height = agentsBaseHeight + agentsRowHeight * CGFloat(visibleRows - 1)
+    /// `static` so the formula is testable on its own: a panel sized too
+    /// small for its content clips the footer, which has shipped as a bug
+    /// twice already.
+    static func agentsOpenSize(sessionCount: Int, detailExpanded: Bool) -> CGSize {
+        let visibleRows = max(1, min(sessionCount, Self.agentsMaxVisibleRows))
+        var height = Self.agentsBaseHeight + Self.agentsRowHeight * CGFloat(visibleRows - 1)
         if detailExpanded {
-            height += openDetailSize.height - openSize.height
+            height += Self.openDetailSize.height - Self.openSize.height
         }
-        return CGSize(width: openSize.width, height: min(height, agentsMaxHeight))
+        return CGSize(width: Self.openSize.width, height: min(height, Self.agentsMaxHeight))
     }
 
     /// Whether a continued hover over the already-visible `.closed` notch
