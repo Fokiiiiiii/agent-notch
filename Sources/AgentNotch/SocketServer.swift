@@ -271,6 +271,16 @@ final class SocketServer: @unchecked Sendable {
         try? fm.createDirectory(atPath: dirPath, withIntermediateDirectories: true, attributes: [.posixPermissions: 0o700])
         try? fm.setAttributes([.posixPermissions: 0o700], ofItemAtPath: dirPath)
 
+        // `unlink` below removes whatever is at the path so `bind` can
+        // succeed — which also means a second instance would silently steal
+        // the socket from a running first one, and every subsequent hook
+        // event would go to the newcomer. Check for a live listener first
+        // and refuse instead. This is both a same-user hijack guard and the
+        // double-launch detection the app previously lacked.
+        if Self.isSocketLive(at: socketPath) {
+            failStartup("another AgentNotch instance is already listening")
+            return
+        }
         unlink(socketPath)
 
         let fd = socket(AF_UNIX, SOCK_STREAM, 0)
@@ -302,6 +312,18 @@ final class SocketServer: @unchecked Sendable {
         guard bindResult == 0 else {
             failStartup("bind() failed")
             Darwin.close(fd)
+            return
+        }
+
+        // Owner-only. The parent directory is already 0700, so this is
+        // defence in depth rather than the only barrier — but the socket's
+        // own mode was whatever `umask` happened to be (0755 in practice),
+        // and a control channel that accepts hook events shouldn't rely on a
+        // directory bit for its access control.
+        if chmod(socketPath, S_IRUSR | S_IWUSR) != 0 {
+            failStartup("chmod(socket, 0600) failed")
+            Darwin.close(fd)
+            unlink(socketPath)
             return
         }
 
@@ -344,6 +366,15 @@ final class SocketServer: @unchecked Sendable {
         while true {
             let clientFD = accept(listenFD, nil, nil)
             guard clientFD >= 0 else { return }
+            // Anything reaching this socket can enqueue approval prompts and
+            // read back whatever the app replies, so confirm the peer is the
+            // same user before treating it as a client. File permissions
+            // should already prevent anyone else connecting; this checks the
+            // identity rather than trusting that they were applied.
+            guard Self.peerIsSameUser(clientFD) else {
+                Darwin.close(clientFD)
+                continue
+            }
             let incoming = IncomingConnection(fd: clientFD)
             connections[clientFD] = incoming
 
@@ -493,6 +524,46 @@ final class SocketServer: @unchecked Sendable {
         Task { @MainActor in
             deliverEvent(event)
         }
+    }
+
+    /// Whether something is currently accepting connections at `path`.
+    ///
+    /// A stale socket file left behind by a crash refuses `connect` with
+    /// ECONNREFUSED, so it reads as not-live and gets cleaned up normally —
+    /// only a genuinely running listener blocks startup.
+    static func isSocketLive(at path: String) -> Bool {
+        guard FileManager.default.fileExists(atPath: path) else { return false }
+        let fd = socket(AF_UNIX, SOCK_STREAM, 0)
+        guard fd >= 0 else { return false }
+        defer { Darwin.close(fd) }
+
+        var addr = sockaddr_un()
+        addr.sun_family = sa_family_t(AF_UNIX)
+        let pathBytes = Array(path.utf8)
+        guard pathBytes.count < MemoryLayout.size(ofValue: addr.sun_path) else { return false }
+        withUnsafeMutableBytes(of: &addr.sun_path) { raw in
+            guard let base = raw.baseAddress?.assumingMemoryBound(to: UInt8.self) else { return }
+            for (i, byte) in pathBytes.enumerated() { base[i] = byte }
+        }
+        let result = withUnsafePointer(to: &addr) { ptr -> Int32 in
+            ptr.withMemoryRebound(to: sockaddr.self, capacity: 1) { sockPtr in
+                connect(fd, sockPtr, socklen_t(MemoryLayout<sockaddr_un>.size))
+            }
+        }
+        return result == 0
+    }
+
+    /// Whether the process on the other end of `fd` runs as this user.
+    ///
+    /// `getpeereid` reports the credentials the kernel recorded at connect
+    /// time, so it can't be spoofed by the client. A failure is treated as a
+    /// rejection: not being able to identify the peer is not a reason to
+    /// trust it.
+    static func peerIsSameUser(_ fd: Int32) -> Bool {
+        var peerUID = uid_t()
+        var peerGID = gid_t()
+        guard getpeereid(fd, &peerUID, &peerGID) == 0 else { return false }
+        return peerUID == getuid()
     }
 
     private static func parseEvent(_ lineData: Data, connection: SocketConnection) -> HookEvent? {

@@ -205,7 +205,14 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             try? handle.write(contentsOf: Data(line.utf8))
             try? handle.close()
         } else {
-            try? Data(line.utf8).write(to: url)
+            // First write creates the file. It records project paths and
+            // tool names, so it's created owner-only rather than at
+            // whatever `umask` yields (0644 in practice).
+            FileManager.default.createFile(
+                atPath: url.path,
+                contents: Data(line.utf8),
+                attributes: [.posixPermissions: 0o600]
+            )
         }
     }
 
