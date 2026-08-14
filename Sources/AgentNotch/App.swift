@@ -79,6 +79,15 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         antigravityWatcher.start()
         self.antigravityWatcher = antigravityWatcher
 
+        // Scanning transcripts costs a tail-read and parse per active
+        // session, so the watchers slow down while the list they feed isn't
+        // on screen. Hook events still arrive over the socket regardless.
+        controller.onPanelVisibilityChange = { [weak self] visible in
+            self?.claudeWatcher?.setPanelVisible(visible)
+            self?.codexWatcher?.setPanelVisible(visible)
+            self?.antigravityWatcher?.setPanelVisible(visible)
+        }
+
         let server = SocketServer(
             // `SocketServer` hops to the main actor before invoking these,
             // so they run synchronously from here — the AgentNotchPing reply

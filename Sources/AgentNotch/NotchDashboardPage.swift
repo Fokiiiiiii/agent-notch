@@ -292,6 +292,7 @@ struct MarqueeText: View {
     let size: CGFloat
     let weight: Font.Weight
     let speed: CGFloat
+    @EnvironmentObject private var uiState: NotchUIState
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
     private let leadingPause: TimeInterval = 1.1
@@ -302,7 +303,10 @@ struct MarqueeText: View {
             let textWidth = measuredWidth
             let overflow = max(textWidth - proxy.size.width, 0)
             let overflows = overflow > 1
-            TimelineView(.animation(minimumInterval: 1 / 30, paused: reduceMotion || !overflows)) { context in
+            // Paused while the notch is hidden — see `CompactMediaWaveform`.
+            // At 30 re-evaluations a second this is the more expensive of
+            // the two timelines.
+            TimelineView(.animation(minimumInterval: 1 / 30, paused: reduceMotion || !overflows || !uiState.isVisible)) { context in
                 let offset = marqueeOffset(at: context.date, overflow: overflow)
 
                 label

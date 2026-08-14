@@ -16,21 +16,47 @@ final class ClaudeWatcher {
     /// Cached parsed result per transcript path, reused when the file hasn't changed.
     private var lastResult: [String: AgentSession] = [:]
 
-    private let pollInterval: TimeInterval = 2
+    /// Poll rate while the panel is on screen.
+    private let pollInterval: TimeInterval = 2.0
+    /// …and while it isn't. Rescanning costs one tail-read and JSON parse
+    /// per *active* session, which is why idle CPU scaled with session
+    /// count (measured: 0.4% with one session, ~5% with nine). Approvals
+    /// and questions arrive over the socket, not from this scan, so the
+    /// only thing a slower rate delays is the freshness of a list nobody
+    /// is looking at — and opening the panel rescans immediately.
+    private let hiddenPollInterval: TimeInterval = 6.0
+    private var isPanelVisible = false
     private let activeWindow: TimeInterval = 30 * 60
     private let runningWindow: TimeInterval = 90
     private let tailByteCount = 64 * 1024
     private let maxTailLines = 200
 
-    init(store: SessionStore) {
+    /// `projectsURL` is injectable for tests only; production always uses
+    /// Claude's real location.
+    init(store: SessionStore, projectsURL: URL? = nil) {
         self.store = store
-        self.projectsURL = fileManager.homeDirectoryForCurrentUser
+        self.projectsURL = projectsURL ?? fileManager.homeDirectoryForCurrentUser
             .appendingPathComponent(".claude/projects", isDirectory: true)
+    }
+
+    /// Switches between the visible and hidden poll rates. Becoming visible
+    /// rescans at once, so the list is current by the time it's drawn.
+    func setPanelVisible(_ visible: Bool) {
+        guard visible != isPanelVisible else { return }
+        isPanelVisible = visible
+        restartTimer()
+        if visible { scan() }
     }
 
     func start() {
         scan()
-        let timer = Timer(timeInterval: pollInterval, repeats: true) { [weak self] _ in
+        restartTimer()
+    }
+
+    private func restartTimer() {
+        timer?.invalidate()
+        let interval = isPanelVisible ? pollInterval : hiddenPollInterval
+        let timer = Timer(timeInterval: interval, repeats: true) { [weak self] _ in
             Task { @MainActor in
                 self?.scan()
             }
@@ -95,7 +121,24 @@ final class ClaudeWatcher {
     }
 
     /// Finds `*.jsonl` files one level below `~/.claude/projects/<project>/*.jsonl`.
-    private func discoverTranscripts() -> [String] {
+    /// Transcripts sitting *directly* in each project directory — one level
+    /// down, deliberately not recursive.
+    ///
+    /// Claude also writes nested transcripts for the subagents and workflows
+    /// a session spawns
+    /// (`<project>/<session>/subagents/agent-*.jsonl`, and a further level
+    /// under `workflows/`). On this machine that's 212 of the 229 files
+    /// present. They are not sessions in the sense this app lists: they
+    /// belong to a session that already has its own row, and including them
+    /// would bury the real ones under dozens of machine-named entries.
+    ///
+    /// Measured cost of one pass at that size: ~1.0ms, i.e. 0.05% of a core
+    /// at the 2s poll interval.
+    ///
+    /// `internal` so the one-level contract can be tested — it is an
+    /// assumption about someone else's directory layout, and the kind of
+    /// thing that would otherwise change silently.
+    func discoverTranscripts() -> [String] {
         guard let projectDirs = try? fileManager.contentsOfDirectory(
             at: projectsURL,
             includingPropertiesForKeys: [.isDirectoryKey, .isSymbolicLinkKey],

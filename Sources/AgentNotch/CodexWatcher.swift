@@ -23,7 +23,16 @@ final class CodexWatcher {
     /// Cached parsed result per transcript path, reused when the file hasn't changed.
     private var lastResult: [String: AgentSession] = [:]
 
-    private let pollInterval: TimeInterval = 2
+    /// Poll rate while the panel is on screen.
+    private let pollInterval: TimeInterval = 2.0
+    /// …and while it isn't. Rescanning costs one tail-read and JSON parse
+    /// per *active* session, which is why idle CPU scaled with session
+    /// count (measured: 0.4% with one session, ~5% with nine). Approvals
+    /// and questions arrive over the socket, not from this scan, so the
+    /// only thing a slower rate delays is the freshness of a list nobody
+    /// is looking at — and opening the panel rescans immediately.
+    private let hiddenPollInterval: TimeInterval = 6.0
+    private var isPanelVisible = false
     private let activeWindow: TimeInterval = 30 * 60
     private let runningWindow: TimeInterval = 90
     private let tailByteCount = 64 * 1024
@@ -35,9 +44,24 @@ final class CodexWatcher {
             .appendingPathComponent(".codex/sessions", isDirectory: true)
     }
 
+    /// Switches between the visible and hidden poll rates. Becoming visible
+    /// rescans at once, so the list is current by the time it's drawn.
+    func setPanelVisible(_ visible: Bool) {
+        guard visible != isPanelVisible else { return }
+        isPanelVisible = visible
+        restartTimer()
+        if visible { scan() }
+    }
+
     func start() {
         scan()
-        let timer = Timer(timeInterval: pollInterval, repeats: true) { [weak self] _ in
+        restartTimer()
+    }
+
+    private func restartTimer() {
+        timer?.invalidate()
+        let interval = isPanelVisible ? pollInterval : hiddenPollInterval
+        let timer = Timer(timeInterval: interval, repeats: true) { [weak self] _ in
             Task { @MainActor in
                 self?.scan()
             }

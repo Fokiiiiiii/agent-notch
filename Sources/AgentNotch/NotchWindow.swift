@@ -249,6 +249,10 @@ final class NotchWindowController: NSObject {
     /// know about it.
     private let attention: AttentionCenter
     private let nativeNotifier: NativeNotifier?
+    /// Notified when the panel becomes visible or hidden, so the transcript
+    /// watchers can drop to their slower poll rate. Set by `AppDelegate`,
+    /// which owns them.
+    var onPanelVisibilityChange: ((Bool) -> Void)?
     private let settings = AppSettings.shared
     private var screen: NSScreen
     /// Geometry-only mirror of `screen`, recomputed alongside it. See
@@ -1317,6 +1321,8 @@ final class NotchWindowController: NSObject {
     private func applyPollingDemand(mode: IslandMode, isVisible: Bool, isDetailExpanded: Bool) {
         let panelOpen = isVisible && mode == .open
         let mediaOnScreen = isVisible && (mode == .open || mode == .hover || uiState.isMediaPreviewVisible)
+        // The session list is only readable while the panel is open.
+        onPanelVisibilityChange?(panelOpen)
         MediaController.shared.setPanelVisible(mediaOnScreen)
         SystemMonitor.shared.setPollingEnabled(panelOpen)
         BackgroundActivityMonitor.shared.setPollingEnabled(panelOpen && isDetailExpanded)
